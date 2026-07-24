@@ -1,0 +1,14 @@
+import { useMemo, useState } from "react";
+import { buildWrongNoteAnalysis } from "../utils/exam";
+
+export default function PlannerPage({ certificate, wrongNotes, history, plan, onSavePlan, onStartRecommended, pdfLibrary=[] }) {
+  const [examDate,setExamDate]=useState(plan?.examDate||""); const [dailyGoal,setDailyGoal]=useState(plan?.dailyGoal||30); const [pdfGoal,setPdfGoal]=useState(plan?.pdfGoal||10); const [days,setDays]=useState(plan?.studyDays||[1,2,3,4,5,6]);
+  const analysis=useMemo(()=>buildWrongNoteAnalysis(wrongNotes,history),[wrongNotes,history]);
+  const dday=examDate?Math.ceil((new Date(`${examDate}T00:00:00`)-new Date())/86400000):null; const top=analysis.weakSubjects[0]?.subject || "전체 과목";
+  const cbtGoal=Math.max(5,dailyGoal-Math.min(pdfGoal,dailyGoal-5)); const wrongGoal=Math.min(10,wrongNotes.length); const activeToday=days.includes(new Date().getDay());
+  return <main className="page-shell"><section className="page-title"><div><span className="eyebrow">AI STUDY PLANNER</span><h1>통합 학습 플래너</h1><p>자격증 CBT, PDF 학습, 오답 복습을 시험일까지 배분합니다.</p></div></section>
+    <section className="planner-grid"><article className="panel"><h2>시험 일정과 목표</h2><label className="field-label">시험일<input type="date" value={examDate} onChange={e=>setExamDate(e.target.value)}/></label><label className="field-label">하루 전체 목표 문제 수<input type="number" min="10" max="250" step="5" value={dailyGoal} onChange={e=>setDailyGoal(Number(e.target.value))}/></label><label className="field-label">PDF 학습 목표<input type="number" min="0" max="100" step="5" value={pdfGoal} onChange={e=>setPdfGoal(Number(e.target.value))}/></label><div className="weekday-picker">{["일","월","화","수","목","금","토"].map((d,i)=><button key={d} className={days.includes(i)?"active":""} onClick={()=>setDays(v=>v.includes(i)?v.filter(x=>x!==i):[...v,i])}>{d}</button>)}</div><button className="primary" onClick={()=>onSavePlan({examDate,dailyGoal,pdfGoal,studyDays:days})}>계획 저장</button></article>
+    <article className="panel planner-dday"><span>시험일까지</span><strong>{dday===null?"날짜 미설정":dday>=0?`D-${dday}`:`D+${Math.abs(dday)}`}</strong><p>{certificate?.name||"통합 학습"}</p><small>{activeToday?"오늘은 학습일입니다.":"오늘은 계획된 휴식일입니다."}</small></article></section>
+    <section className="panel"><span className="eyebrow">TODAY'S AI PLAN</span><h2>오늘의 추천 학습</h2><div className="today-plan"><div><b>1</b><span><strong>{top} CBT 학습</strong><small>{cbtGoal}문제</small></span></div><div><b>2</b><span><strong>오답노트 복습</strong><small>{wrongGoal}문제</small></span></div><div><b>3</b><span><strong>{pdfLibrary[0]?.name||"PDF 자료"} 학습</strong><small>{pdfGoal}문제 또는 핵심노트</small></span></div></div><button className="primary" disabled={!activeToday} onClick={()=>onStartRecommended(top,cbtGoal)}>CBT 학습 시작</button>{!activeToday&&<p className="muted">오늘은 휴식일로 설정되어 있습니다.</p>}</section>
+  </main>;
+}
