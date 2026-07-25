@@ -32,7 +32,55 @@ export async function saveCloudState(uid,state){ if(!db)return; await setDoc(doc
 export async function listCertificates(){ if(!db)return[]; const s=await getDocs(query(collection(db,"certificates"),orderBy("name"))); return s.docs.map(d=>({id:d.id,...d.data()})); }
 export async function saveCertificate(data){ if(!db)throw new Error("Firebase 설정이 필요합니다."); const id=data.id.trim(); await setDoc(doc(db,"certificates",id),{...data,id,updatedAt:serverTimestamp()},{merge:true}); }
 export async function listExams(certificateId=null, publishedOnly=true){ if(!db)return[]; let q=certificateId?query(collection(db,"cbtExams"),where("certificateId","==",certificateId)):query(collection(db,"cbtExams")); const s=await getDocs(q); return s.docs.map(d=>({id:d.id,...d.data()})).filter(x=>!publishedOnly||x.status==="published").sort((a,b)=>(b.year-a.year)||String(b.round).localeCompare(String(a.round),"ko")); }
-export async function saveExam(data){ if(!db)throw new Error("Firebase 설정이 필요합니다."); await setDoc(doc(db,"cbtExams",data.id),{...data,updatedAt:serverTimestamp()},{merge:true}); }
+function sanitizeDocumentId(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\//g, "-")
+    .replace(/\s+/g, "_");
+}
+
+export function createExamId(exam) {
+  const certificateId = sanitizeDocumentId(exam.certificateId);
+  const year = sanitizeDocumentId(exam.year);
+  const round = sanitizeDocumentId(exam.round);
+
+  if (!certificateId || !year || !round) {
+    throw new Error("자격증, 연도, 회차를 모두 입력해 주세요.");
+  }
+
+  return `${certificateId}_${year}_${round}`;
+}
+
+export async function saveExam(data) {
+  if (!db) {
+    throw new Error("Firebase 설정이 필요합니다.");
+  }
+
+  const examId = createExamId(data);
+
+  const normalizedExam = {
+    ...data,
+
+    // 문서 ID와 내부 id 필드를 동일하게 유지
+    id: examId,
+
+    year: Number(data.year),
+    round: String(data.round ?? "").trim(),
+    examDate: String(data.examDate ?? "").trim(),
+    durationMinutes: Number(data.durationMinutes) || 60,
+    passScore: Number(data.passScore) || 60,
+
+    updatedAt: serverTimestamp(),
+  };
+
+  await setDoc(
+    doc(db, "cbtExams", examId),
+    normalizedExam,
+    { merge: true }
+  );
+
+  return normalizedExam;
+}
 export async function deleteExam(examId){ if(!db)return; const qs=await getDocs(query(collection(db,"cbtQuestions"),where("examId","==",examId))); const chunks=[]; for(let i=0;i<qs.docs.length;i+=400)chunks.push(qs.docs.slice(i,i+400)); for(const part of chunks){const b=writeBatch(db);part.forEach(x=>b.delete(x.ref));await b.commit();} await deleteDoc(doc(db,"cbtExams",examId)); }
 export async function getExamQuestions(examId){ if(!db)return[]; const s=await getDocs(query(collection(db,"cbtQuestions"),where("examId","==",examId))); return s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.questionNumber-b.questionNumber); }
 export async function importExamQuestions(exam, questions){
