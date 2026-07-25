@@ -83,21 +83,103 @@ export async function saveExam(data) {
 }
 export async function deleteExam(examId){ if(!db)return; const qs=await getDocs(query(collection(db,"cbtQuestions"),where("examId","==",examId))); const chunks=[]; for(let i=0;i<qs.docs.length;i+=400)chunks.push(qs.docs.slice(i,i+400)); for(const part of chunks){const b=writeBatch(db);part.forEach(x=>b.delete(x.ref));await b.commit();} await deleteDoc(doc(db,"cbtExams",examId)); }
 export async function getExamQuestions(examId){ if(!db)return[]; const s=await getDocs(query(collection(db,"cbtQuestions"),where("examId","==",examId))); return s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.questionNumber-b.questionNumber); }
-export async function importExamQuestions(exam, questions){
-  if(!db)throw new Error("Firebase 설정이 필요합니다.");
-  const normalized=questions.map((q,i)=>({
-    id:q.id||`${exam.id}_${String(q.questionNumber??i+1).padStart(3,"0")}`,
-    examId:exam.id, certificateId:exam.certificateId, certificateName:exam.certificateName,
-    grade:exam.grade, year:Number(exam.year), round:String(exam.round),
-    questionNumber:Number(q.questionNumber??i+1), subject:String(q.subject||"공통").trim(),
-    question:String(q.question||"").trim(), choices:(q.choices||[]).map(v=>String(v).trim()),
-    answerIndex:Number(q.answerIndex), explanation:String(q.explanation||"").trim(),
-    imageUrl:String(q.imageUrl||"").trim(), questionImageUrls:(q.questionImageUrls||[]).map(v=>String(v).trim()).filter(Boolean), choiceImageUrls:(q.choiceImageUrls||[]).map(v=>String(v||"").trim()), sourceName:String(q.sourceName||exam.sourceName||"").trim(),
-    sourceUrl:String(q.sourceUrl||exam.sourceUrl||"").trim(), sourcePage:Number(q.sourcePage||0), needsReview:Boolean(q.needsReview), examDate: String(exam.examDate || "").trim(), updatedAt:serverTimestamp()
-  }));
-  const chunks=[];for(let i=0;i<normalized.length;i+=400)chunks.push(normalized.slice(i,i+400));
-  for(const part of chunks){const b=writeBatch(db);part.forEach(q=>b.set(doc(db,"cbtQuestions",q.id),q,{merge:true}));await b.commit();}
-  await saveExam({...exam,questionCount:normalized.length}); return normalized.length;
+export async function importExamQuestions(exam, questions) {
+  if (!db) {
+    throw new Error("Firebase 설정이 필요합니다.");
+  }
+
+  // 입력한 연도·회차를 기준으로 시험 ID를 다시 생성
+  const examId = createExamId(exam);
+
+  const normalizedExam = {
+    ...exam,
+    id: examId,
+    year: Number(exam.year),
+    round: String(exam.round || "").trim(),
+    examDate: String(exam.examDate || "").trim(),
+  };
+
+  const normalized = questions.map((q, index) => {
+    const questionNumber = Number(q.questionNumber ?? index + 1);
+
+    return {
+      // 기존 AI id를 사용하지 않고 현재 시험 ID로 통일
+      id: `${examId}_${String(questionNumber).padStart(3, "0")}`,
+
+      examId,
+      certificateId: normalizedExam.certificateId,
+      certificateName: normalizedExam.certificateName,
+      grade: normalizedExam.grade,
+
+      // 연도와 회차는 화면 입력값만 사용
+      year: normalizedExam.year,
+      round: normalizedExam.round,
+
+      questionNumber,
+      subject: String(q.subject || "공통").trim(),
+      question: String(q.question || "").trim(),
+
+      choices: (q.choices || []).map((value) =>
+        String(value).trim()
+      ),
+
+      answerIndex: Number(q.answerIndex),
+      explanation: String(q.explanation || "").trim(),
+
+      imageUrl: String(q.imageUrl || "").trim(),
+
+      questionImageUrls: (q.questionImageUrls || [])
+        .map((value) => String(value).trim())
+        .filter(Boolean),
+
+      choiceImageUrls: (q.choiceImageUrls || []).map((value) =>
+        String(value || "").trim()
+      ),
+
+      sourceName: String(
+        normalizedExam.sourceName || q.sourceName || ""
+      ).trim(),
+
+      sourceUrl: String(
+        normalizedExam.sourceUrl || q.sourceUrl || ""
+      ).trim(),
+
+      sourcePage: Number(q.sourcePage || 0),
+      needsReview: Boolean(q.needsReview),
+
+      // AI 추출값이 아니라 화면에서 입력한 시험 날짜 사용
+      examDate: normalizedExam.examDate,
+
+      updatedAt: serverTimestamp(),
+    };
+  });
+
+  const chunks = [];
+
+  for (let index = 0; index < normalized.length; index += 400) {
+    chunks.push(normalized.slice(index, index + 400));
+  }
+
+  for (const part of chunks) {
+    const batch = writeBatch(db);
+
+    part.forEach((question) => {
+      batch.set(
+        doc(db, "cbtQuestions", question.id),
+        question,
+        { merge: true }
+      );
+    });
+
+    await batch.commit();
+  }
+
+  await saveExam({
+    ...normalizedExam,
+    questionCount: normalized.length,
+  });
+
+  return normalized.length;
 }
 
 export async function uploadCbtImage(blob,path,contentType="image/png"){ if(!storage)throw new Error("Firebase Storage 설정이 필요합니다."); const target=ref(storage,path); await uploadBytes(target,blob,{contentType}); return getDownloadURL(target); }
