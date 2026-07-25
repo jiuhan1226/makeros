@@ -395,9 +395,9 @@ ${source}`.trim();
 
         const questions = rawQuestions
           .map((q) => ({
-            year: Number(q?.year) || 0,
-            round: String(q?.round || ""),
-            examDate: String(q?.examDate || ""),
+            year: Number(req.body.year),
+            round: String(req.body.round),
+            examDate: String(req.body.examDate),
             questionNumber: Number(q?.questionNumber) || 0,
             subject: String(q?.subject || "공통"),
             question: String(q?.question || "").trim(),
