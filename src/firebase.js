@@ -93,7 +93,7 @@ export async function importExamQuestions(exam, questions){
     question:String(q.question||"").trim(), choices:(q.choices||[]).map(v=>String(v).trim()),
     answerIndex:Number(q.answerIndex), explanation:String(q.explanation||"").trim(),
     imageUrl:String(q.imageUrl||"").trim(), questionImageUrls:(q.questionImageUrls||[]).map(v=>String(v).trim()).filter(Boolean), choiceImageUrls:(q.choiceImageUrls||[]).map(v=>String(v||"").trim()), sourceName:String(q.sourceName||exam.sourceName||"").trim(),
-    sourceUrl:String(q.sourceUrl||exam.sourceUrl||"").trim(), sourcePage:Number(q.sourcePage||0), needsReview:Boolean(q.needsReview), examDate:String(q.examDate||exam.examDate||"").trim(), updatedAt:serverTimestamp()
+    sourceUrl:String(q.sourceUrl||exam.sourceUrl||"").trim(), sourcePage:Number(q.sourcePage||0), needsReview:Boolean(q.needsReview), examDate: String(exam.examDate || "").trim(), updatedAt:serverTimestamp()
   }));
   const chunks=[];for(let i=0;i<normalized.length;i+=400)chunks.push(normalized.slice(i,i+400));
   for(const part of chunks){const b=writeBatch(db);part.forEach(q=>b.set(doc(db,"cbtQuestions",q.id),q,{merge:true}));await b.commit();}
