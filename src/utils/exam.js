@@ -105,37 +105,130 @@ export function hasSubjectCutoff(exam) {
   return /(산업기사|기사|기능장|기술사)/.test(grade);
 }
 
-export function gradeExam(questions, answers, exam = {}) {
-  const total = questions.length;
-  const correct = questions.reduce((sum, question, index) => sum + (answers[index] === question.answerIndex ? 1 : 0), 0);
-  const score = total ? Math.round((correct / total) * 100) : 0;
+export function gradeExam(
+  questions,
+  answers,
+  exam = {},
+  mode = "실전모드"
+) {
+  const allItems = questions.map((question, index) => ({
+    question,
+    index,
+    answer: answers[index],
+    answered: answers[index] !== undefined,
+  }));
+
+  const isPracticeMode = mode === "연습모드";
+
+  // 연습모드는 실제로 답한 문제만 채점
+  // 실전모드는 전체 문항을 채점
+  const gradingItems = isPracticeMode
+    ? allItems.filter((item) => item.answered)
+    : allItems;
+
+  const total = gradingItems.length;
+
+  const correct = gradingItems.reduce(
+    (sum, item) =>
+      sum +
+      (
+        Number(item.answer) ===
+        Number(item.question.answerIndex)
+          ? 1
+          : 0
+      ),
+    0
+  );
+
+  const wrong = Math.max(0, total - correct);
+
+  const score =
+    total > 0
+      ? Math.round((correct / total) * 100)
+      : 0;
+
   const subjectMap = new Map();
 
-  questions.forEach((question, index) => {
-    const subject = String(question?.subject || "공통").trim() || "공통";
-    const current = subjectMap.get(subject) || { subject, total: 0, correct: 0, wrong: 0, score: 0 };
+  gradingItems.forEach(({ question, answer }) => {
+    const subject =
+      String(question?.subject || "공통").trim() || "공통";
+
+    const current = subjectMap.get(subject) || {
+      subject,
+      total: 0,
+      correct: 0,
+      wrong: 0,
+      score: 0,
+    };
+
     current.total += 1;
-    if (answers[index] === question.answerIndex) current.correct += 1;
-    else current.wrong += 1;
+
+    if (
+      Number(answer) ===
+      Number(question.answerIndex)
+    ) {
+      current.correct += 1;
+    } else {
+      current.wrong += 1;
+    }
+
     subjectMap.set(subject, current);
   });
 
   const subjects = [...subjectMap.values()].map((item) => ({
     ...item,
-    score: item.total ? Math.round((item.correct / item.total) * 100) : 0,
+    score:
+      item.total > 0
+        ? Math.round(
+            (item.correct / item.total) * 100
+          )
+        : 0,
   }));
 
-  const assessmentType = exam?.assessmentType === "practice" ? "practice" : "exam";
-  const cutoffEnabled = assessmentType === "exam" && hasSubjectCutoff(exam);
-  const cutoffScore = Number(exam?.subjectCutoffScore ?? 40);
-  const passScore = Number(exam?.passScore ?? 60);
-  const failedSubjects = cutoffEnabled ? subjects.filter((item) => item.score < cutoffScore) : [];
-  const passed = assessmentType === "exam" ? score >= passScore && failedSubjects.length === 0 : null;
+  const assessmentType = isPracticeMode
+    ? "practice"
+    : exam?.assessmentType === "practice"
+      ? "practice"
+      : "exam";
+
+  const cutoffEnabled =
+    assessmentType === "exam" &&
+    hasSubjectCutoff(exam);
+
+  const cutoffScore = Number(
+    exam?.subjectCutoffScore ?? 40
+  );
+
+  const passScore = Number(
+    exam?.passScore ?? 60
+  );
+
+  const failedSubjects = cutoffEnabled
+    ? subjects.filter(
+        (item) => item.score < cutoffScore
+      )
+    : [];
+
+  const passed =
+    assessmentType === "exam"
+      ? score >= passScore &&
+        failedSubjects.length === 0
+      : null;
 
   return {
     total,
     correct,
+    wrong,
     score,
+
+    answered: allItems.filter(
+      (item) => item.answered
+    ).length,
+
+    unanswered: allItems.filter(
+      (item) => !item.answered
+    ).length,
+
     subjects,
     assessmentType,
     cutoffEnabled,
@@ -143,7 +236,15 @@ export function gradeExam(questions, answers, exam = {}) {
     passScore,
     failedSubjects,
     passed,
-    resultLabel: assessmentType === "practice" ? "학습 완료" : passed ? "합격" : failedSubjects.length ? "과락 불합격" : "불합격",
+
+    resultLabel:
+      assessmentType === "practice"
+        ? "학습 완료"
+        : passed
+          ? "합격"
+          : failedSubjects.length
+            ? "과락 불합격"
+            : "불합격",
   };
 }
 
