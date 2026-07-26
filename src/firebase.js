@@ -38,6 +38,7 @@ export async function saveQuestionProgress({
   uid,
   question,
   exam,
+  mode,
   selectedAnswerIndex,
   isCorrect,
   confidence,
@@ -58,11 +59,17 @@ export async function saveQuestionProgress({
     throw new Error("자기평가 값이 올바르지 않습니다.");
   }
 
+  const isPracticeMode = mode === "연습모드";
+
+  const progressCollection = isPracticeMode
+    ? "cbtPracticeProgress"
+    : "cbtProgress";
+
   const progressRef = doc(
     db,
     "users",
     uid,
-    "cbtProgress",
+    progressCollection,
     question.id
   );
 
@@ -92,32 +99,36 @@ export async function saveQuestionProgress({
   }
 
   const progressData = {
-    questionId: question.id,
-    examId: exam.id,
-    certificateId: exam.certificateId,
-    certificateName: exam.certificateName || "",
-    subject: String(question.subject || "공통").trim(),
+  questionId: question.id,
+  examId: exam.id,
+  certificateId: exam.certificateId,
+  certificateName: exam.certificateName || "",
 
-    attemptCount,
-    correctCount,
-    wrongCount,
+  mode: String(mode || ""),
+  progressType: isPracticeMode ? "practice" : "exam",
 
-    lastAnswerIndex: Number(selectedAnswerIndex),
-    correctAnswerIndex: Number(question.answerIndex),
-    isCorrect: Boolean(isCorrect),
+  subject: String(question.subject || "공통").trim(),
 
+  attemptCount,
+  correctCount,
+  wrongCount,
+
+  lastAnswerIndex: Number(selectedAnswerIndex),
+  correctAnswerIndex: Number(question.answerIndex),
+  isCorrect: Boolean(isCorrect),
+
+  confidence,
+  reviewLevel,
+
+  nextReviewAt: calculateNextReviewDate({
+    isCorrect,
     confidence,
     reviewLevel,
+  }),
 
-    nextReviewAt: calculateNextReviewDate({
-      isCorrect,
-      confidence,
-      reviewLevel,
-    }),
-
-    lastSolvedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
+  lastSolvedAt: serverTimestamp(),
+  updatedAt: serverTimestamp(),
+};
 
   await setDoc(progressRef, progressData, {
     merge: true,
