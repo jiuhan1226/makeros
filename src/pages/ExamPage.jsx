@@ -75,6 +75,7 @@ export default function ExamPage({ session, onExit }) {
         uid: user.uid,
         question: q,
         exam,
+        mode,
         selectedAnswerIndex,
         isCorrect,
         confidence,
