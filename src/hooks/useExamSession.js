@@ -27,7 +27,10 @@ export function useExamSession() {
     return () => window.clearInterval(id);
   }, [exam, mode, submitted]);
 
-  const result = useMemo(() => gradeExam(questions, answers, exam), [answers, exam, questions]);
+  const result = useMemo(
+  () => gradeExam(questions, answers, exam, mode),
+  [answers, exam, questions, mode]
+);
   const score = result.correct;
 
   function start(nextExam, nextQuestions, nextMode = "시험모드") {
