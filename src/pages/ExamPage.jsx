@@ -268,7 +268,7 @@ export default function ExamPage({ session, onExit }) {
       )}
     </section>
 
-    <div className="explanation">
+        <div className="explanation">
       <strong>정답 {circled[q.answerIndex]}</strong>
       <p>
         {q.explanation || "등록된 해설이 없습니다."}
@@ -277,6 +277,8 @@ export default function ExamPage({ session, onExit }) {
   </>
 )}
 
+</article>
+          
         <footer className="exam-navigation-bar">
           <button type="button" className="nav-move" onClick={() => moveTo(current - 1)} disabled={isFirst}>← 이전 문제</button>
           <div className="exam-navigation-center">
