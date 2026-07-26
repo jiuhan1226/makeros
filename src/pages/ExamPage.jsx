@@ -1,5 +1,10 @@
+import { useState } from "react";
 import AnswerSheet from "../components/AnswerSheet";
 import { circled, formatTime } from "../utils/exam";
+import {
+  auth,
+  saveQuestionProgress,
+} from "../firebase";
 
 export default function ExamPage({ session, onExit }) {
   const {
@@ -14,6 +19,10 @@ export default function ExamPage({ session, onExit }) {
     remaining,
     result,
   } = session;
+
+  const [confidenceByQuestion, setConfidenceByQuestion] = useState({});
+  const [progressMessage, setProgressMessage] = useState("");
+  const [savingConfidence, setSavingConfidence] = useState(false);
 
   const q = questions[current];
   if (!q) return null;
@@ -37,6 +46,64 @@ export default function ExamPage({ session, onExit }) {
     return "";
   }
 
+  async function handleConfidence(confidence) {
+    const user = auth?.currentUser;
+
+    if (!user) {
+      setProgressMessage("학습 기록을 저장하려면 로그인이 필요합니다.");
+      return;
+    }
+
+    if (answers[current] === undefined) {
+      setProgressMessage("먼저 답안을 선택해 주세요.");
+      return;
+    }
+
+    if (!exam?.id || !q?.id) {
+      setProgressMessage("시험 또는 문제 정보가 올바르지 않습니다.");
+      return;
+    }
+
+    const selectedAnswerIndex = Number(answers[current]);
+    const isCorrect = selectedAnswerIndex === Number(q.answerIndex);
+
+    try {
+      setSavingConfidence(true);
+      setProgressMessage("");
+
+      await saveQuestionProgress({
+        uid: user.uid,
+        question: q,
+        exam,
+        selectedAnswerIndex,
+        isCorrect,
+        confidence,
+      });
+
+      setConfidenceByQuestion((previous) => ({
+        ...previous,
+        [q.id]: confidence,
+      }));
+
+      const labels = {
+        high: "확실함",
+        medium: "애매함",
+        low: "모름",
+      };
+
+      setProgressMessage(
+        `${labels[confidence]}으로 저장했습니다. 복습 일정에 반영됩니다.`
+      );
+    } catch (error) {
+      console.error("자기평가 저장 실패:", error);
+      setProgressMessage(
+        error?.message || "자기평가를 저장하지 못했습니다."
+      );
+    } finally {
+      setSavingConfidence(false);
+    }
+  }
+  
   return (
     <main className="exam-page qnet-exam-layout">
       <section className="exam-main">
@@ -112,12 +179,103 @@ export default function ExamPage({ session, onExit }) {
           </div>
 
           {revealCurrent && (
-            <div className={`practice-feedback ${answers[current] === q.answerIndex ? "is-correct" : "is-wrong"}`}>
-              <strong>{answers[current] === q.answerIndex ? "정답입니다." : `오답입니다. 정답은 ${circled[q.answerIndex]}입니다.`}</strong>
-            </div>
-          )}
-          {revealCurrent && <div className="explanation"><strong>정답 {circled[q.answerIndex]}</strong><p>{q.explanation || "등록된 해설이 없습니다."}</p></div>}
-        </article>
+  <>
+    <div
+      className={`practice-feedback ${
+        answers[current] === q.answerIndex
+          ? "is-correct"
+          : "is-wrong"
+      }`}
+    >
+      <strong>
+        {answers[current] === q.answerIndex
+          ? "정답입니다."
+          : `오답입니다. 정답은 ${circled[q.answerIndex]}입니다.`}
+      </strong>
+    </div>
+
+    <section className="confidence-assessment">
+      <div className="confidence-heading">
+        <div>
+          <strong>이 문제를 얼마나 이해했나요?</strong>
+          <p>
+            정답 여부와 함께 자기평가를 저장하면 다음 복습일을
+            자동으로 계산합니다.
+          </p>
+        </div>
+
+        {confidenceByQuestion[q.id] && (
+          <span className="confidence-completed">
+            저장 완료
+          </span>
+        )}
+      </div>
+
+      <div className="confidence-buttons">
+        <button
+          type="button"
+          className={
+            confidenceByQuestion[q.id] === "high"
+              ? "confidence-high active"
+              : "confidence-high"
+          }
+          onClick={() => handleConfidence("high")}
+          disabled={savingConfidence}
+        >
+          <strong>확실함</strong>
+          <span>개념과 풀이를 설명할 수 있어요</span>
+        </button>
+
+        <button
+          type="button"
+          className={
+            confidenceByQuestion[q.id] === "medium"
+              ? "confidence-medium active"
+              : "confidence-medium"
+          }
+          onClick={() => handleConfidence("medium")}
+          disabled={savingConfidence}
+        >
+          <strong>애매함</strong>
+          <span>맞혔지만 일부 내용이 헷갈려요</span>
+        </button>
+
+        <button
+          type="button"
+          className={
+            confidenceByQuestion[q.id] === "low"
+              ? "confidence-low active"
+              : "confidence-low"
+          }
+          onClick={() => handleConfidence("low")}
+          disabled={savingConfidence}
+        >
+          <strong>모름</strong>
+          <span>찍었거나 개념을 다시 공부해야 해요</span>
+        </button>
+      </div>
+
+      {savingConfidence && (
+        <p className="confidence-message">
+          학습 기록을 저장하고 있습니다.
+        </p>
+      )}
+
+      {!savingConfidence && progressMessage && (
+        <p className="confidence-message">
+          {progressMessage}
+        </p>
+      )}
+    </section>
+
+    <div className="explanation">
+      <strong>정답 {circled[q.answerIndex]}</strong>
+      <p>
+        {q.explanation || "등록된 해설이 없습니다."}
+      </p>
+    </div>
+  </>
+)}
 
         <footer className="exam-navigation-bar">
           <button type="button" className="nav-move" onClick={() => moveTo(current - 1)} disabled={isFirst}>← 이전 문제</button>
