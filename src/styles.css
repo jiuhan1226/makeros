@@ -214,3 +214,56 @@ body{background:var(--maker-bg);color:var(--maker-text)}
 /* MakerOS Alpha v0.5 · interactive catalog and connected actions */
 .catalog-filters button{display:inline-flex;align-items:center;gap:9px;transition:.15s}.catalog-filters button:hover{border-color:#8fcfff;background:#f5fbff}.catalog-filters button b{min-width:22px;height:22px;padding:0 6px;display:grid;place-items:center;border-radius:999px;background:#f2f4f6;color:#6b7684;font-size:11px}.catalog-filters button.active b{background:#fff;color:#078bd3}.catalog-search-clear{border:0;background:#dfe4ea;color:#6b7684;border-radius:50%;width:28px;height:28px;padding:0;font-size:18px;line-height:1}.catalog-result-summary{display:flex;align-items:center;gap:10px;margin:-16px 0 18px;color:#6b7684;font-size:13px}.catalog-result-summary strong{color:#191f28}.catalog-result-summary button{margin-left:auto;border:0;background:transparent;color:#3182f6;font-weight:750}.certificate-category-chip{width:max-content;padding:6px 9px;border-radius:999px;background:#edf6ff;color:#3182f6;font-size:11px;font-weight:850;margin-bottom:12px}.catalog-empty-state{grid-column:1/-1;padding:56px 24px;text-align:center;border:1px dashed #cfd7df;border-radius:20px;background:#fff}.catalog-empty-state strong{font-size:20px}.catalog-empty-state p{color:#8b95a1}.catalog-empty-state .secondary{margin-top:8px}.career-job-list button{gap:10px}.career-job-list button>span{display:grid;gap:4px}.career-job-list button>b{font-size:22px;color:#b0b8c1}.career-job-list button.active{background:#edf6ff;color:#1b64da;box-shadow:inset 0 0 0 1px #9ecbff}.career-job-list button.active small,.career-job-list button.active b{color:#3182f6}.career-job-detail>span,.career-evidence-card>span{display:block;color:#8b95a1;font-size:12px;font-weight:900;margin-bottom:12px}.career-job-detail h2{margin:0 0 10px;font-size:28px}.career-job-detail>p{color:#4e5968;line-height:1.65}.career-job-detail-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:20px 0}.career-job-detail-columns>div{padding:16px;border-radius:14px;background:#f7f9fb}.career-job-detail-columns strong{display:block;margin-bottom:8px}.career-job-detail-columns ul{margin:0;padding-left:18px;color:#4e5968}.career-job-detail-columns li{margin:7px 0}.career-job-actions{display:flex;flex-wrap:wrap;gap:8px}.career-job-actions .primary{margin-top:0}.career-evidence-card{padding:24px;margin-top:18px}.career-evidence-card ol{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:0;padding:0;list-style:none}.career-evidence-card li{padding:14px;border-radius:12px;background:#f7f9fb;color:#4e5968}.connected-learning-list>button{grid-template-columns:64px minmax(0,1fr) auto}.connected-learning-list>button small{color:#3182f6;font-weight:800}.connected-learning-list>button:hover{border-color:#9ecbff;background:#f7fbff}.asset-focus-highlight{animation:assetFocusPulse 2.5s ease;box-shadow:0 0 0 3px rgba(49,130,246,.28),0 16px 34px rgba(49,130,246,.12)!important}@keyframes assetFocusPulse{0%,100%{transform:translateY(0)}20%{transform:translateY(-3px)}}.cbt-side-menu button:disabled{cursor:default;opacity:1}
 @media(max-width:760px){.catalog-filters{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px}.catalog-filters button{flex:0 0 auto}.career-job-detail-columns,.career-evidence-card ol{grid-template-columns:1fr}.career-job-actions{display:grid}.career-job-actions button{width:100%}.catalog-result-summary{margin-top:-10px}}
+
+/* ===== 자기평가 ===== */
+
+.confidence-assessment {
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.confidence-assessment h4 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.confidence-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.confidence-buttons button {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.confidence-buttons button:hover {
+  transform: translateY(-1px);
+}
+
+.confidence-high {
+  border-color: #16a34a !important;
+}
+
+.confidence-medium {
+  border-color: #eab308 !important;
+}
+
+.confidence-low {
+  border-color: #dc2626 !important;
+}
+
+.progress-message {
+  margin-top: 12px;
+  font-size: 14px;
+  color: #2563eb;
+}
