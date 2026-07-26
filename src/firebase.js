@@ -7,6 +7,124 @@ import {
   collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, orderBy,
   query, serverTimestamp, setDoc, Timestamp, where, writeBatch
 } from "firebase/firestore";
+function calculateNextReviewDate({
+  isCorrect,
+  confidence,
+  reviewLevel = 0,
+}) {
+  let days = 1;
+
+  if (!isCorrect) {
+    days = confidence === "medium" ? 2 : 1;
+  } else if (confidence === "low") {
+    days = 1;
+  } else if (confidence === "medium") {
+    days = 3;
+  } else if (reviewLevel >= 3) {
+    days = 30;
+  } else if (reviewLevel >= 2) {
+    days = 14;
+  } else {
+    days = 7;
+  }
+
+  const nextDate = new Date();
+  nextDate.setDate(nextDate.getDate() + days);
+
+  return Timestamp.fromDate(nextDate);
+}
+
+export async function saveQuestionProgress({
+  uid,
+  question,
+  exam,
+  selectedAnswerIndex,
+  isCorrect,
+  confidence,
+}) {
+  if (!db) {
+    throw new Error("Firebase 설정이 필요합니다.");
+  }
+
+  if (!uid) {
+    throw new Error("로그인이 필요합니다.");
+  }
+
+  if (!question?.id) {
+    throw new Error("문제 ID가 없습니다.");
+  }
+
+  if (!["high", "medium", "low"].includes(confidence)) {
+    throw new Error("자기평가 값이 올바르지 않습니다.");
+  }
+
+  const progressRef = doc(
+    db,
+    "users",
+    uid,
+    "cbtProgress",
+    question.id
+  );
+
+  const progressSnapshot = await getDoc(progressRef);
+
+  const previous = progressSnapshot.exists()
+    ? progressSnapshot.data()
+    : {};
+
+  const attemptCount =
+    Number(previous.attemptCount || 0) + 1;
+
+  const correctCount =
+    Number(previous.correctCount || 0) +
+    (isCorrect ? 1 : 0);
+
+  const wrongCount =
+    Number(previous.wrongCount || 0) +
+    (isCorrect ? 0 : 1);
+
+  let reviewLevel = Number(previous.reviewLevel || 0);
+
+  if (isCorrect && confidence === "high") {
+    reviewLevel += 1;
+  } else if (!isCorrect || confidence === "low") {
+    reviewLevel = 0;
+  }
+
+  const progressData = {
+    questionId: question.id,
+    examId: exam.id,
+    certificateId: exam.certificateId,
+    certificateName: exam.certificateName || "",
+    subject: String(question.subject || "공통").trim(),
+
+    attemptCount,
+    correctCount,
+    wrongCount,
+
+    lastAnswerIndex: Number(selectedAnswerIndex),
+    correctAnswerIndex: Number(question.answerIndex),
+    isCorrect: Boolean(isCorrect),
+
+    confidence,
+    reviewLevel,
+
+    nextReviewAt: calculateNextReviewDate({
+      isCorrect,
+      confidence,
+      reviewLevel,
+    }),
+
+    lastSolvedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  await setDoc(progressRef, progressData, {
+    merge: true,
+  });
+
+  return progressData;
+}
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const firebaseConfig = {
