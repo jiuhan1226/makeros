@@ -5,7 +5,7 @@ import {
 } from "firebase/auth";
 import {
   collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, orderBy,
-  query, serverTimestamp, setDoc, where, writeBatch
+  query, serverTimestamp, setDoc, Timestamp, where, writeBatch
 } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -183,3 +183,154 @@ export async function importExamQuestions(exam, questions) {
 }
 
 export async function uploadCbtImage(blob,path,contentType="image/png"){ if(!storage)throw new Error("Firebase Storage 설정이 필요합니다."); const target=ref(storage,path); await uploadBytes(target,blob,{contentType}); return getDownloadURL(target); }
+
+function calculateNextReviewDate({
+  isCorrect,
+  confidence,
+  reviewLevel = 0,
+}) {
+  let days = 1;
+
+  if (!isCorrect) {
+    days = confidence === "medium" ? 2 : 1;
+  } else if (confidence === "low") {
+    days = 1;
+  } else if (confidence === "medium") {
+    days = 3;
+  } else {
+    if (reviewLevel >= 3) {
+      days = 30;
+    } else if (reviewLevel >= 2) {
+      days = 14;
+    } else {
+      days = 7;
+    }
+  }
+
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+
+  return Timestamp.fromDate(date);
+}
+
+export async function saveQuestionProgress({
+  uid,
+  question,
+  exam,
+  selectedAnswerIndex,
+  isCorrect,
+  confidence,
+}) {
+  if (!db) {
+    throw new Error("Firebase 설정이 필요합니다.");
+  }
+
+  if (!uid) {
+    throw new Error("로그인이 필요합니다.");
+  }
+
+  if (!question?.id) {
+    throw new Error("문제 정보가 없습니다.");
+  }
+
+  const progressRef = doc(
+    db,
+    "users",
+    uid,
+    "cbtProgress",
+    question.id
+  );
+
+  const progressSnapshot = await getDoc(progressRef);
+  const previous = progressSnapshot.exists()
+    ? progressSnapshot.data()
+    : {};
+
+  const previousAttemptCount = Number(previous.attemptCount || 0);
+  const previousCorrectCount = Number(previous.correctCount || 0);
+  const previousWrongCount = Number(previous.wrongCount || 0);
+  const previousReviewLevel = Number(previous.reviewLevel || 0);
+
+  let reviewLevel = previousReviewLevel;
+
+  if (isCorrect && confidence === "high") {
+    reviewLevel += 1;
+  } else if (!isCorrect || confidence === "low") {
+    reviewLevel = 0;
+  }
+
+  const nextReviewAt = calculateNextReviewDate({
+    isCorrect,
+    confidence,
+    reviewLevel,
+  });
+
+  const progressData = {
+    questionId: question.id,
+    examId: exam.id,
+    certificateId: exam.certificateId,
+
+    subject: String(question.subject || "공통").trim(),
+
+    attemptCount: previousAttemptCount + 1,
+    correctCount: previousCorrectCount + (isCorrect ? 1 : 0),
+    wrongCount: previousWrongCount + (isCorrect ? 0 : 1),
+
+    lastAnswerIndex: Number(selectedAnswerIndex),
+    correctAnswerIndex: Number(question.answerIndex),
+    isCorrect: Boolean(isCorrect),
+
+    confidence,
+    reviewLevel,
+    nextReviewAt,
+
+    lastSolvedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  await setDoc(progressRef, progressData, {
+    merge: true,
+  });
+
+  return progressData;
+}
+
+export async function getTodayReviewProgress(uid) {
+  if (!db || !uid) {
+    return [];
+  }
+
+  const now = Timestamp.now();
+
+  const snapshot = await getDocs(
+    query(
+      collection(db, "users", uid, "cbtProgress"),
+      where("nextReviewAt", "<=", now),
+      orderBy("nextReviewAt")
+    )
+  );
+
+  return snapshot.docs.map((item) => ({
+    id: item.id,
+    ...item.data(),
+  }));
+}
+
+export async function getRepeatedWrongProgress(uid) {
+  if (!db || !uid) {
+    return [];
+  }
+
+  const snapshot = await getDocs(
+    query(
+      collection(db, "users", uid, "cbtProgress"),
+      where("wrongCount", ">=", 2),
+      orderBy("wrongCount", "desc")
+    )
+  );
+
+  return snapshot.docs.map((item) => ({
+    id: item.id,
+    ...item.data(),
+  }));
+}
