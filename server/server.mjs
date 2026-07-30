@@ -58,23 +58,39 @@ let activeModel = requestedModel;
 let availableModelNames = null;
 
 let adminAuth = null;
+
 try {
   if (firebaseProjectId) {
-    if (!getAdminApps().length) initializeAdminApp({ projectId: firebaseProjectId });
+    if (!getAdminApps().length) {
+      initializeAdminApp({ projectId: firebaseProjectId });
+    }
+
     adminAuth = getAdminAuth();
   }
 } catch (error) {
-  console.warn(`[MakerOS] Firebase Admin 초기화 실패: ${error.message}`);
+  console.warn(
+    `[MakerOS] Firebase Admin 초기화 실패: ${error.message}`,
+  );
 }
 
 if (!explanationSigningSecret) {
-  console.warn("[MakerOS] EXPLANATION_SIGNING_SECRET가 없어 AI 해설 영구 캐시 서명을 사용할 수 없습니다.");
+  console.warn(
+    "[MakerOS] EXPLANATION_SIGNING_SECRET가 없어 AI 해설 영구 캐시 서명을 사용할 수 없습니다.",
+  );
 }
 
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: {
+      policy: "cross-origin",
+    },
+    crossOriginOpenerPolicy: {
+      policy: "same-origin-allow-popups",
+    },
+  }),
+);
+
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((value) => value.trim())
@@ -502,9 +518,9 @@ ${source}`.trim();
 
         const questions = rawQuestions
           .map((q) => ({
-            year: Number(q?.year) || 0,
-            round: String(q?.round || ""),
-            examDate: String(q?.examDate || ""),
+            year: Number(req.body.year),
+            round: String(req.body.round),
+            examDate: String(req.body.examDate),
             questionNumber: Number(q?.questionNumber) || 0,
             subject: String(q?.subject || "공통"),
             topic: String(q?.topic || "").trim(),

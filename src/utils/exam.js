@@ -134,7 +134,12 @@ export function gradeExam(questions, answers, exam = {}, mode = "실전모드") 
 
   const subjects = [...subjectMap.values()].map((item) => ({
     ...item,
-    score: item.total ? Math.round((item.correct / item.total) * 100) : 0,
+    score:
+      item.total > 0
+        ? Math.round(
+            (item.correct / item.total) * 100
+          )
+        : 0,
   }));
 
   const assessmentType = isPracticeMode ? "practice" : "exam";
@@ -158,7 +163,15 @@ export function gradeExam(questions, answers, exam = {}, mode = "실전모드") 
     passScore,
     failedSubjects,
     passed,
-    resultLabel: assessmentType === "practice" ? "학습 완료" : passed ? "합격" : failedSubjects.length ? "과락 불합격" : "불합격",
+
+    resultLabel:
+      assessmentType === "practice"
+        ? "학습 완료"
+        : passed
+          ? "합격"
+          : failedSubjects.length
+            ? "과락 불합격"
+            : "불합격",
   };
 }
 

@@ -487,6 +487,91 @@ export default function ExamPage({ session, onExit, onSaveConfidence, getDifficu
           )}
         </article>
 
+    <section className="confidence-assessment">
+      <div className="confidence-heading">
+        <div>
+          <strong>이 문제를 얼마나 이해했나요?</strong>
+          <p>
+            정답 여부와 함께 자기평가를 저장하면 다음 복습일을
+            자동으로 계산합니다.
+          </p>
+        </div>
+
+        {confidenceByQuestion[q.id] && (
+          <span className="confidence-completed">
+            저장 완료
+          </span>
+        )}
+      </div>
+
+      <div className="confidence-buttons">
+        <button
+          type="button"
+          className={
+            confidenceByQuestion[q.id] === "high"
+              ? "confidence-high active"
+              : "confidence-high"
+          }
+          onClick={() => handleConfidence("high")}
+          disabled={savingConfidence}
+        >
+          <strong>확실함</strong>
+          <span>개념과 풀이를 설명할 수 있어요</span>
+        </button>
+
+        <button
+          type="button"
+          className={
+            confidenceByQuestion[q.id] === "medium"
+              ? "confidence-medium active"
+              : "confidence-medium"
+          }
+          onClick={() => handleConfidence("medium")}
+          disabled={savingConfidence}
+        >
+          <strong>애매함</strong>
+          <span>맞혔지만 일부 내용이 헷갈려요</span>
+        </button>
+
+        <button
+          type="button"
+          className={
+            confidenceByQuestion[q.id] === "low"
+              ? "confidence-low active"
+              : "confidence-low"
+          }
+          onClick={() => handleConfidence("low")}
+          disabled={savingConfidence}
+        >
+          <strong>모름</strong>
+          <span>찍었거나 개념을 다시 공부해야 해요</span>
+        </button>
+      </div>
+
+      {savingConfidence && (
+        <p className="confidence-message">
+          학습 기록을 저장하고 있습니다.
+        </p>
+      )}
+
+      {!savingConfidence && progressMessage && (
+        <p className="confidence-message">
+          {progressMessage}
+        </p>
+      )}
+    </section>
+
+        <div className="explanation">
+      <strong>정답 {circled[q.answerIndex]}</strong>
+      <p>
+        {q.explanation || "등록된 해설이 없습니다."}
+      </p>
+    </div>
+  </>
+)}
+
+</article>
+          
         <footer className="exam-navigation-bar">
           <button type="button" className="nav-move nav-prev" onClick={() => moveTo(current - 1)} disabled={isFirst}><span aria-hidden="true">←</span><b>이전 문제</b></button>
           <div className="exam-navigation-center">
