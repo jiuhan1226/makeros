@@ -71,10 +71,17 @@ if (!explanationSigningSecret) {
   console.warn("[MakerOS] EXPLANATION_SIGNING_SECRET가 없어 AI 해설 영구 캐시 서명을 사용할 수 없습니다.");
 }
 
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: {
+      policy: "cross-origin",
+    },
+    crossOriginOpenerPolicy: {
+      policy: "same-origin-allow-popups",
+    },
+  }),
+);
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((value) => value.trim())
