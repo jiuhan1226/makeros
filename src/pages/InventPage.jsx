@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createInventorProject, inventStageLabel } from "../utils/makerPlatform";
+import { postJson } from "../utils/api";
 
 const stages = [
   [1, "문제 발견", "누가 언제 무엇을 불편해하는지 정의"],
@@ -108,13 +109,11 @@ export default function InventPage({ projects = [], onChangeProjects, onCreateBu
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/invent/coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage: current.stage, context }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "AI 발명 코치 분석에 실패했습니다.");
+      const body = await postJson(
+        "/api/invent/coach",
+        { stage: current.stage, context },
+        "AI 발명 코치 분석에 실패했습니다.",
+      );
       const patch = { aiHistory: [{ stage: current.stage, createdAt: Date.now(), ...body }, ...(current.aiHistory || [])].slice(0, 30) };
       if (body.suggestedTitle) patch.title = body.suggestedTitle;
       if (body.causes?.length) patch.causes = body.causes;
