@@ -29,8 +29,16 @@ export default function AuthModal({ user, onClose }) {
       await action();
       onClose();
     } catch (error) {
-      setMessage(friendlyAuthMessage(error));
-    } finally {
+  if (
+    error?.code === "auth/popup-closed-by-user" ||
+    error?.code === "auth/cancelled-popup-request"
+  ) {
+    setMessage("");
+    return;
+  }
+
+  setMessage(friendlyAuthMessage(error));
+} finally {
       setBusy(false);
     }
   }
