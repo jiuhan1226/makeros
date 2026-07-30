@@ -90,7 +90,7 @@ export default function MockExamPage({ exams, loadQuestions, onStart }) {
       <div className="page-heading">
         <span className="eyebrow">CUSTOM MOCK EXAM</span>
         <h1>맞춤 모의고사</h1>
-        <p>실제 시험과 같은 과목별 출제 비율을 유지해 문제를 구성합니다.</p>
+        <p>원하는 범위와 문항 수를 선택해 나만의 모의고사를 만들어 보세요.</p>
       </div>
 
       <section className="mock-builder panel">
@@ -140,10 +140,10 @@ export default function MockExamPage({ exams, loadQuestions, onStart }) {
             </button>
           ))}
         </div>
-        <p className="mock-info">시험시간은 문항 수와 동일하게 {count}분이며, 각 파트에서 실제 시험 비율만큼 무작위 출제됩니다.</p>
+        <p className="mock-info">제한 시간은 {count}분입니다. 과목별 비율을 반영해 문제가 고르게 구성됩니다.</p>
 
         <button className="primary wide" disabled={busy || !targets.length} onClick={create}>
-          {busy ? "과목별 문제 구성 중..." : `${count}문제 모의고사 생성`}
+          {busy ? "모의고사를 준비하고 있어요..." : `${count}문제 모의고사 생성`}
         </button>
         {message && <p className="error-box">{message}</p>}
       </section>
