@@ -105,17 +105,29 @@ export function hasSubjectCutoff(exam) {
   return /(산업기사|기사|기능장|기술사)/.test(grade);
 }
 
-export function gradeExam(questions, answers, exam = {}) {
-  const total = questions.length;
-  const correct = questions.reduce((sum, question, index) => sum + (answers[index] === question.answerIndex ? 1 : 0), 0);
+export function gradeExam(questions, answers, exam = {}, mode = "실전모드") {
+  const allItems = questions.map((question, index) => ({
+    question,
+    index,
+    answer: answers[index],
+    answered: answers[index] !== undefined,
+  }));
+  const isPracticeMode = mode === "연습모드" || exam?.assessmentType === "practice";
+  const gradingItems = isPracticeMode ? allItems.filter((item) => item.answered) : allItems;
+  const total = gradingItems.length;
+  const correct = gradingItems.reduce(
+    (sum, item) => sum + (Number(item.answer) === Number(item.question.answerIndex) ? 1 : 0),
+    0,
+  );
+  const wrong = Math.max(0, total - correct);
   const score = total ? Math.round((correct / total) * 100) : 0;
   const subjectMap = new Map();
 
-  questions.forEach((question, index) => {
+  gradingItems.forEach(({ question, answer }) => {
     const subject = String(question?.subject || "공통").trim() || "공통";
     const current = subjectMap.get(subject) || { subject, total: 0, correct: 0, wrong: 0, score: 0 };
     current.total += 1;
-    if (answers[index] === question.answerIndex) current.correct += 1;
+    if (Number(answer) === Number(question.answerIndex)) current.correct += 1;
     else current.wrong += 1;
     subjectMap.set(subject, current);
   });
@@ -125,7 +137,7 @@ export function gradeExam(questions, answers, exam = {}) {
     score: item.total ? Math.round((item.correct / item.total) * 100) : 0,
   }));
 
-  const assessmentType = exam?.assessmentType === "practice" ? "practice" : "exam";
+  const assessmentType = isPracticeMode ? "practice" : "exam";
   const cutoffEnabled = assessmentType === "exam" && hasSubjectCutoff(exam);
   const cutoffScore = Number(exam?.subjectCutoffScore ?? 40);
   const passScore = Number(exam?.passScore ?? 60);
@@ -135,7 +147,10 @@ export function gradeExam(questions, answers, exam = {}) {
   return {
     total,
     correct,
+    wrong,
     score,
+    answered: allItems.filter((item) => item.answered).length,
+    unanswered: allItems.filter((item) => !item.answered).length,
     subjects,
     assessmentType,
     cutoffEnabled,
@@ -161,9 +176,10 @@ export function buildWrongNoteAnalysis(wrongNotes = [], history = []) {
   wrongNotes.forEach((item) => {
     const subject = String(item.subject || "공통").trim() || "공통";
     const current = subjectMap.get(subject) || { subject, wrongCount: 0, questions: [], recentWrongCount: 0 };
-    current.wrongCount += 1;
+    const count = Math.max(1, Number(item.wrongCount || 1));
+    current.wrongCount += count;
     current.questions.push(item);
-    if (!item.createdAt || Date.now() - Number(item.createdAt) < 1000 * 60 * 60 * 24 * 14) current.recentWrongCount += 1;
+    if (!item.createdAt || Date.now() - Number(item.createdAt) < 1000 * 60 * 60 * 24 * 14) current.recentWrongCount += count;
     subjectMap.set(subject, current);
   });
 
