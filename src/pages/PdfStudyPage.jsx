@@ -151,7 +151,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
       <div>
         <span className="eyebrow">AI PDF STUDY</span>
         <h1>PDF 학습</h1>
-        <p>PDF는 시험 종목이 아니라 학습 자료로 관리합니다. AI 퀴즈는 이해도 확인용이며 합격·불합격이나 과락을 판정하지 않습니다.</p>
+        <p>PDF를 업로드하고 AI 노트, 단어카드, 퀴즈로 반복 학습해 보세요.</p>
       </div>
       {doc && <button className="secondary" onClick={() => { setDoc(null); setAssets({ notes: [], cards: [] }); }}>다른 PDF 선택</button>}
     </section>
@@ -173,12 +173,12 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
           {!doc ? <section className="panel pdf-native-upload">
             <div className="pdf-native-icon">PDF</div>
             <h2>학습 자료를 업로드하세요</h2>
-            <p>페이지 수가 많아도 전체 내용을 저장하고, AI 생성 시 구간별로 나누어 빠짐없이 정리합니다.</p>
+            <p>긴 자료도 페이지별로 나눠 핵심 내용을 빠짐없이 정리해요.</p>
             <label className="primary upload-button"><input type="file" accept="application/pdf" onChange={handleFile} />PDF 선택</label>
             {progress > 0 && progress < 100 && <div className="progress-track"><div className="progress-bar" style={{ width: `${progress}%` }} /></div>}
           </section> : <div className="pdf-native-grid">
             <section className="panel pdf-source-card">
-              <div className="pdf-source-head"><div className="pdf-file-icon">PDF</div><div><h2>{doc.name}</h2><p>{doc.pageCount || doc.pages?.length}쪽 · 전체 텍스트 저장 완료</p></div></div>
+              <div className="pdf-source-head"><div className="pdf-file-icon">PDF</div><div><h2>{doc.name}</h2><p>{doc.pageCount || doc.pages?.length}쪽 · 학습 준비 완료</p></div></div>
               <div className="pdf-text-preview">{selectedPages.map((page) => <details key={page.page} open={selectedPages.length <= 3}><summary>{page.page}쪽</summary><p>{page.text || "추출된 텍스트가 없습니다."}</p></details>)}</div>
             </section>
             <section className="panel pdf-config-card">
@@ -198,7 +198,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
         </>}
 
         {tab === "summary" && <section className="panel pdf-feature-panel">
-          <div className="section-title"><div><span className="eyebrow">DETAILED AI NOTES</span><h2>전체 범위 상세 노트</h2><p>요약 길이를 임의로 잘라내지 않고 구간별 핵심 설명과 세부 포인트를 모두 표시합니다.</p></div><button className="primary" onClick={generateQuiz}>이 범위로 퀴즈 풀기</button></div>
+          <div className="section-title"><div><span className="eyebrow">DETAILED AI NOTES</span><h2>전체 범위 상세 노트</h2><p>전체 범위를 구간별로 정리해 핵심 개념과 세부 내용을 함께 보여드려요.</p></div><button className="primary" onClick={generateQuiz}>이 범위로 퀴즈 풀기</button></div>
           <div className="pdf-note-outline">{assets.notes.map((note, index) => <a key={note.id} href={`#pdf-note-${index}`}>{note.pageStart ? `${note.pageStart}${note.pageEnd && note.pageEnd !== note.pageStart ? `~${note.pageEnd}` : ""}쪽 · ` : ""}{note.title}</a>)}</div>
           <div className="note-grid pdf-detailed-note-grid">{assets.notes.map((note, index) => <article className="ai-note-card" id={`pdf-note-${index}`} key={note.id}><span className="result-type">{note.pageStart ? `${note.pageStart}${note.pageEnd && note.pageEnd !== note.pageStart ? `~${note.pageEnd}` : ""}쪽` : "PDF"}</span><h3>{note.title}</h3><p>{note.summary}</p>{note.details && <p className="pdf-note-details">{note.details}</p>}<ul>{(note.keyPoints || []).map((point, pointIndex) => <li key={pointIndex}>{point}</li>)}</ul></article>)}</div>
         </section>}
@@ -209,7 +209,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
         </section>}
 
         {tab === "mindmap" && <section className="panel pdf-feature-panel">
-          <div className="section-title"><div><span className="eyebrow">PDF CONCEPT STRUCTURE</span><h2>PDF 개념 구조</h2><p>이 PDF에서 생성된 노트만 사용하며 다른 PDF나 CBT 기록을 섞지 않습니다.</p></div></div>
+          <div className="section-title"><div><span className="eyebrow">PDF CONCEPT STRUCTURE</span><h2>PDF 개념 구조</h2><p>이 PDF의 핵심 개념과 연결 관계를 한눈에 확인하세요.</p></div></div>
           <div className="pdf-mindmap"><div className="mindmap-center">{sourceName.replace(/\.pdf$/i, "")}</div>{mindmap.map((node) => <article key={node.index}><h3>{node.title}</h3>{node.children.map((point, pointIndex) => <span key={pointIndex}>{point}</span>)}</article>)}</div>
         </section>}
       </section>
