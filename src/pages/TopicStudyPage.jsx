@@ -1,66 +1,78 @@
 import { useEffect, useMemo, useState } from "react";
 import { shuffle } from "../utils/exam";
-
-const TOPIC_FIELDS = ["topic", "chapter", "unit", "category", "subTopic", "keyword"];
-
-function normalizeTopic(question) {
-  for (const field of TOPIC_FIELDS) {
-    const value = question?.[field];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  if (Array.isArray(question?.tags) && question.tags.length) {
-    const tag = String(question.tags[0] || "").trim();
-    if (tag) return tag;
-  }
-  return "미분류 주제";
-}
+import { consolidateQuestionTopics, normalizeQuestionTopic } from "../utils/topicClassifier.js";
 
 function normalizeSubject(question) {
   return String(question?.subject || "공통").trim() || "공통";
 }
 
 function groupSelectedQuestions(batches, fromYear, toYear) {
-  const map = new Map();
-  let totalQuestions = 0;
+  const selectedQuestions = [];
+  const selectedExamIds = new Set();
 
   batches.forEach(({ exam, questions }) => {
     const year = Number(exam?.year || 0);
     if (!year || year < fromYear || year > toYear) return;
+    if (exam?.id) selectedExamIds.add(exam.id);
 
     (questions || []).forEach((question) => {
-      totalQuestions += 1;
-      const subject = normalizeSubject(question);
-      const topic = normalizeTopic(question);
-      const key = `${subject}|||${topic}`;
-      const row = map.get(key) || {
-        subject,
-        topic,
-        questions: [],
-        examIds: new Set(),
-        years: new Set(),
-      };
-      row.questions.push({ ...question, sourceExam: exam });
-      if (exam?.id) row.examIds.add(exam.id);
-      row.years.add(year);
-      map.set(key, row);
+      selectedQuestions.push({
+        ...question,
+        sourceExam: exam,
+        sourceExamId: question.sourceExamId || exam?.id || "",
+        examYear: question.examYear || exam?.year || "",
+      });
     });
   });
 
+  // 같은 과목에서 2문제 미만인 세부 주제는 내용상 가까운 상위 주제로 통합합니다.
+  const consolidated = consolidateQuestionTopics(
+    selectedQuestions,
+    { minTopicSize: 2 },
+  );
+
+  const map = new Map();
+  consolidated.questions.forEach((normalizedQuestion) => {
+    const subject = normalizeSubject(normalizedQuestion);
+    const topic = normalizedQuestion.topic;
+    const key = `${subject}|||${topic}`;
+    const row = map.get(key) || {
+      subject,
+      topic,
+      questions: [],
+      examIds: new Set(),
+      years: new Set(),
+      autoClassified: 0,
+      mergedQuestions: 0,
+    };
+    row.questions.push(normalizedQuestion);
+    if (!["metadata", "tag"].includes(normalizedQuestion.topicSource)) row.autoClassified += 1;
+    if (normalizedQuestion.topicMergedFrom) row.mergedQuestions += 1;
+    const sourceExam = normalizedQuestion.sourceExam;
+    if (sourceExam?.id) row.examIds.add(sourceExam.id);
+    const year = Number(sourceExam?.year || normalizedQuestion.examYear || 0);
+    if (year) row.years.add(year);
+    map.set(key, row);
+  });
+
   return {
-    totalQuestions,
+    totalQuestions: selectedQuestions.length,
+    selectedExamCount: selectedExamIds.size,
     groups: [...map.values()].map((row) => ({
       ...row,
       examCount: row.examIds.size,
       years: [...row.years].sort((a, b) => a - b),
     })),
+    mergeMap: consolidated.mergeMap,
+    consolidationStats: consolidated.stats,
   };
 }
 
-export default function TopicStudyPage({ exams, loadQuestions, onStart, onNavigate }) {
+export default function TopicStudyPage({ certificate, exams, history = [], learningProgress = [], loadQuestions, onStart, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [batches, setBatches] = useState([]);
   const [subject, setSubject] = useState("전체");
-  const [minCount, setMinCount] = useState(1);
+  const [minExamCount, setMinExamCount] = useState(0);
   const [yearFrom, setYearFrom] = useState("");
   const [yearTo, setYearTo] = useState("");
 
@@ -111,15 +123,48 @@ export default function TopicStudyPage({ exams, loadQuestions, onStart, onNaviga
     if (subject !== "전체" && !subjects.includes(subject)) setSubject("전체");
   }, [subject, subjects]);
 
+
+  const topicProgress = useMemo(() => {
+    const map = new Map();
+    const mergeMap = selectedData.mergeMap || new Map();
+
+    for (const item of learningProgress) {
+      if (item?.studyScope !== "topic") continue;
+      const normalized = normalizeQuestionTopic(item);
+      const itemSubject = String(item.subject || normalized.subject || "공통").trim() || "공통";
+      const questionId = String(item.questionId || item.id || "");
+      const mergedTopic = mergeMap.get(questionId)
+        || mergeMap.get(`${itemSubject}|||${normalized.topic}`)
+        || normalized.topic;
+      const key = `${itemSubject}|||${mergedTopic}`;
+      const current = map.get(key) || { attempts: 0, correct: 0, questionIds: new Set() };
+      current.attempts += Number(item.attemptCount || 0);
+      current.correct += Number(item.correctCount || 0);
+      if (questionId) current.questionIds.add(questionId);
+      map.set(key, current);
+    }
+
+    // 이전 버전의 세션 기록도 현재 통합 주제명으로 연결합니다.
+    for (const item of history) {
+      if (item?.studyScope !== "topic" || !item.topic || /^미분류/.test(String(item.topic))) continue;
+      const itemSubject = String(item.subject || "공통").trim() || "공통";
+      const mergedTopic = mergeMap.get(`${itemSubject}|||${item.topic}`) || item.topic;
+      const key = `${itemSubject}|||${mergedTopic}`;
+      if (map.has(key)) continue;
+      map.set(key, { attempts: Number(item.total || 0), correct: Number(item.correct || 0), questionIds: new Set() });
+    }
+    return map;
+  }, [history, learningProgress, selectedData.mergeMap]);
+
   const filtered = useMemo(
     () =>
       selectedData.groups
         .filter((group) => {
           if (subject !== "전체" && group.subject !== subject) return false;
-          return group.examCount >= minCount;
+          return group.examCount >= minExamCount;
         })
         .sort((a, b) => b.questions.length - a.questions.length || a.topic.localeCompare(b.topic, "ko")),
-    [selectedData.groups, subject, minCount],
+    [selectedData.groups, subject, minExamCount],
   );
 
   function startGroup(group, mode = "all") {
@@ -142,12 +187,16 @@ export default function TopicStudyPage({ exams, loadQuestions, onStart, onNaviga
       title: `${group.topic} · ${mode === "quick" ? "20문제 빠른 학습" : "전체 문제 학습"}`,
       durationMinutes: selected.length,
       hasSubjectCutoff: false,
+      assessmentType: "practice",
       studyScope: "topic",
+      returnPage: "topic",
       subject: group.subject,
       topic: group.topic,
       yearFrom: Number(yearFrom),
       yearTo: Number(yearTo),
       questionCount: selected.length,
+      certificateId: certificate?.id || "",
+      certificateName: certificate?.name || "",
     });
   }
 
@@ -166,7 +215,7 @@ export default function TopicStudyPage({ exams, loadQuestions, onStart, onNaviga
       <section className="cbt-learning-content">
         <div className="topic-filter-top">
           <div className="year-range-control">
-            <span>분류할 연도 선택</span>
+            <span>학습 연도 선택</span>
             <select value={yearFrom} onChange={(event) => setYearFrom(event.target.value)}>
               {years.map((year) => <option value={year} key={year}>{year}년</option>)}
             </select>
@@ -179,8 +228,16 @@ export default function TopicStudyPage({ exams, loadQuestions, onStart, onNaviga
 
         <div className="topic-range-summary">
           <div><strong>{selectedFrom || "-"}~{selectedTo || "-"}년</strong><span>선택 연도 범위</span></div>
-          <div><strong>{selectedData.totalQuestions.toLocaleString()}문제</strong><span>분류 대상 전체 문제</span></div>
-          <div><strong>{selectedData.groups.length.toLocaleString()}개</strong><span>분류된 주제</span></div>
+          <div><strong>{selectedData.totalQuestions.toLocaleString()}문제</strong><span>선택 범위 문제</span></div>
+          <div>
+            <strong>{selectedData.groups.length.toLocaleString()}개</strong>
+            <span>
+              학습 주제
+              {selectedData.consolidationStats?.originalTopicCount > selectedData.groups.length
+                ? ` · 정리 전 ${selectedData.consolidationStats.originalTopicCount}개`
+                : ""}
+            </span>
+          </div>
         </div>
 
         <div className="topic-selector-block">
@@ -198,24 +255,36 @@ export default function TopicStudyPage({ exams, loadQuestions, onStart, onNaviga
           </div>
         </div>
 
-        <div className="topic-selector-block compact">
-          <span>출제 회차</span>
+        <div className="topic-selector-block compact topic-frequency-filter">
+          <span>출제 빈도</span>
+          <p className="topic-filter-help">
+            여러 시험에 반복해서 출제된 핵심 주제를 우선 살펴보세요.
+          </p>
           <div className="segmented">
-            <button className={minCount === 1 ? "active" : ""} onClick={() => setMinCount(1)}>전체 주제</button>
-            <button className={minCount === 3 ? "active" : ""} onClick={() => setMinCount(3)}>3회 이상</button>
-            <button className={minCount === 5 ? "active" : ""} onClick={() => setMinCount(5)}>5회 이상</button>
-            <button className={minCount === 10 ? "active" : ""} onClick={() => setMinCount(10)}>10회 이상</button>
+            <button className={minExamCount === 0 ? "active" : ""} onClick={() => setMinExamCount(0)}>전체</button>
+            {[3, 5, 10].map((count) => (
+              <button
+                key={count}
+                className={minExamCount === count ? "active" : ""}
+                onClick={() => setMinExamCount(count)}
+                disabled={selectedData.selectedExamCount < count}
+                title={selectedData.selectedExamCount < count ? `선택 범위에 등록된 시험이 ${selectedData.selectedExamCount}개입니다.` : ""}
+              >
+                {count}개 시험 이상
+              </button>
+            ))}
           </div>
+          <small>선택 범위에 {selectedData.selectedExamCount}개 시험이 포함되어 있어요.</small>
         </div>
 
         {loading ? (
-          <div className="empty-state">선택 연도의 모든 문제를 주제별로 분류하고 있습니다.</div>
+          <div className="empty-state">주제별 학습 목록을 준비하고 있어요.</div>
         ) : (
           <>
             <div className="topic-result-heading">
               <div>
                 <h2>주제별 학습</h2>
-                <p>{selectedFrom}~{selectedTo}년에 등록된 모든 문제를 기준으로 분류했습니다.</p>
+                <p>비슷한 문제를 핵심 주제별로 모아, 필요한 개념부터 집중해서 학습할 수 있어요.</p>
               </div>
               <span>{filtered.length}개 주제</span>
             </div>
@@ -226,10 +295,18 @@ export default function TopicStudyPage({ exams, loadQuestions, onStart, onNaviga
                   <span className="topic-subject-label">{group.subject}</span>
                   <h3>{group.topic}</h3>
                   <p>
-                    선택 연도 문제 {group.questions.length.toLocaleString()}개 · {group.examCount}개 시험에서 출제
+                    총 {group.questions.length.toLocaleString()}문제 · {group.examCount}개 시험에서 출제
                   </p>
-                  <div className="topic-progress"><i style={{ width: "0%" }} /></div>
-                  <small>학습률 0% · 0/{group.questions.length.toLocaleString()}</small>
+                  {(() => {
+                    const progress = topicProgress.get(`${group.subject}|||${group.topic}`) || { attempts: 0, correct: 0, questionIds: new Set() };
+                    const uniqueAttempted = progress.questionIds?.size || 0;
+                    const coverage = group.questions.length ? Math.min(100, Math.round((uniqueAttempted / group.questions.length) * 100)) : 0;
+                    const accuracy = progress.attempts ? Math.round((progress.correct / progress.attempts) * 100) : null;
+                    return <>
+                      <div className="topic-progress"><i style={{ width: `${coverage}%` }} /></div>
+                      <small>{progress.attempts ? `진행률 ${coverage}% · ${uniqueAttempted}문제 학습 · 누적 ${progress.attempts}회 풀이 · 정답률 ${accuracy}%` : `진행률 0% · 아직 학습 전`}</small>
+                    </>;
+                  })()}
                   <div className="topic-card-actions">
                     <button className="secondary" onClick={() => startGroup(group, "quick")}>20문제 빠른 학습</button>
                     <button className="primary" onClick={() => startGroup(group, "all")}>전체 학습</button>
@@ -240,7 +317,7 @@ export default function TopicStudyPage({ exams, loadQuestions, onStart, onNaviga
 
             {!filtered.length && (
               <div className="empty-state">
-                조건에 맞는 주제가 없습니다. 문제 데이터의 topic, chapter, unit, category, subTopic 또는 tags 필드를 확인하세요.
+                조건에 맞는 주제가 없어요. 연도 범위나 출제 빈도를 조정해 보세요.
               </div>
             )}
           </>
