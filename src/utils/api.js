@@ -1,3 +1,5 @@
+import { auth } from "../firebase";
+
 export async function readJsonResponse(response, fallbackMessage = "요청을 처리하지 못했습니다.") {
   const text = await response.text();
   let body = {};
@@ -20,21 +22,44 @@ export async function readJsonResponse(response, fallbackMessage = "요청을 �
   }
 
   if (!response.ok) {
-    throw new Error(body?.error || `${fallbackMessage} (HTTP ${response.status})`);
+    const error = new Error(body?.error || `${fallbackMessage} (HTTP ${response.status})`);
+    error.status = response.status;
+    error.body = body;
+    throw error;
   }
   return body;
 }
 
-export async function postJson(url, payload, fallbackMessage) {
+async function requestJson(url, payload, fallbackMessage, headers = {}) {
   let response;
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(payload),
     });
   } catch {
     throw new Error("AI 서버에 연결하지 못했습니다. npm run dev로 웹과 API 서버가 함께 실행 중인지 확인해 주세요.");
   }
   return readJsonResponse(response, fallbackMessage);
+}
+
+export async function postJson(url, payload, fallbackMessage) {
+  const user = auth?.currentUser;
+  const token = user ? await user.getIdToken() : "";
+  return requestJson(
+    url,
+    payload,
+    fallbackMessage,
+    token ? { Authorization: `Bearer ${token}` } : {},
+  );
+}
+
+export function postJsonWithToken(url, payload, token, fallbackMessage) {
+  return requestJson(
+    url,
+    payload,
+    fallbackMessage,
+    token ? { Authorization: `Bearer ${token}` } : {},
+  );
 }
