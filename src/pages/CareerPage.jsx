@@ -155,14 +155,14 @@ export default function CareerPage({
   }, [analysis.top?.key]);
 
   return <main className="maker-page career-page">
-    <section className="maker-page-head"><div><span>GROW</span><h1>진로 로드맵</h1><p>각 역량을 따로 100점으로 표시하지 않고, 현재 활동 전체를 100%로 나누어 성장 성향을 보여줍니다.</p></div></section>
+    <section className="maker-page-head"><div><span>GROW</span><h1>진로 로드맵</h1><p>지금까지의 활동을 바탕으로 강점과 다음 진로 준비 단계를 확인하세요.</p></div></section>
 
     <section className="career-type-card maker-card">
       <div className="career-type-summary">
         <span>MAKER TYPE</span>
         <strong>{analysis.code}</strong>
         <h2>{analysis.typeName}</h2>
-        <p>MakerOS에 실제로 저장된 학습·발명·프로젝트 기록을 바탕으로 만든 탐색용 성향입니다. 적성검사나 채용 평가 점수가 아닙니다.</p>
+        <p>저장된 학습·발명·프로젝트 기록을 바탕으로 한 참고용 성장 분석입니다.</p>
         <div className="career-evidence-line">PDF {analysis.counts.pdfs} · 발명 {analysis.counts.inventions} · 프로젝트 {analysis.counts.projects} · 일지 {analysis.counts.journals}</div>
       </div>
       <div className="career-axis-list">{analysis.axes.map((axis) => <div key={`${axis.leftCode}${axis.rightCode}`}>
@@ -172,12 +172,12 @@ export default function CareerPage({
     </section>
 
     <section className="career-hero maker-card">
-      <div><span>성장 성향 분포</span><h2>{analysis.top?.name}</h2><p>아래 다섯 영역의 합은 항상 100%입니다. 활동이 적을 때는 작은 차이만 표시하고, 기록이 늘어날수록 실제 성향이 더 뚜렷해집니다.</p></div>
+      <div><span>성장 성향 분포</span><h2>{analysis.top?.name}</h2><p>활동이 쌓일수록 강점과 성장 방향이 더 선명하게 나타나요.</p></div>
       <div className="career-radar">{analysis.tendencies.map((skill) => <div key={skill.name}><span>{skill.name}</span><i><b style={{ width: `${skill.score}%` }} /></i><strong>{skill.score}%</strong></div>)}</div>
     </section>
 
     <section className="career-roadmap maker-card">
-      <div className="career-roadmap-head"><span>PERSONAL ROADMAP</span><h2>다음 직무로 연결하는 3단계</h2><p>진행률은 실제 저장된 자료·완료 작업·일지·자격증·수상 기록만 반영합니다.</p></div>
+      <div className="career-roadmap-head"><span>PERSONAL ROADMAP</span><h2>다음 직무로 연결하는 3단계</h2><p>지금까지 만든 결과물을 바탕으로 다음 준비 단계를 제안합니다.</p></div>
       <div className="career-roadmap-list">{analysis.roadmap.map((item) => <article key={item.step}>
         <b>{item.step}</b><div><header><h3>{item.title}</h3><strong>{item.progress}%</strong></header><i><span style={{ width: `${item.progress}%` }} /></i><p>{item.detail}</p><small>다음 행동 · {item.action}</small></div>
       </article>)}</div>
