@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import StatCard from "../components/StatCard";
 import { buildWrongNoteAnalysis } from "../utils/exam";
 import { buildSubjectCatalog, buildSubjectProgress } from "../utils/cbtSubjects";
+import { buildExamReadiness, buildTodayStudyPlan, buildWeakConcepts, estimatePassProjection, isTargetedPracticeRecord } from "../utils/learningEngine";
 
 function dayKey(value) {
   const date = new Date(value);
@@ -29,7 +30,7 @@ function readReflection(certificateId) {
   catch { return null; }
 }
 
-export default function CertificateHomePage({ certificate, exams, history, wrongNotes, plan, onNavigate, onOpenExam, loadQuestions }) {
+export default function CertificateHomePage({ certificate, exams, history, practiceHistory = [], wrongNotes, learningProgress = [], plan, pdfLibrary = [], onNavigate, onOpenExam, loadQuestions }) {
   const latest = history[0];
   const analysis = buildWrongNoteAnalysis(wrongNotes, history);
   const [subjectCatalog, setSubjectCatalog] = useState([]);
@@ -48,21 +49,28 @@ export default function CertificateHomePage({ certificate, exams, history, wrong
     return () => { alive = false; };
   }, [certificate?.id, exams, loadQuestions]);
 
-  const subjectRows = useMemo(() => buildSubjectProgress(subjectCatalog, history), [subjectCatalog, history]);
+  const targetedPracticeHistory = useMemo(() => practiceHistory.filter(isTargetedPracticeRecord), [practiceHistory]);
+  const subjectRows = useMemo(() => buildSubjectProgress(subjectCatalog, targetedPracticeHistory), [subjectCatalog, targetedPracticeHistory]);
   const totalSolved = history.reduce((sum, item) => sum + (item.total || 0), 0);
   const average = history.length ? Math.round(history.reduce((sum, item) => sum + (item.score || 0), 0) / history.length) : 0;
-  const weakSubject = analysis.weakSubjects[0]?.subject || subjectRows[0]?.subject || "전체 과목";
-  const reviewCount = Math.min(8, wrongNotes.length);
-  const recommendedCount = Math.max(10, Math.min(20, Number(plan?.dailyGoal) || 15));
-  const weeklyTarget = Number(plan?.dailyGoal) ? Math.min(100, Math.round((totalSolved % (plan.dailyGoal * 7 || 1)) / (plan.dailyGoal * 7 || 1) * 100)) : 0;
-  const streak = streakFrom(history);
+  const weakConcepts = useMemo(() => buildWeakConcepts(learningProgress, 5), [learningProgress]);
+  const weakSubject = weakConcepts[0]?.tag || analysis.weakSubjects[0]?.subject || subjectRows[0]?.subject || "전체 과목";
+  const projection = useMemo(() => estimatePassProjection(history, Number(certificate?.passScore || 60)), [history, certificate?.passScore]);
+  const readiness = useMemo(
+    () => buildExamReadiness({ progress: learningProgress, history, exams, plan, passScore: Number(certificate?.passScore || 60) }),
+    [certificate?.passScore, exams, history, learningProgress, plan],
+  );
+  const todayPlan = useMemo(() => buildTodayStudyPlan({ progress: learningProgress, wrongNotes, practiceHistory, plan, pdfLibrary, readiness }), [learningProgress, wrongNotes, practiceHistory, plan, pdfLibrary, readiness]);
+  const reviewCount = todayPlan.due.length;
+  const recommendedCount = readiness.recommendedDailyQuestions;
+  const streak = streakFrom([...history, ...practiceHistory]);
   const [showReason, setShowReason] = useState(false);
   const [difficulty, setDifficulty] = useState("");
   const [hardConcept, setHardConcept] = useState("");
   const [reflection, setReflection] = useState(() => readReflection(certificate?.id));
 
   const coachReasons = useMemo(() => {
-    if (!history.length) return ["아직 분석할 CBT 학습 기록이 없습니다.", "첫 문제풀이가 끝나면 오답과 과목별 정답률을 기준으로 추천합니다."];
+    if (!history.length) return ["아직 분석할 학습 기록이 없어요.", "첫 문제를 풀면 오답과 정답률을 바탕으로 다음 학습을 추천해요."];
     const wrong = analysis.weakSubjects[0]?.wrongCount || 0;
     const days = latest?.createdAt ? Math.max(0, Math.floor((Date.now() - latest.createdAt) / 86400000)) : 0;
     return [
@@ -86,16 +94,16 @@ export default function CertificateHomePage({ certificate, exams, history, wrong
     </section>
 
     <section className="v6-today-grid">
-      <article><span>복습할 개념</span><strong>{reviewCount}개</strong><p>최근 오답을 기준으로 선정</p><button onClick={() => onNavigate("bookmark")}>복습 목록 보기</button></article>
+      <article><span>복습할 개념</span><strong>{reviewCount}개</strong><p>지금 복습하면 좋은 문제</p><button onClick={() => onNavigate("bookmark")}>복습 목록 보기</button></article>
       <article><span>추천 문제</span><strong>{recommendedCount}문제</strong><p>{weakSubject} 중심 추천</p><button onClick={() => onNavigate("learning")}>추천 문제 보기</button></article>
-      <article><span>이번 주 목표</span><strong>{weeklyTarget}%</strong><p>설정한 일일 목표 기준</p><button onClick={() => onNavigate("planner")}>목표 조정</button></article>
+      <article><span>시험 준비도</span><strong>{readiness.readinessScore}%</strong><p>{readiness.stage} · 기출 {readiness.coveredSessions}/{readiness.recommendedExamSessions}회</p><button onClick={() => onNavigate("learning")}>준비도 근거 보기</button></article>
       <article><span>연속 학습</span><strong>{streak}일</strong><p>{latest?.title || "첫 학습을 시작해 보세요"}</p><button onClick={() => onNavigate("stats")}>학습 기록 보기</button></article>
     </section>
 
     <section className="v6-primary-grid">
       <article className="panel v6-coach-card">
         <div className="v6-card-heading"><div><span className="eyebrow">AI LEARNING COACH</span><h2>{history.length ? `${weakSubject}부터 복습하는 것이 좋습니다.` : "첫 학습 기록을 만들어 보세요."}</h2></div><span className="v6-status">개인화 추천</span></div>
-        <p>{history.length ? analysis.summary : "기출문제나 과목별 학습을 시작하면 오답, 정답률, 학습 간격을 분석해 다음 학습 순서를 제안합니다."}</p>
+        <p>{history.length ? analysis.summary : "기출이나 과목별 학습을 시작하면 오답과 학습 간격을 살펴 다음 공부 순서를 추천해요."}</p>
         <div className="v6-path">
           {(analysis.weakSubjects.length ? analysis.weakSubjects.slice(0, 3).map((item) => item.subject) : ["기출문제 풀이", "오답 분석", "개인별 복습"]).map((item, index) => <div key={item}><span>{index + 1}</span><strong>{item}</strong></div>)}
         </div>
@@ -106,24 +114,24 @@ export default function CertificateHomePage({ certificate, exams, history, wrong
 
       <article className="panel v6-summary-card">
         <span className="eyebrow">LEARNING DATA</span><h2>현재 학습 상태</h2>
-        <div className="compact-stats"><StatCard label="누적 풀이" value={`${totalSolved}문제`} /><StatCard label="평균 정답률" value={`${average}%`} /></div>
-        <div className="summary-list"><div><span>복습 대기</span><strong>{wrongNotes.length}문제</strong></div><div><span>가장 취약한 과목</span><strong>{weakSubject}</strong></div><div><span>등록 기출</span><strong>{exams.length}개</strong></div></div>
+        <div className="compact-stats"><StatCard label="실전 누적 풀이" value={`${totalSolved}문제`} /><StatCard label="실전 평균 정답률" value={`${average}%`} /></div>
+        <div className="summary-list"><div><span>오늘 자동 복습</span><strong>{todayPlan.due.length}문제</strong></div><div><span>가장 취약한 개념</span><strong>{weakSubject}</strong></div><div><span>기출 회차</span><strong>{exams.length}개</strong></div></div>
         <button className="secondary full" onClick={() => onNavigate("report")}>성장 리포트 보기</button>
       </article>
     </section>
 
     <section className="v6-secondary-grid">
       <article className="panel v6-studymap-preview">
-        <div className="v6-card-heading"><div><span className="eyebrow">CBT SUBJECTS</span><h2>과목별 CBT 학습 상태</h2></div><button className="text-button" onClick={() => onNavigate("subject")}>과목별 보기</button></div>
-        {subjectsLoading && <p className="muted">{certificate?.name} 과목 구성을 불러오는 중입니다.</p>}
+        <div className="v6-card-heading"><div><span className="eyebrow">TARGETED PRACTICE</span><h2>과목·주제 학습 상태</h2></div><button className="text-button" onClick={() => onNavigate("subject")}>과목별 보기</button></div>
+        {subjectsLoading && <p className="muted">{certificate?.name} 과목별 학습 현황을 준비하고 있어요.</p>}
         {!subjectsLoading && subjectRows.slice(0, 6).map((item) => (
           <div className="v6-map-row" key={item.subject}>
             <div><strong>{item.subject}</strong><span>{item.coverage}%</span></div>
             <div className="v6-map-bar"><i style={{width:`${item.coverage}%`}} /></div>
-            <small>{item.attempted ? `풀이 ${item.attempted}문제 · 정답률 ${item.accuracy}%` : `등록 ${item.available}문제 · 아직 학습 전`}</small>
+            <small>{item.attempted ? `${item.attempted}문제 학습 · 정답률 ${item.accuracy}%` : `${item.available}문제 준비됨 · 아직 학습 전`}</small>
           </div>
         ))}
-        {!subjectsLoading && !subjectRows.length && <p className="muted">이 자격증에 등록된 과목 정보를 찾지 못했습니다.</p>}
+        {!subjectsLoading && !subjectRows.length && <p className="muted">과목별 학습 정보를 아직 확인할 수 없어요.</p>}
       </article>
 
       <article className="panel v6-reflection-card">
@@ -135,6 +143,6 @@ export default function CertificateHomePage({ certificate, exams, history, wrong
       </article>
     </section>
 
-    <section className="panel recent-learning-panel"><div className="section-heading"><div><span className="eyebrow">START LEARNING</span><h2>바로 학습하기</h2></div><button className="text-button" onClick={() => onNavigate("past")}>기출 전체 보기</button></div><div className="recent-learning-grid">{exams.slice(0, 3).map((exam) => <button className="recent-learning-card" key={exam.id} onClick={() => onOpenExam(exam)}><strong>{exam.title || `${exam.year || ""} 기출문제`}</strong><span>{exam.questionCount || 0}문제</span><small>풀이 후 CBT 오답과 과목별 복습 경로가 갱신됩니다.</small></button>)}{!exams.length && <p className="muted">등록된 시험이 없습니다.</p>}</div></section>
+    <section className="panel recent-learning-panel"><div className="section-heading"><div><span className="eyebrow">START LEARNING</span><h2>바로 학습하기</h2></div><button className="text-button" onClick={() => onNavigate("past")}>기출 전체 보기</button></div><div className="recent-learning-grid">{exams.slice(0, 3).map((exam) => <button className="recent-learning-card" key={exam.id} onClick={() => onOpenExam(exam)}><strong>{exam.title || `${exam.year || ""} 기출문제`}</strong><span>{exam.questionCount || 0}문제</span><small>풀이가 끝나면 오답과 다음 복습 목록이 업데이트돼요.</small></button>)}{!exams.length && <p className="muted">아직 학습할 시험이 없어요.</p>}</div></section>
   </main>;
 }
