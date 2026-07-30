@@ -55,21 +55,21 @@ export default function PastExamsPage({ exams = [], loadQuestions, onOpen, onNav
       <div className="page-heading">
         <span className="eyebrow">OFFICIAL CBT</span>
         <h1>CBT 기출문제</h1>
-        <p>PDF 학습과 분리된 자격증 CBT 영역입니다. 먼저 과목을 선택하거나 시험 회차 전체를 풀 수 있습니다.</p>
+        <p>회차별 기출과 과목별 문제를 원하는 방식으로 풀어보세요.</p>
       </div>
 
       <section className="panel cbt-subject-overview">
         <div className="section-title">
-          <div><span className="eyebrow">SUBJECTS</span><h2>과목별 CBT</h2><p>등록된 모든 회차의 문제를 과목 기준으로 분류했습니다.</p></div>
+          <div><span className="eyebrow">SUBJECTS</span><h2>과목별 CBT</h2><p>과목별 문제 수와 출제 회차를 한눈에 확인하고 바로 학습할 수 있어요.</p></div>
           <button className="secondary" onClick={() => onNavigate?.("subject")}>과목별 전체 화면</button>
         </div>
-        {loadingSubjects ? <div className="empty-state compact">과목 정보를 정리하고 있습니다.</div> : <div className="cbt-subject-card-grid">
+        {loadingSubjects ? <div className="empty-state compact">과목별 문제를 준비하고 있어요.</div> : <div className="cbt-subject-card-grid">
           {subjectRows.map((row) => <button key={row.subject} onClick={() => openSubject(row.subject)}>
             <span>{row.subject}</span>
             <strong>{row.count.toLocaleString()}문제</strong>
             <small>{row.examCount}개 회차{row.yearList.length ? ` · ${row.yearList[0]}~${row.yearList.at(-1)}년` : ""}</small>
           </button>)}
-          {!subjectRows.length && <div className="empty-state compact">문제의 과목 정보가 등록되지 않았습니다.</div>}
+          {!subjectRows.length && <div className="empty-state compact">과목 정보를 확인할 수 있는 문제가 아직 없어요.</div>}
         </div>}
       </section>
 
@@ -87,7 +87,7 @@ export default function PastExamsPage({ exams = [], loadQuestions, onOpen, onNav
           </article>;
         })}</div>
       </section>)}
-      {!years.length && <div className="empty-state">등록된 기출문제가 없습니다.</div>}
+      {!years.length && <div className="empty-state">아직 등록된 기출문제가 없어요.</div>}
     </section>
   </main>;
 }
