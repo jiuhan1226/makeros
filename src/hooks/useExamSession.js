@@ -29,11 +29,9 @@ export function useExamSession() {
   }, [exam, mode, submitted]);
 
   const result = useMemo(
-    
     () => gradeExam(questions, answers, exam, mode),
     [answers, exam, mode, questions],
   );
-
   const score = result.correct;
 
   function start(nextExam, nextQuestions, nextMode = "시험모드") {
