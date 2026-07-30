@@ -1,3 +1,4 @@
+import { postJson } from "./api";
 import { assetId } from "./studyPlatform";
 
 function cleanText(value = "") {
@@ -85,18 +86,16 @@ export async function generateStudyAssetsFromPages({
     const pageEnd = chunk.at(-1)?.page;
     onProgress?.({ index: index + 1, total: chunks.length, pageStart, pageEnd });
 
-    const response = await fetch("/api/generate-study-assets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const data = await postJson(
+      "/api/generate-study-assets",
+      {
         pages: chunk,
         sourceName,
         chunkIndex: index + 1,
         chunkCount: chunks.length,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `${pageStart}~${pageEnd}쪽 분석 실패`);
+      },
+      `${pageStart}~${pageEnd}쪽 분석 실패`,
+    );
 
     const createdAt = Date.now() + index;
     for (const note of data.notes || []) {
