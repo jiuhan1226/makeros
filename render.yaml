@@ -11,7 +11,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION
-        value: 20
+        value: 22
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
@@ -38,3 +38,13 @@ services:
         sync: false
       - key: VITE_ADMIN_UIDS
         sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: ALLOW_UNAUTHENTICATED_AI
+        value: false
+      - key: EXPLANATION_SIGNING_SECRET
+        sync: false
+      - key: AI_EXPLANATION_USER_DAILY_LIMIT
+        value: 30
+      - key: AI_EXPLANATION_FORCE_RETRY_DAILY_LIMIT
+        value: 2
