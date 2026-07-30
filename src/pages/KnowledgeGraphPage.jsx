@@ -189,7 +189,7 @@ export default function KnowledgeGraphPage({initialQuery="",pdfLibrary=[],assets
         <select value={purpose} onChange={e=>setPurpose(e.target.value)}><option>자료 이해</option><option>학교 수업</option><option>프로젝트</option><option>자유 학습</option></select>
         <button className="primary" disabled={busy||!doc} onClick={()=>analyze()}>{busy?"학습 트리 생성 중":"선택한 PDF 트리 만들기"}</button>
       </div>
-      {doc&&<div className="pdf-tree-source-summary"><strong>{stripPdfExtension(doc.name)}</strong><span>AI 노트 {docNotes.length}개</span><span>단어카드 {docCards.length}개</span><small>다른 PDF와 CBT 데이터는 포함하지 않습니다.</small></div>}
+      {doc&&<div className="pdf-tree-source-summary"><strong>{stripPdfExtension(doc.name)}</strong><span>AI 노트 {docNotes.length}개</span><span>단어카드 {docCards.length}개</span><small>이 PDF의 학습 자료만 반영했어요.</small></div>}
       {error&&<p className="sm7-warning">{error}</p>}
       {analysis&&<div className="sm8-pipeline"><span>{doc?.name} 전용</span><i>→</i><span>AI 노트 {analysis.sourceCounts?.notes||docNotes.length}개</span><i>→</i><span>단어카드 {analysis.sourceCounts?.cards||docCards.length}개</span><i>→</i><span>PDF Learning Tree</span></div>}
     </section>
@@ -214,7 +214,7 @@ export default function KnowledgeGraphPage({initialQuery="",pdfLibrary=[],assets
       </section>
     </>}
 
-    {!analysis&&<section className="card sm7-empty"><h2>{doc?`${stripPdfExtension(doc.name)} 전용 트리가 아직 없습니다.`:"PDF를 먼저 선택하세요."}</h2><p>{doc?"위 버튼을 눌러 이 PDF의 AI 노트·단어카드만으로 새 트리를 생성하세요.":"파일을 선택하기 전에는 다른 PDF의 기존 트리를 자동으로 표시하지 않습니다."}</p>{doc&&<button className="primary" disabled={busy} onClick={()=>analyze()}>{busy?"생성 중…":"이 PDF 트리 생성"}</button>}</section>}
+    {!analysis&&<section className="card sm7-empty"><h2>{doc?`${stripPdfExtension(doc.name)} 전용 트리가 아직 없습니다.`:"PDF를 먼저 선택하세요."}</h2><p>{doc?"이 PDF의 AI 노트와 단어카드로 개념 트리를 만들어 보세요.":"먼저 개념 트리를 만들 PDF를 선택하세요."}</p>{doc&&<button className="primary" disabled={busy} onClick={()=>analyze()}>{busy?"생성 중…":"이 PDF 트리 생성"}</button>}</section>}
 
     {reviewOpen&&analysis&&<div className="sm71-modal-backdrop" role="presentation" onMouseDown={e=>e.target===e.currentTarget&&setReviewOpen(false)}><section className="card sm71-review-modal" role="dialog" aria-modal="true" aria-label="핵심 개념 검토"><header><div><span className="eyebrow">CONCEPT REVIEW</span><h2>핵심 개념 검토</h2><p>관련 없는 개념을 제외하거나 이름을 수정하고, 비슷한 개념을 합칠 수 있습니다.</p></div><button className="secondary" onClick={()=>setReviewOpen(false)}>닫기</button></header><div className="sm71-review-list">{(analysis.concepts||[]).map(c=><article key={c.id} className={c.selected!==false?"selected":""}><label><input type="checkbox" checked={c.selected!==false} disabled={c.id===root?.id} onChange={()=>toggle(c.id)}/><span><b>{c.name}</b><small>{c.reason||"AI 검증 개념"}</small></span></label>{c.id!==root?.id&&<div><button onClick={()=>rename(c.id)}>이름 수정</button><label className="merge-check"><input type="checkbox" checked={mergeIds.includes(c.id)} onChange={()=>setMergeIds(v=>v.includes(c.id)?v.filter(x=>x!==c.id):[...v,c.id])}/>병합 선택</label></div>}</article>)}</div><footer><button className="secondary" disabled={mergeIds.length<2} onClick={()=>merge(mergeIds)}>선택 개념 병합</button><button className="primary" onClick={()=>{setMergeIds([]);setReviewOpen(false)}}>검토 완료</button></footer></section></div>}
   </main>;
