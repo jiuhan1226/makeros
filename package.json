@@ -1,7 +1,7 @@
 {
-  "name": "makeros-product-alpha",
+  "name": "makeros-product-final",
   "private": true,
-  "version": "0.6.0",
+  "version": "1.0.3",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"node --watch server/server.mjs\"",
@@ -11,7 +11,16 @@
     "start": "node server/server.mjs",
     "preview": "vite preview",
     "start:server": "node server/server.mjs",
-    "check": "node --check server/server.mjs && npx tsc --noEmit --allowJs --checkJs false --jsx react-jsx --moduleResolution bundler --module esnext --target es2022 src/main.jsx"
+    "check": "node --check server/server.mjs && node --check server/cbtExplanation.mjs && node --check src/utils/cbtExplanation.js && node --check src/utils/learningMaintenance.js && npx tsc --noEmit --allowJs --checkJs false --jsx react-jsx --moduleResolution bundler --module esnext --target es2022 src/main.jsx",
+    "test:learning": "node scripts/learning-smoke-test.mjs",
+    "test:explanation": "node scripts/explanation-safety-test.mjs",
+    "test:maintenance": "node scripts/learning-maintenance-test.mjs",
+    "test": "npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:copy && npm run test:submission && npm run test:responsive",
+    "test:copy": "node scripts/copy-audit.mjs",
+    "seed:demo": "node scripts/seed-demo-account.mjs",
+    "test:submission": "node scripts/submission-readiness-test.mjs",
+    "seed:judge": "node scripts/seed-demo-account.mjs",
+    "test:responsive": "node scripts/responsive-smoke-test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -25,13 +34,14 @@
     "react-dom": "^18.3.1",
     "vite": "^6.1.0",
     "@google/genai": "^1.30.0",
-    "firebase": "^12.2.1"
+    "firebase": "^12.2.1",
+    "firebase-admin": "^13.4.0"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
     "typescript": "^5.7.3"
   },
   "engines": {
-    "node": ">=20 <23"
+    "node": ">=22 <23"
   }
 }
