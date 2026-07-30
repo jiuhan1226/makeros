@@ -104,7 +104,9 @@ export default function SubjectStudyPage({ certificate, exams, history = [], loa
       title: `${certificate?.name ? `${certificate.name} · ` : ""}${row.subject} · ${mode === "quick" ? "20문제 빠른 학습" : "전체 문제 학습"}`,
       durationMinutes: selected.length,
       hasSubjectCutoff: false,
+      assessmentType: "practice",
       studyScope: "subject",
+      returnPage: "subject",
       subject: row.subject,
       questionCount: selected.length,
       certificateId: certificate?.id || "",
@@ -125,7 +127,7 @@ export default function SubjectStudyPage({ certificate, exams, history = [], loa
           <div>
             <span className="eyebrow">SUBJECT STUDY</span>
             <h1>{certificate?.name || "선택한 자격증"} 과목별 학습</h1>
-            <p>현재 자격증에 등록된 기출문제만 과목별로 나누어 학습합니다.</p>
+            <p>원하는 과목을 골라 집중 학습하고, 풀이 결과를 바로 확인하세요.</p>
           </div>
           <span>{questions.length.toLocaleString()}문제</span>
         </div>
@@ -154,7 +156,7 @@ export default function SubjectStudyPage({ certificate, exams, history = [], loa
         )}
 
         {loading ? (
-          <div className="empty-state">{certificate?.name} 과목별 문제를 불러오는 중입니다.</div>
+          <div className="empty-state">{certificate?.name} 과목별 문제를 준비하고 있어요.</div>
         ) : (
           <div className="subject-study-grid">
             {visibleRows.map((row) => (
@@ -168,7 +170,7 @@ export default function SubjectStudyPage({ certificate, exams, history = [], loa
                 </p>
                 <div className="topic-progress"><i style={{ width: `${row.coverage || 0}%` }} /></div>
                 <small>
-                  학습량 {row.coverage || 0}% · {row.attempted ? `${row.attempted}문제 풀이 · 정답률 ${row.accuracy}%` : "아직 학습 전"}
+                  진행률 {row.coverage || 0}% · {row.attempted ? `${row.attempted}문제 학습 · 정답률 ${row.accuracy}%` : "아직 학습 전"}
                 </small>
                 <div className="subject-card-actions">
                   <button className="secondary" onClick={() => start(row, "quick")}>20문제 빠른 학습</button>
@@ -180,7 +182,7 @@ export default function SubjectStudyPage({ certificate, exams, history = [], loa
         )}
 
         {!loading && !visibleRows.length && (
-          <div className="empty-state">{certificate?.name}에 등록된 과목 문제가 없습니다.</div>
+          <div className="empty-state">{certificate?.name} 과목에서 학습할 문제를 찾지 못했어요.</div>
         )}
       </section>
     </main>
