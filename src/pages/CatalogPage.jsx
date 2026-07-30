@@ -83,7 +83,7 @@ export default function CatalogPage({ certificates, onSelect, history = [], wron
       <div className="coach-hero-copy">
         <span>AI 기반 자기주도학습 코치</span>
         <h1>혼자 공부해도<br/>길을 잃지 않도록</h1>
-        <p>MakerOS Learn은 CBT 풀이와 PDF 학습 기록을 분석해 부족한 개념을 찾고, 오늘 무엇을 공부해야 하는지 제안합니다.</p>
+        <p>CBT와 PDF 학습을 한곳에서 관리하고, 오늘 필요한 공부를 추천받아 보세요.</p>
         <div className="hero-actions">
           <button className="primary" onClick={() => document.querySelector(".certificate-grid")?.scrollIntoView({ behavior: "smooth" })}>자격증 학습 시작</button>
           <button className="secondary" onClick={() => onNavigate?.("library")}>PDF 학습 시작</button>
@@ -103,7 +103,7 @@ export default function CatalogPage({ certificates, onSelect, history = [], wron
       <article><span>최근 학습</span><strong>{recent ? "기록 있음" : "학습 전"}</strong><small>{recent?.title || "첫 학습을 시작해 보세요"}</small></article>
     </section>
 
-    <section className="catalog-heading"><div><span className="eyebrow">CERTIFICATE CBT</span><h2>학습할 자격증 선택</h2><p>자격증을 선택하면 해당 CBT 기록만 따로 분석합니다.</p></div></section>
+    <section className="catalog-heading"><div><span className="eyebrow">CERTIFICATE CBT</span><h2>학습할 자격증 선택</h2><p>학습할 자격증을 선택하고 맞춤형 CBT 학습을 시작하세요.</p></div></section>
     <div className="catalog-filters" role="group" aria-label="자격증 분야 필터">
       {visibleCategories.map((item) => <button
         key={item.id}
@@ -125,6 +125,6 @@ export default function CatalogPage({ certificates, onSelect, history = [], wron
         <p>{cert.grade || "국가기술자격"}</p>
         <button onClick={() => onSelect(cert)}>학습 시작</button>
       </article>;
-    })}{!filtered.length && <div className="catalog-empty-state"><strong>조건에 맞는 자격증이 없습니다.</strong><p>다른 분야를 선택하거나 검색어를 바꿔보세요.</p><button type="button" className="secondary" onClick={resetFilters}>전체 자격증 보기</button></div>}</section>
+    })}{!filtered.length && <div className="catalog-empty-state"><strong>조건에 맞는 자격증을 찾지 못했어요.</strong><p>분야를 바꾸거나 다른 검색어로 다시 찾아보세요.</p><button type="button" className="secondary" onClick={resetFilters}>전체 자격증 보기</button></div>}</section>
   </main>;
 }
