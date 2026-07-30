@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // 운영 환경에서는 Firebase Admin SDK로 custom claim admin=true를 설정합니다.
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    match /certificates/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /cbtExams/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /cbtQuestions/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 개인별 풀이 이벤트·문제별 누적 상태·서명된 AI 해설 캐시
+    match /users/{userId}/{document=**} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
+    // 사용자는 오류 신고만 생성할 수 있고, 조회·상태 변경은 관리자만 가능합니다.
+    match /aiExplanationReviews/{reviewId} {
+      allow create: if signedIn()
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.status == "pending";
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /aiExplanationFeedback/{feedbackId} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid;
+      allow read, update, delete: if isAdmin();
+    }
+  }
+}
