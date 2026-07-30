@@ -8,6 +8,7 @@ export function useExamSession() {
   const [answers, setAnswers] = useState({});
   const [bookmarks, setBookmarks] = useState({});
   const [reviewChecks, setReviewChecks] = useState({});
+  const [confidenceByQuestion, setConfidenceByQuestion] = useState({});
   const [current, setCurrent] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [remaining, setRemaining] = useState(0);
@@ -27,7 +28,10 @@ export function useExamSession() {
     return () => window.clearInterval(id);
   }, [exam, mode, submitted]);
 
-  const result = useMemo(() => gradeExam(questions, answers, exam), [answers, exam, questions]);
+  const result = useMemo(
+    () => gradeExam(questions, answers, exam, mode),
+    [answers, exam, mode, questions],
+  );
   const score = result.correct;
 
   function start(nextExam, nextQuestions, nextMode = "시험모드") {
@@ -37,6 +41,7 @@ export function useExamSession() {
     setAnswers({});
     setBookmarks({});
     setReviewChecks({});
+    setConfidenceByQuestion({});
     setCurrent(0);
     setSubmitted(false);
     setRemaining((nextExam?.durationMinutes || Math.max(1, nextQuestions.length)) * 60);
@@ -57,6 +62,11 @@ export function useExamSession() {
     setReviewChecks((prev) => ({ ...prev, [index]: !prev[index] }));
   }
 
+  function setConfidence(questionId, confidence) {
+    if (!questionId) return;
+    setConfidenceByQuestion((previous) => ({ ...previous, [questionId]: confidence }));
+  }
+
   return {
     questions,
     exam,
@@ -64,6 +74,7 @@ export function useExamSession() {
     answers,
     bookmarks,
     reviewChecks,
+    confidenceByQuestion,
     current,
     submitted,
     remaining,
@@ -75,6 +86,7 @@ export function useExamSession() {
     answer,
     toggleBookmark,
     toggleReviewCheck,
+    setConfidence,
     setCurrent,
     submit: () => setSubmitted(true),
   };
