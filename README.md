@@ -1,338 +1,209 @@
 # MakerOS
 
-> **문제를 푸는 앱에서, 반복을 관리하는 AI 학습 운영체제로.**
+> **마이스터고 입학 후 공부 방향을 잡지 못한 학생이 학교 공부와 CBT를 꾸준히 이어가도록 돕는 학습 습관 도우미**
 
-MakerOS는 직업계고·자격증 학습자의 기출문제 풀이, 자기평가, 반복 오답, 복습 주기, PDF 학습자료와 AI 해설을 연결하여 **오늘 무엇을 공부해야 하는지 안내하는 학습 운영 플랫폼**입니다.
+MakerOS는 학교 시험과 자격증 준비를 따로 관리해야 하는 마이스터고 학생에게 오늘 할 수 있는 작은 학습 과제를 제안하고, 수행 기록을 다음 학습으로 연결하는 서비스입니다.
 
-- 서비스 URL: `https://makeros.onrender.com/`
-- GitHub URL: `https://github.com/jiuhan1226/makeros/tree/main`
-- 3분 피치 영상: `<YouTube URL>`
+- 서비스: [https://makeros.onrender.com](https://makeros.onrender.com)
+- 저장소: [https://github.com/jiuhan1226/makeros](https://github.com/jiuhan1226/makeros)
+- 참가 분야: AI × 교육·학습
+- 대회: 제4회 NAVER OGQ마켓 AI Competition
 
----
+## 1. 해결하려는 문제
 
-## 1. 문제정의
+마이스터고 학생은 일반 교과, 전공 교과와 국가기술자격 준비를 함께 해야 합니다. 학교 시험과 기능사 필기 일정이 가까워지면 공부할 내용이 한꺼번에 늘어나지만, 입학 후 자신에게 맞는 공부 방법을 아직 만들지 못한 학생은 다음과 같은 결정을 매일 혼자 내려야 합니다.
 
-대부분의 CBT 서비스는 다음 과정에서 끝납니다.
+- 오늘 학교 공부와 자격증 공부 중 무엇을 먼저 할지
+- 남은 시간에 어느 정도의 분량을 공부할지
+- 이전에 끝내지 못한 내용과 틀린 문제를 언제 다시 볼지
+- 여러 자료에 흩어진 학습 기록을 어떻게 이어갈지
 
-```text
-문제 풀이 → 점수 확인 → 종료
-```
+계획을 크게 세우는 것보다 실제로 공부를 시작하고 다시 돌아오는 경험이 먼저 필요합니다. MakerOS는 오늘 할 일을 작은 단위로 제안하고, 완료 경험을 반복해 학생이 자신의 학습 습관을 만들도록 돕습니다.
 
-하지만 실제 시험 준비에서는 다음 과정이 반복되어야 합니다.
+### 핵심 페르소나
 
-```text
-틀린 이유 확인
-→ 이해도 자기평가
-→ 적절한 시점에 복습
-→ 반복 오답과 취약 개념 보완
-→ 실전 문제로 검증
-```
+| 항목 | 내용 |
+|---|---|
+| 주요 사용자 | 마이스터고 1학년 중 자기주도 학습 방법을 아직 정립하지 못한 학생 |
+| 학습 상황 | 일반·전공 수업과 기능사 준비를 병행함 |
+| 어려움 | 공부 순서와 분량을 결정하기 어렵고 계획을 꾸준히 이어가기 어려움 |
+| 필요한 도움 | 오늘 바로 시작할 수 있는 작은 과제와 완료 기록 |
 
-직업계고와 자격증 학습자는 기출문제, PDF 교재, 오답노트와 AI 서비스를 각각 다른 환경에서 사용합니다.
+## 2. MVP
 
-이 때문에 다음과 같은 문제가 발생합니다.
+### 핵심 행동
 
-- 맞힌 문제를 실제로 이해했는지 확인하기 어렵습니다.
-- 언제 어떤 문제를 다시 복습해야 하는지 알기 어렵습니다.
-- 반복해서 틀린 문제와 취약 개념을 체계적으로 관리하기 어렵습니다.
-- 범용 AI가 공식 정답과 다른 해설을 생성할 수 있습니다.
-- CBT와 PDF 학습 기록이 분리되어 다음 학습 행동으로 연결되지 않습니다.
+> **학생이 자신에게 제안된 오늘의 작은 학습 과제를 수행한다.**
 
-MakerOS는 정오답뿐 아니라 학생의 이해도와 반복 학습 과정을 함께 기록하여 다음 학습 행동을 자동으로 구성합니다.
-
-### 핵심 해결 방식
-
-#### 자기평가
-
-문제의 정오답과 함께 다음 이해도 중 하나를 기록합니다.
-
-- 확실함
-- 애매함
-- 모름
-
-정답을 맞혔더라도 이해도가 낮으면 복습 대상으로 유지합니다.
-
-#### SRS 자동 복습
-
-정오답, 자기평가, 복습 횟수와 반복 성공 여부를 바탕으로 다음 복습일을 계산합니다.
-
-#### 반복 오답 관리
-
-2회 이상 틀린 문제를 별도로 분류하여 집중 복습 대상으로 제공합니다.
-
-#### 세부 주제 분석
-
-과목보다 작은 주제 단위로 정답률, 풀이 횟수와 반복 오답을 분석합니다. 데이터가 지나치게 적은 주제는 유사한 상위 주제로 통합합니다.
-
-#### 검증된 AI 해설
-
-공식 정답을 고정한 상태에서 생성과 검증을 분리합니다.
+### 사용자 흐름
 
 ```text
-공식 answerIndex 고정
-→ 1차 AI 해설 생성
-→ 독립적인 2차 검증
-→ 코드 정답 대조
-→ 충돌 문구 검사
-→ HMAC 서명
-→ 해설 표시
+학교 시험일·기능사 시험일·오늘 가능한 시간 입력
+→ 오늘의 학습 과제 1~2개 확인
+→ 학교 공부 또는 CBT 수행
+→ 완료·정오답·자기평가 기록
+→ 다음 학습 과제에 반영
 ```
 
-검증 과정 중 하나라도 실패하면 AI 해설을 표시하지 않고 공식 정답만 유지합니다.
+시간이 부족한 날에는 학교 공부와 CBT를 모두 강제하지 않습니다. 시험일까지 남은 기간, 미완료 학습과 최근 오답을 기준으로 더 필요한 한 가지를 먼저 제안하며, 학생이 분량을 줄일 수 있습니다.
 
-#### 시험 준비도
+### 이번 MVP에 포함할 기능
 
-시험 준비도는 다음 요소를 기준으로 계산합니다.
+| 구분 | 범위 |
+|---|---|
+| 최소 입력 | 학교 시험일, 기능사 시험일, 오늘 가능한 시간, 학습 과목·단원 |
+| 오늘의 학습 | 기한·미완료·최근 오답을 기준으로 과제 1~2개 제안 |
+| 학교 공부 | 선택 과목 1개·단원 1개, 자료 확인, 핵심 내용 떠올리기, 완료 기록 |
+| CBT | 기능사 1종목, 검수한 소규모 문항 풀이, 채점, 오답 재학습 |
+| 공통 기록 | 시작·완료 시각, CBT 정오답, 학교 공부 자기평가 저장 |
+| 다음 행동 | 완료 기록과 오답을 다음 과제의 순서와 분량에 반영 |
 
-- 기출 범위: 35점
-- 회차 확보: 25점
-- 숙련도: 25점
-- 실전 검증: 15점
+### 사람이 직접 운영할 부분
 
-준비도 점수와 함께 각 구성 요소의 계산 근거를 제공합니다.
+- 파일럿 대상 과목과 기능사 종목 선정
+- 학교 학습자료와 CBT 문항의 이용 권리 확인
+- 문항·정답·해설 검수
+- 초기 학습 분량 조정
 
-#### 오늘의 학습
+### 이번 MVP에서 제외할 기능
 
-다음 데이터를 바탕으로 일일 학습 목표와 우선순위를 추천합니다.
+- 전 과목·전 자격증 지원
+- 기출문제 자동 수집
+- 발명 코치, 진로, 포트폴리오
+- 커뮤니티와 랭킹
+- 전용 관리자 대시보드
+- 고도화된 알림과 통계
 
-- 복습 예정 문제
-- 반복 오답
-- 취약 주제
-- 시험일까지 남은 기간
-- 최근 7일 학습량
+## 3. 검증 계획
 
-#### PDF 학습 연결
+새 페르소나에 맞는 학생 5명을 대상으로 7일 동안 파일럿을 진행합니다.
 
-업로드한 PDF를 반복 학습 자료로 변환합니다.
+| 확인할 지표 | 측정 방법 |
+|---|---|
+| 시작 시간 | 오늘의 과제를 본 뒤 첫 학습을 시작하기까지 걸린 시간 |
+| 과제 완료율 | 제안된 과제 중 완료한 과제의 비율 |
+| 학습 날짜 수 | 7일 중 한 가지 이상의 과제를 완료한 날짜 수 |
+| 사용 경험 | 공부할 내용을 정하기 쉬웠는지, 분량이 적절했는지 인터뷰 |
+
+1차 판단 기준은 5명 중 3명 이상이 7일 동안 4일 이상 과제를 수행하는 것입니다. 짧은 파일럿에서는 장기 습관 형성보다 시작과 반복 사용 가능성을 확인합니다.
+
+## 4. 아키텍처
+
+```mermaid
+flowchart TD
+    UI[React + Vite 화면] --> LOGIC[학습 과제·채점 로직]
+    UI --> AUTH[Firebase Authentication]
+    LOGIC <--> DATA[Firestore · Storage]
+    UI --> API[Node.js + Express API]
+    AUTH --> API
+    API -. 설명·학습자료 생성 .-> AI[Google Gemini API]
+```
+
+### 구성 요소
+
+| 영역 | 역할 |
+|---|---|
+| React + Vite | 오늘의 과제, 학교 공부, CBT, 완료 결과 화면 |
+| 학습 로직 | 과제 우선순위, CBT 채점, 완료 이벤트와 다음 학습 계산 |
+| Firebase Authentication | 사용자 로그인과 UID 발급 |
+| Firestore / Storage | 일정, 과제, 수행 기록, 검수된 콘텐츠 저장 |
+| Node.js + Express | 사용자 토큰 확인, AI 요청 제한과 오류 처리 |
+| Google Gemini API | CBT 설명, 학습자료와 튜터 응답 생성 보조 |
+
+### 코드와 AI의 역할
+
+공식 정답, 점수, 완료 여부, 복습일과 일일 권장량은 규칙 기반 코드가 계산합니다. AI는 문장을 만들거나 학습 내용을 설명하는 작업을 보조합니다.
 
 ```text
-PDF 업로드
-→ AI 노트
-→ 플래시카드
-→ Learning Tree
-→ AI Tutor
+공식 정답 고정
+→ AI 해설 초안 생성
+→ 별도 검증
+→ 코드에서 정답 일치 여부 확인
+→ 검증된 해설만 표시
 ```
 
-각 학습 자료는 동일한 문서 ID와 컨텍스트를 유지합니다.
+AI 호출이 지연되거나 실패해도 검수된 문제·정답과 기본 학습 과제로 학습을 이어갈 수 있도록 구성합니다.
 
----
+자세한 기술 구조는 [ARCHITECTURE.md](./ARCHITECTURE.md)에서 확인할 수 있습니다.
 
-## 2. 아키텍처
+## 5. 데이터 원칙
 
-MakerOS는 프런트엔드, 학습 엔진, Firebase와 AI API 서버로 구성됩니다.
+| 데이터 | 저장 내용 | 처리 원칙 |
+|---|---|---|
+| 학습 일정 | 시험일, 가능한 시간, 선택 과목·종목 | 학습 제안에 필요한 정보만 저장 |
+| 학습 과제 | 학교 공부·CBT 구분, 단원, 분량, 상태 | 사용자가 분량을 조절할 수 있음 |
+| 학습 이벤트 | 가명 UID, 시작·완료 시각, 답안, 자기평가 | 사용자별 경로에 분리하여 저장 |
+| 콘텐츠 | 문항, 정답, 출처, 검수 상태 | 권리가 확인된 자료만 사용 |
+| AI 결과 | 생성 내용, 모델 정보, 검수 상태 | AI 생성 사실을 표시하고 공식 정답을 우선함 |
 
-```text
-React + Vite
-  ├─ Home
-  ├─ CBT
-  ├─ PDF 학습
-  ├─ AI Tutor
-  ├─ 학습 코치
-  ├─ 성장 리포트
-  └─ 학습 플래너
+학교 공부의 자기평가와 CBT 정답률은 서로 다른 데이터로 기록합니다. 원본 학습 이벤트를 보존하여 통계가 잘못 계산되었을 때 다시 계산할 수 있도록 합니다.
 
-Deterministic Learning Engine
-  ├─ 정오답 채점
-  ├─ 미응답 문제 제외
-  ├─ 자기평가 기록
-  ├─ SRS 복습일 계산
-  ├─ 반복 오답 분석
-  ├─ 세부 주제 취약도 분석
-  ├─ 시험 준비도 계산
-  └─ 일일 권장량 계산
+## 6. 기술 스택
 
-Firebase
-  ├─ Authentication
-  ├─ Firestore
-  └─ Storage
+| 구분 | 기술 |
+|---|---|
+| Frontend | React 18, Vite 6, CSS |
+| Backend | Node.js 22, Express 4 |
+| Database | Cloud Firestore |
+| Authentication | Firebase Authentication |
+| Storage | Firebase Storage |
+| AI | Google Gemini API, `@google/genai` |
+| PDF | PDF.js |
+| Deployment | Docker, Render |
+| Security | Firebase ID Token, Helmet, CORS, Rate Limiting, HMAC |
 
-Express API
-  ├─ Firebase ID Token 검증
-  ├─ Gemini API 연동
-  ├─ Origin Allowlist
-  ├─ Rate Limiting
-  └─ AI 해설 안전 파이프라인
-```
+## 7. 실행 방법
 
-### AI와 결정 가능한 코드의 역할 분리
-
-다음 항목은 AI가 아닌 코드에서 계산합니다.
-
-- 공식 정답 채점
-- 점수와 합격 여부
-- 미응답 문제 제외
-- 복습 예정일
-- 반복 오답
-- 숙련 단계
-- 시험 준비도
-- 일일 권장 문제 수
-
-AI는 다음과 같이 언어 생성과 맥락 이해가 필요한 영역에 사용합니다.
-
-- CBT 해설 생성
-- 취약 개념 설명
-- PDF 노트와 플래시카드 생성
-- Learning Tree 생성
-- AI Tutor 응답
-- 학습 코칭
-- 발명 아이디어 구조화
-
-### 학습 데이터 구조
-
-각 문제 풀이는 `attemptId`를 기준으로 원본 이벤트로 저장합니다.
-
-```text
-사용자 문제 풀이
-→ CBTAttempt 원본 이벤트 저장
-→ QuestionProgress 갱신
-→ 과목·주제 통계 재계산
-→ SRS·반복 오답 생성
-→ 오늘의 학습 추천
-```
-
-원본 이벤트와 집계 데이터를 분리하여 중복 집계나 통계 오류 발생 시 다시 계산할 수 있도록 설계했습니다.
-
-### 반응형 구조
-
-- 데스크톱: 문제와 고정 답안지, 해설 영역 제공
-- 태블릿: 문제와 OMR·필기 노트 분할
-- 휴대폰: 전체 화면 CBT와 하단 OMR 시트
-- 입력 지원: 마우스, 손가락, Apple Pencil, S Pen
-- 최소 화면 너비: 320px
-- iPhone 안전 영역 대응
-
-자세한 시스템 구조는 [ARCHITECTURE.md](./ARCHITECTURE.md)에서 확인할 수 있습니다.
-
----
-
-## 3. 사용 스택
-
-### Frontend
-
-- React 18
-- Vite 6
-- CSS
-- Firebase Client SDK
-- PDF.js
-
-### Backend
-
-- Node.js 22
-- Express
-
-### Database / Authentication / Storage
-
-- Firebase Authentication
-- Cloud Firestore
-- Firebase Storage
-
-### AI
-
-- Google Gemini SDK
-
-### Security
-
-- Firebase ID Token Verification
-- Helmet
-- CORS Allowlist
-- Rate Limiting
-- Question Hash
-- HMAC Signature
-
-### Deployment
-
-- Docker
-- Render
-
-### Test
-
-- Node.js Test Scripts
-- JSX·TypeScript Syntax Validation
-- Vite Production Build
-- Responsive Test Scripts
-
----
-
-## 4. 실행방법
-
-### 필수 환경
+### 필요한 환경
 
 - Node.js 22.x
 - npm
 - Firebase 프로젝트
-- Firebase Authentication
-- Cloud Firestore
-- Firebase Storage
-- Google Gemini API Key
+- Google Gemini API 키
 
-Node.js 버전을 확인합니다.
+### 설치
 
 ```bash
-node -v
-```
-
-```text
-v22.x.x
-```
-
-### 저장소 설치
-
-```bash
-git clone <GitHub 저장소 URL>
-cd <저장소 폴더명>
-npm install
-```
-
-### 환경변수 설정
-
-`.env.example`을 복사해 `.env` 파일을 생성합니다.
-
-```bash
+git clone https://github.com/jiuhan1226/makeros.git
+cd makeros
+npm ci
 cp .env.example .env
 ```
 
-Windows PowerShell에서는 다음 명령을 사용할 수 있습니다.
+Windows PowerShell에서는 다음 명령으로 환경변수 파일을 만듭니다.
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-`.env` 파일에 Firebase와 Gemini 관련 환경변수를 설정합니다.
+### 주요 환경변수
 
-API Key와 HMAC 서명 Key 등 서버 전용 값에는 `VITE_` 접두사를 사용하지 않습니다.
+| 구분 | 변수 |
+|---|---|
+| 서버 | `GEMINI_API_KEY`, `GEMINI_MODEL`, `FIREBASE_PROJECT_ID` |
+| 서버 보호 | `ALLOWED_ORIGINS`, `ALLOW_UNAUTHENTICATED_AI`, `EXPLANATION_SIGNING_SECRET` |
+| Firebase 웹 | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` |
 
-### 개발 서버 실행
+실제 키와 비밀번호는 `.env` 또는 배포 환경변수에만 입력합니다.
+
+### 개발 실행
 
 ```bash
 npm run dev
 ```
 
-기본 개발 주소는 다음과 같습니다.
-
 - Web: `http://localhost:5173`
 - API: `http://localhost:8787`
 
-### 테스트
-
-```bash
-npm run test
-```
-
-반응형 화면 테스트는 다음 명령으로 실행합니다.
-
-```bash
-npm run test:responsive
-```
-
-### 코드 검사
+### 검사와 빌드
 
 ```bash
 npm run check
-```
-
-### 프로덕션 빌드
-
-```bash
+npm run test:learning
+npm run test:explanation
+npm run test:maintenance
+npm run test:copy
+npm run test:responsive
 npm run build
 ```
 
@@ -342,78 +213,63 @@ npm run build
 npm start
 ```
 
-배포 설정은 다음 파일에서 확인할 수 있습니다.
+배포 설정은 [Dockerfile](./Dockerfile), [render.yaml](./render.yaml), [DEPLOY_RENDER.md](./DEPLOY_RENDER.md)에서 확인할 수 있습니다.
 
-- `Dockerfile`
-- `render.yaml`
-- `DEPLOY_RENDER.md`
-
----
-
-## 5. AI 사용 내역
+## 8. AI 사용 내역
 
 ### 제품에서 사용한 AI
 
-MakerOS는 Google Gemini API를 다음 기능에 사용합니다.
+- 제공자: Google
+- SDK: `@google/genai`
+- 기본 모델 설정: `gemini-3.5-flash-lite`
+- 사용 기능: CBT 해설, 취약 개념 설명, PDF 학습자료, AI Tutor, 학습 코칭
 
-- 공식 정답 기반 CBT 해설 초안 생성
-- CBT 해설 독립 2차 검증
-- 취약 개념 학습 가이드 생성
-- PDF AI 노트 생성
-- PDF 플래시카드 생성
-- Learning Tree 생성
-- 선택한 CBT 또는 PDF 범위 기반 AI Tutor
-- 학습 기록 기반 학습 코치
-- 발명 아이디어 구조화
-
-### AI 해설 안전 구조
-
-AI가 공식 정답을 변경하거나 임의로 결정하지 못하도록 공식 `answerIndex`를 입력과 출력에서 고정합니다.
-
-생성된 해설은 다음 조건을 모두 통과한 경우에만 표시합니다.
-
-1. 1차 생성 결과가 공식 정답과 일치해야 합니다.
-2. 별도의 2차 검증 결과가 공식 정답과 일치해야 합니다.
-3. 코드 검사에서 정답 번호가 일치해야 합니다.
-4. 정답과 충돌하는 표현이 없어야 합니다.
-5. 문제 해시와 HMAC 서명이 유효해야 합니다.
-
-조건을 충족하지 못한 해설은 저장하거나 표시하지 않습니다.
+AI는 공식 정답과 점수를 변경하지 않습니다. 생성 결과는 정답 일치 검사와 검증 절차를 통과한 경우에만 표시합니다.
 
 ### 개발 과정에서 사용한 AI
 
-개발 과정에서 다음 AI 도구를 보조적으로 사용했습니다.
+| 도구 | 사용 내용 |
+|---|---|
+| ChatGPT / OpenAI | 요구사항 정리, MVP 범위 재정의, 코드 검토, 오류 분석, UI 문구와 문서 작성 보조 |
+| Google Gemini | 제품 내 생성 기능 구현과 응답 형식 확인 |
 
-#### ChatGPT / OpenAI
+AI가 만든 코드와 문서는 팀이 직접 실행하고 검토한 뒤 수정했습니다. 자세한 내용은 [AI_USAGE_DISCLOSURE.md](./AI_USAGE_DISCLOSURE.md)에서 확인할 수 있습니다.
 
-- 제품 요구사항 정리
-- 코드 리뷰
-- 오류 원인 분석
-- UI 문구 개선
-- 테스트 시나리오 작성
-- 문서 구조화
+## 9. 보안 점검
 
-#### Google Gemini
+- 코드와 GitHub 저장소에 실제 API 키가 보이지 않는 것을 확인했습니다.
+- 코드와 GitHub 저장소에 실제 비밀번호가 보이지 않는 것을 확인했습니다.
+- `.env`는 `.gitignore`와 `.dockerignore`에 포함되어 있습니다.
+- 서버용 키는 `VITE_` 접두사를 사용하지 않고 서버 환경변수에서 불러옵니다.
 
-- 실제 서비스 AI 기능 구현
-- 구조화된 JSON 응답 생성
-- CBT 해설 생성과 검증
-- PDF 학습자료 생성
+## 10. 오픈소스와 라이선스
 
-AI가 생성한 코드와 문서는 팀이 직접 실행하고 검토한 뒤 수정했습니다.
+팀이 작성한 코드는 [MIT License](./LICENSE)로 공개합니다.
 
-공식 정답, 점수, 복습일, 시험 준비도와 일일 권장량은 AI가 아니라 코드에서 계산합니다.
+| 라이선스 | 주요 패키지 |
+|---|---|
+| MIT | React, React DOM, Vite, React Plugin, Express, CORS, Express Rate Limit, Helmet, concurrently |
+| Apache-2.0 | Google Gen AI SDK, Firebase, Firebase Admin, PDF.js, TypeScript |
+| BSD-2-Clause | dotenv |
 
-자세한 AI 사용 내역은 [AI_USAGE_DISCLOSURE.md](./AI_USAGE_DISCLOSURE.md)에서 확인할 수 있습니다.
+- 저장소에는 별도의 외부 이미지·폰트 파일이 포함되어 있지 않습니다.
+- 기출문제, PDF, 이미지와 학습자료는 저장소의 MIT License에 포함되지 않습니다.
+- CBT 문항과 학습자료는 이용 권리와 출처를 확인한 뒤 사용합니다.
+
+## 11. 외부 참고
+
+- [스타프로젝트 W3 · MVP·아키텍처·AI 윤리](https://meister.itshin.com/workshop/w3/): MVP 범위, 아키텍처, AI 사용 및 라이선스 체크 기준 참고
+- 지도교사·멘토 등 추가 외부 자문을 받은 경우 내용과 기여 범위를 이 항목에 기록합니다.
+
+## 12. 팀
+
+| 이름 | 역할 |
+|---|---|
+| 한지우 | PM, 서비스 기획, 팀 통합 |
+| 김태형 | 프론트엔드, UX/UI |
+| 김현수 | AI, 백엔드, 데이터 |
+| 김예성 | 사용자 검증, 콘텐츠, QA |
 
 ---
 
-## 6. 라이선스
-
-이 저장소에서 팀이 자체 작성한 코드는 [MIT License](./LICENSE)로 공개합니다.
-
-외부 라이브러리는 각 라이브러리의 원 라이선스를 따릅니다.
-
-기출문제, PDF, 이미지와 학습 데이터는 저장소의 MIT License에 포함되지 않으며, 각 자료의 저작권과 이용 조건을 따라야 합니다.
-
-권리 확인이 되지 않은 기출문제, PDF와 이미지는 공개 저장소에 포함하지 않습니다.
+MakerOS는 많은 기능을 한 번에 제공하는 것보다, 학생이 오늘의 작은 학습 과제를 실제로 끝내고 다음 날 다시 돌아오는 경험을 먼저 검증합니다.
