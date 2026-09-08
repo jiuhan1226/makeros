@@ -64,6 +64,8 @@ export function resolveLearningType(exam = {}, mode = "시험모드", explicitSc
     "due-review": "srsReview",
     "wrong-review": "repeatedWrong",
     recommended: "dailyRecommended",
+    diagnostic: "aiDiagnostic",
+    adaptive: "aiAdaptivePractice",
     search: "examPractice",
     "exam-practice": "examPractice",
     pdf: "pdfPractice",
@@ -77,7 +79,7 @@ export function isPracticeScope(scope) {
 
 export function isExamHistoryRecord(item = {}) {
   const scope = String(item.studyScope || "");
-  if (scope) return scope === "exam" || scope === "mock";
+  if (scope) return scope === "exam" || scope === "mock" || scope === "diagnostic";
   if (item.assessmentType === "practice") return false;
   if (item.mode === "연습모드") return false;
   const id = String(item.examId || "");
