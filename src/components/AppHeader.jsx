@@ -15,7 +15,7 @@ function activeModule(active) {
   return "partner";
 }
 
-export default function AppHeader({ active, onNavigate, certificateName, user, onLogin, isAdmin }) {
+export default function AppHeader({ active, onNavigate, certificateName, user, onLogin, onTutorial, isAdmin }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const module = activeModule(active);
   const certificateHome = certificateName ? "certificate" : "catalog";
@@ -38,7 +38,7 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
   ];
   const schoolItems = [
     ["library", "내신 자료"],
-    ["notes", "AI 노트·카드"],
+    ["notes", "AI 노트·개념카드"],
     ["graph", "개념 트리"],
     ["tutor", "AI 튜터"],
   ];
@@ -84,6 +84,7 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
           {mainItems.map((item) => <button key={`${item.key}:${item.label}`} className={isMainActive(item) ? "active" : ""} onClick={() => navigate(item.key)}>{item.label}</button>)}
         </nav>
         <div className="maker-header-actions">
+          <button className="maker-help-button" onClick={onTutorial}>사용법</button>
           <button className="maker-search-button" onClick={() => navigate("knowledge")}>검색</button>
           {isAdmin && <button className="maker-admin-button" onClick={() => navigate("admin")}>관리자</button>}
           <button className="maker-account" onClick={handleAccount}>{user ? (user.displayName || user.email || "계정") : "로그인"}</button>
@@ -108,7 +109,7 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
         <section><span>내신</span><nav>{schoolItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
         <section><span>만들기·진로</span><nav>{legacyItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
       </div>
-      <footer><button type="button" onClick={() => navigate("knowledge")}>통합 검색</button>{isAdmin && <button type="button" onClick={() => navigate("admin")}>관리자</button>}<button type="button" className="primary" onClick={handleAccount}>{user ? "계정 관리" : "로그인"}</button></footer>
+      <footer><button type="button" onClick={() => { setMobileMenuOpen(false); onTutorial?.(); }}>사용법</button><button type="button" onClick={() => navigate("knowledge")}>통합 검색</button>{isAdmin && <button type="button" onClick={() => navigate("admin")}>관리자</button>}<button type="button" className="primary" onClick={handleAccount}>{user ? "계정 관리" : "로그인"}</button></footer>
     </aside>
 
     <nav className="maker-mobile-bottom-nav partner-mobile-nav" aria-label="모바일 빠른 메뉴">
