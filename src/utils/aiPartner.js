@@ -36,8 +36,8 @@ export function createDefaultPartnerState() {
     profile: {
       grade: "",
       major: "",
-      weeklyAvailableHours: 8,
-      dailyAvailableMinutes: { mon: 90, tue: 90, wed: 90, thu: 90, fri: 60, sat: 180, sun: 120 },
+      weeklyAvailableHours: 13.5,
+      dailyAvailableMinutes: { mon: 90, tue: 90, wed: 90, thu: 90, fri: 90, sat: 180, sun: 180 },
       fixedSchedules: [],
       sleepProtected: true,
     },
