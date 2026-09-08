@@ -138,11 +138,12 @@ export function gradeExam(questions, answers, exam = {}, mode = "실전모드") 
   }));
 
   const assessmentType = isPracticeMode ? "practice" : "exam";
-  const cutoffEnabled = assessmentType === "exam" && hasSubjectCutoff(exam);
+  const diagnostic = exam?.studyScope === "diagnostic";
+  const cutoffEnabled = assessmentType === "exam" && !diagnostic && hasSubjectCutoff(exam);
   const cutoffScore = Number(exam?.subjectCutoffScore ?? 40);
   const passScore = Number(exam?.passScore ?? 60);
   const failedSubjects = cutoffEnabled ? subjects.filter((item) => item.score < cutoffScore) : [];
-  const passed = assessmentType === "exam" ? score >= passScore && failedSubjects.length === 0 : null;
+  const passed = assessmentType === "exam" && !diagnostic ? score >= passScore && failedSubjects.length === 0 : null;
 
   return {
     total,
@@ -158,7 +159,7 @@ export function gradeExam(questions, answers, exam = {}, mode = "실전모드") 
     passScore,
     failedSubjects,
     passed,
-    resultLabel: assessmentType === "practice" ? "학습 완료" : passed ? "합격" : failedSubjects.length ? "과락 불합격" : "불합격",
+    resultLabel: diagnostic ? "진단 완료" : assessmentType === "practice" ? "학습 완료" : passed ? "합격" : failedSubjects.length ? "과락 불합격" : "불합격",
   };
 }
 
