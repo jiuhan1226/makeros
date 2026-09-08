@@ -1,13 +1,16 @@
 import React, { useMemo } from "react";
 import { daysUntil, getActivePartnerPlan, getPendingPartnerPlan, normalizePartnerState, planDiff, todayLabel } from "../utils/aiPartner";
 
-function ActionButton({ item, onNavigate, onQuickAction }) {
+function ActionButton({ item, onNavigate, onQuickAction, learningAction }) {
   const labels = { cbt: "CBT 시작", academic: "내신 학습", career: "진로 준비", activity: "활동 확인", plan: "계획 보기", goals: "목표 입력" };
   const target = item.action === "cbt" ? "past" : item.action === "academic" ? "library" : item.action === "career" ? "career" : item.action === "plan" ? "partnerPlan" : item.action === "goals" ? "partnerGoals" : "projects";
-  return <button className="partner-mini-action" onClick={() => onQuickAction ? onQuickAction(item) : onNavigate(target)}>{labels[item.action] || "열기"}</button>;
+  const working = item.action === "cbt" && ["analyzing", "generating"].includes(learningAction?.status);
+  const current = working && learningAction?.itemId === item.id;
+  const label = current ? (learningAction.status === "analyzing" ? "분석 중…" : "문제 생성 중…") : labels[item.action] || "열기";
+  return <button className="partner-mini-action" disabled={working} onClick={() => onQuickAction ? onQuickAction(item) : onNavigate(target)}>{label}</button>;
 }
 
-export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onToggleItem, onGeneratePlan, onConfirmPending, busy = false }) {
+export default function PartnerTodayPage({ state, onNavigate, onQuickAction, learningAction, onToggleItem, onGeneratePlan, onConfirmPending, busy = false }) {
   const normalized = useMemo(() => normalizePartnerState(state), [state]);
   const active = getActivePartnerPlan(normalized);
   const pending = getPendingPartnerPlan(normalized);
@@ -15,10 +18,13 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onT
   const items = active?.today?.items || [];
   const done = items.filter((item) => item.status === "completed").length;
   const goals = [
-    ...normalized.academics.map((item) => ({ title: `${item.subject} 시험`, date: item.examDate })),
-    normalized.certificateGoal?.name ? { title: `${normalized.certificateGoal.name} 시험`, date: normalized.certificateGoal.examDate } : null,
-    ...normalized.activities.map((item) => ({ title: item.title, date: item.deadline })),
+    ...normalized.goals.map((item) => ({ title: item.title, date: item.deadline })),
+    ...normalized.certificateGoals.map((item) => ({ title: `${item.name} 시험`, date: item.examDate })),
   ].filter((item) => item?.date).sort((a,b) => String(a.date).localeCompare(String(b.date))).slice(0,3);
+  const lastDiagnostic = normalized.certificateGoals
+    .map((item) => item.lastDiagnostic ? { ...item.lastDiagnostic, certificateName: item.name } : null)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))[0];
 
   return <main className="partner-page partner-today-page">
     <section className="partner-today-hero">
@@ -41,6 +47,12 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onT
       <div><button className="partner-secondary" onClick={() => onNavigate("partnerPlan")}>차이 보기</button><button className="partner-primary" onClick={onConfirmPending}>새 계획 적용</button></div>
     </section>}
 
+    {["analyzing", "generating", "error"].includes(learningAction?.status) && <section className={`partner-learning-action ${learningAction.status}`} role={learningAction.status === "error" ? "alert" : "status"}>
+      <span>{learningAction.status === "error" ? "!" : <i />}</span>
+      <div><strong>{learningAction.status === "analyzing" ? "현재 기출 풀이 수준 확인 중" : learningAction.status === "generating" ? "맞춤 테스트 문제 생성 중" : "맞춤 학습을 시작하지 못했어요"}</strong><p>{learningAction.message}</p></div>
+      {learningAction.status === "error" && <button type="button" onClick={() => onNavigate("partnerGoals")}>목표 확인</button>}
+    </section>}
+
     <section className="partner-two-column">
       <div className="partner-panel">
         <div className="partner-section-title"><div><span>오늘의 행동</span><h2>최대 5개만, 실행 가능한 크기로</h2></div><button className="partner-link" onClick={() => onNavigate("partnerPlan")}>전체 계획</button></div>
@@ -49,7 +61,7 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onT
           {items.map((item, index) => <article key={item.id} className={`partner-task ${item.status === "completed" ? "done" : ""}`}>
             <button className="partner-check" aria-label="완료 상태 변경" onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
             <div><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><p>{item.reason}</p><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "설정"}</small></div>
-            <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction}/>
+            <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction} learningAction={learningAction}/>
           </article>)}
         </div>
       </div>
@@ -61,6 +73,13 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onT
             {goals.length ? goals.map((item) => { const d = daysUntil(item.date); return <div key={`${item.title}:${item.date}`}><span><strong>{item.title}</strong><small>{item.date}</small></span><b>{d == null ? "" : d >= 0 ? `D-${d}` : `D+${Math.abs(d)}`}</b></div>; }) : <p className="partner-muted">등록된 마감이 없습니다.</p>}
           </div>
         </section>
+        {lastDiagnostic && <section className="partner-panel partner-last-diagnostic">
+          <span>최근 맞춤 진단</span>
+          <h3>{lastDiagnostic.certificateName}</h3>
+          <div><strong>{lastDiagnostic.score}<small>점</small></strong><p>{lastDiagnostic.correct}/{lastDiagnostic.total}문제 정답</p></div>
+          <ul>{(lastDiagnostic.weakSubjects || []).map((subject) => <li key={subject}>{subject}</li>)}</ul>
+          <button className="partner-secondary full" onClick={() => onNavigate("report")}>상세 학습 결과</button>
+        </section>}
       </aside>
     </section>
   </main>;
