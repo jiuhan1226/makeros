@@ -32,7 +32,7 @@ function uniqueConcepts(list=[]){
     const name=cleanTerm(c.name||c.label||"");
     if(c.id!=="root"&&!validTerm(name))continue;
     if(out.some(x=>norm(x.name)===norm(name)))continue;
-    out.push({...c,id:c.id||`c${out.length}`,name,selected:c.selected!==false,parentId:c.parentId||null,reason:c.reason||"AI 노트·단어카드 기반 핵심 개념"});
+    out.push({...c,id:c.id||`c${out.length}`,name,selected:c.selected!==false,parentId:c.parentId||null,reason:c.reason||"AI 노트·개념카드 기반 핵심 개념"});
   }
   return out;
 }
@@ -124,7 +124,7 @@ export default function KnowledgeGraphPage({initialQuery="",pdfLibrary=[],assets
     if(!doc){setError("먼저 PDF를 선택해 주세요.");return;}
     setBusy(true);setError("");
     try{
-      if(!docNotes.length&&!docCards.length)throw Error("이 PDF 전용 AI 노트 또는 단어카드가 없습니다. PDF 자료실에서 먼저 상세 학습 자료를 생성해 주세요.");
+      if(!docNotes.length&&!docCards.length)throw Error("이 PDF 전용 AI 노트 또는 개념카드가 없습니다. PDF 자료실에서 먼저 상세 학습 자료를 생성해 주세요.");
       const body=await postJson("/api/analyze-study-map",{
         sourceName:doc.name,
         purpose,
@@ -178,7 +178,7 @@ export default function KnowledgeGraphPage({initialQuery="",pdfLibrary=[],assets
   };
 
   return <main className="page-shell studymap-page learning-tree-page">
-    <section className="page-heading studymap-heading"><div><span className="eyebrow">PDF LEARNING TREE</span><h1>PDF Learning Tree</h1><p>CBT 자격증 학습과 분리된 영역입니다. 선택한 PDF 한 개의 AI 노트·단어카드만 사용합니다.</p></div><button className="secondary" disabled={!selected} onClick={()=>onAskTutor?.({question:selected?.name?`${selected.name} 개념을 쉽게 설명해줘`:"",pdfId:doc?.id||""})}>현재 개념 질문하기</button></section>
+    <section className="page-heading studymap-heading"><div><span className="eyebrow">PDF LEARNING TREE</span><h1>PDF Learning Tree</h1><p>CBT 자격증 학습과 분리된 영역입니다. 선택한 PDF 한 개의 AI 노트·개념카드만 사용합니다.</p></div><button className="secondary" disabled={!selected} onClick={()=>onAskTutor?.({question:selected?.name?`${selected.name} 개념을 쉽게 설명해줘`:"",pdfId:doc?.id||""})}>현재 개념 질문하기</button></section>
 
     <section className="card studymap-search-card">
       <div className="sm71-search-row">
@@ -189,9 +189,9 @@ export default function KnowledgeGraphPage({initialQuery="",pdfLibrary=[],assets
         <select value={purpose} onChange={e=>setPurpose(e.target.value)}><option>자료 이해</option><option>학교 수업</option><option>프로젝트</option><option>자유 학습</option></select>
         <button className="primary" disabled={busy||!doc} onClick={()=>analyze()}>{busy?"학습 트리 생성 중":"선택한 PDF 트리 만들기"}</button>
       </div>
-      {doc&&<div className="pdf-tree-source-summary"><strong>{stripPdfExtension(doc.name)}</strong><span>AI 노트 {docNotes.length}개</span><span>단어카드 {docCards.length}개</span><small>이 PDF의 학습 자료만 반영했어요.</small></div>}
+      {doc&&<div className="pdf-tree-source-summary"><strong>{stripPdfExtension(doc.name)}</strong><span>AI 노트 {docNotes.length}개</span><span>개념카드 {docCards.length}개</span><small>이 PDF의 학습 자료만 반영했어요.</small></div>}
       {error&&<p className="sm7-warning">{error}</p>}
-      {analysis&&<div className="sm8-pipeline"><span>{doc?.name} 전용</span><i>→</i><span>AI 노트 {analysis.sourceCounts?.notes||docNotes.length}개</span><i>→</i><span>단어카드 {analysis.sourceCounts?.cards||docCards.length}개</span><i>→</i><span>PDF Learning Tree</span></div>}
+      {analysis&&<div className="sm8-pipeline"><span>{doc?.name} 전용</span><i>→</i><span>AI 노트 {analysis.sourceCounts?.notes||docNotes.length}개</span><i>→</i><span>개념카드 {analysis.sourceCounts?.cards||docCards.length}개</span><i>→</i><span>PDF Learning Tree</span></div>}
     </section>
 
     {analysis&&<>
@@ -206,15 +206,15 @@ export default function KnowledgeGraphPage({initialQuery="",pdfLibrary=[],assets
 
         <aside className="card learning-concept-panel">
           <span className="studymap-type concept">선택한 개념</span><h2>{selected?.name||"개념을 선택하세요"}</h2>
-          <p className="concept-reason">{selected?.reason||"현재 PDF의 AI 노트와 단어카드에서 확인된 핵심 개념입니다."}</p>
-          <div className="concept-status-grid pdf-tree-status"><div><span>현재 PDF</span><strong>{stripPdfExtension(doc?.name||"")}</strong></div><div><span>연결 AI 노트</span><strong>{relatedNotes.length}개</strong></div><div><span>연결 단어카드</span><strong>{relatedCards.length}개</strong></div></div>
+          <p className="concept-reason">{selected?.reason||"현재 PDF의 AI 노트와 개념카드에서 확인된 핵심 개념입니다."}</p>
+          <div className="concept-status-grid pdf-tree-status"><div><span>현재 PDF</span><strong>{stripPdfExtension(doc?.name||"")}</strong></div><div><span>연결 AI 노트</span><strong>{relatedNotes.length}개</strong></div><div><span>연결 개념카드</span><strong>{relatedCards.length}개</strong></div></div>
           <div className="learning-actions"><button className="primary" onClick={()=>onAskTutor?.({question:`${selected?.name} 개념을 이 PDF 자료만 기준으로 쉽게 설명해줘`,pdfId:doc?.id||""})}>AI 설명 듣기</button>{doc&&<button className="secondary" onClick={()=>onOpenPdf?.(doc,1)}>이 PDF 열기</button>}</div>
-          <div className="connected-learning-list"><strong>이 PDF 안에서 이어서 공부하기</strong>{relatedNotes.map((n,i)=><button key={`n-${i}`} onClick={()=>onOpenAsset?.("notes",n)}><span>AI 노트</span><b>{n.title||selected?.name}</b><small>열기 ›</small></button>)}{relatedCards.map((c,i)=><button key={`c-${i}`} onClick={()=>onOpenAsset?.("cards",c)}><span>단어카드</span><b>{c.front||selected?.name}</b><small>열기 ›</small></button>)}{!relatedNotes.length&&!relatedCards.length&&<p>현재 PDF에서 이 개념과 직접 연결된 노트나 카드가 없습니다.</p>}</div>
+          <div className="connected-learning-list"><strong>이 PDF 안에서 이어서 공부하기</strong>{relatedNotes.map((n,i)=><button key={`n-${i}`} onClick={()=>onOpenAsset?.("notes",n)}><span>AI 노트</span><b>{n.title||selected?.name}</b><small>열기 ›</small></button>)}{relatedCards.map((c,i)=><button key={`c-${i}`} onClick={()=>onOpenAsset?.("cards",c)}><span>개념카드</span><b>{c.front||selected?.name}</b><small>열기 ›</small></button>)}{!relatedNotes.length&&!relatedCards.length&&<p>현재 PDF에서 이 개념과 직접 연결된 노트나 카드가 없습니다.</p>}</div>
         </aside>
       </section>
     </>}
 
-    {!analysis&&<section className="card sm7-empty"><h2>{doc?`${stripPdfExtension(doc.name)} 전용 트리가 아직 없습니다.`:"PDF를 먼저 선택하세요."}</h2><p>{doc?"이 PDF의 AI 노트와 단어카드로 개념 트리를 만들어 보세요.":"먼저 개념 트리를 만들 PDF를 선택하세요."}</p>{doc&&<button className="primary" disabled={busy} onClick={()=>analyze()}>{busy?"생성 중…":"이 PDF 트리 생성"}</button>}</section>}
+    {!analysis&&<section className="card sm7-empty"><h2>{doc?`${stripPdfExtension(doc.name)} 전용 트리가 아직 없습니다.`:"PDF를 먼저 선택하세요."}</h2><p>{doc?"이 PDF의 AI 노트와 개념카드로 개념 트리를 만들어 보세요.":"먼저 개념 트리를 만들 PDF를 선택하세요."}</p>{doc&&<button className="primary" disabled={busy} onClick={()=>analyze()}>{busy?"생성 중…":"이 PDF 트리 생성"}</button>}</section>}
 
     {reviewOpen&&analysis&&<div className="sm71-modal-backdrop" role="presentation" onMouseDown={e=>e.target===e.currentTarget&&setReviewOpen(false)}><section className="card sm71-review-modal" role="dialog" aria-modal="true" aria-label="핵심 개념 검토"><header><div><span className="eyebrow">CONCEPT REVIEW</span><h2>핵심 개념 검토</h2><p>관련 없는 개념을 제외하거나 이름을 수정하고, 비슷한 개념을 합칠 수 있습니다.</p></div><button className="secondary" onClick={()=>setReviewOpen(false)}>닫기</button></header><div className="sm71-review-list">{(analysis.concepts||[]).map(c=><article key={c.id} className={c.selected!==false?"selected":""}><label><input type="checkbox" checked={c.selected!==false} disabled={c.id===root?.id} onChange={()=>toggle(c.id)}/><span><b>{c.name}</b><small>{c.reason||"AI 검증 개념"}</small></span></label>{c.id!==root?.id&&<div><button onClick={()=>rename(c.id)}>이름 수정</button><label className="merge-check"><input type="checkbox" checked={mergeIds.includes(c.id)} onChange={()=>setMergeIds(v=>v.includes(c.id)?v.filter(x=>x!==c.id):[...v,c.id])}/>병합 선택</label></div>}</article>)}</div><footer><button className="secondary" disabled={mergeIds.length<2} onClick={()=>merge(mergeIds)}>선택 개념 병합</button><button className="primary" onClick={()=>{setMergeIds([]);setReviewOpen(false)}}>검토 완료</button></footer></section></div>}
   </main>;
