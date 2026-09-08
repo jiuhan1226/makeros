@@ -10,7 +10,7 @@ function ActionButton({ item, onNavigate, onQuickAction, learningAction }) {
   return <button className="partner-mini-action" disabled={working} onClick={() => onQuickAction ? onQuickAction(item) : onNavigate(target)}>{label}</button>;
 }
 
-export default function PartnerTodayPage({ state, onNavigate, onQuickAction, learningAction, onToggleItem, onGeneratePlan, onConfirmPending, busy = false }) {
+export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onOpenPlanItem, learningAction, onToggleItem, onGeneratePlan, onConfirmPending, busy = false }) {
   const normalized = useMemo(() => normalizePartnerState(state), [state]);
   const active = getActivePartnerPlan(normalized);
   const pending = getPendingPartnerPlan(normalized);
@@ -18,8 +18,8 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, lea
   const items = active?.today?.items || [];
   const done = items.filter((item) => item.status === "completed").length;
   const goals = [
-    ...normalized.goals.map((item) => ({ title: item.title, date: item.deadline })),
-    ...normalized.certificateGoals.map((item) => ({ title: `${item.name} 시험`, date: item.examDate })),
+    ...normalized.goals.map((item) => ({ id: item.id, title: item.title, date: item.deadline })),
+    ...normalized.certificateGoals.map((item) => ({ id: item.id, title: `${item.name} 시험`, date: item.examDate })),
   ].filter((item) => item?.date).sort((a,b) => String(a.date).localeCompare(String(b.date))).slice(0,3);
   const lastDiagnostic = normalized.certificateGoals
     .map((item) => item.lastDiagnostic ? { ...item.lastDiagnostic, certificateName: item.name } : null)
@@ -31,7 +31,7 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, lea
       <div>
         <span className="partner-kicker">TODAY · {todayLabel()}</span>
         <h1>{active ? "오늘, 목표에 가장 가까워지는 일부터." : "목표를 입력하면 오늘 할 일까지 연결해 드려요."}</h1>
-        <p>{active?.summary || "내신·자격증·취업·대회와 가능한 시간을 함께 보고 12주·이번 주·오늘 계획을 만듭니다."}</p>
+        <p>{active?.summary || "목표일과 가능한 시간을 입력하면 마감일부터 역산해 이번 주와 오늘 계획을 만듭니다."}</p>
         <div className="partner-hero-actions">
           <button className="partner-primary" disabled={busy} onClick={onGeneratePlan}>{busy ? "계획 계산 중…" : active ? "변화 반영해 다시 계산" : "첫 계획 만들기"}</button>
           <button className="partner-secondary" onClick={() => onNavigate("partnerGoals")}>정보 업데이트</button>
@@ -60,7 +60,7 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, lea
         <div className="partner-task-list">
           {items.map((item, index) => <article key={item.id} className={`partner-task ${item.status === "completed" ? "done" : ""}`}>
             <button className="partner-check" aria-label="완료 상태 변경" onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
-            <div><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><p>{item.reason}</p><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "설정"}</small></div>
+            <button type="button" className="partner-task-content" onClick={() => onOpenPlanItem?.(item.goalId)}><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><p>{item.reason}</p><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "일정"}</small></button>
             <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction} learningAction={learningAction}/>
           </article>)}
         </div>
@@ -70,7 +70,7 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, lea
         <section className="partner-panel">
           <div className="partner-section-title compact"><div><span>다가오는 마감</span><h2>놓치면 안 되는 일정</h2></div></div>
           <div className="partner-deadline-list">
-            {goals.length ? goals.map((item) => { const d = daysUntil(item.date); return <div key={`${item.title}:${item.date}`}><span><strong>{item.title}</strong><small>{item.date}</small></span><b>{d == null ? "" : d >= 0 ? `D-${d}` : `D+${Math.abs(d)}`}</b></div>; }) : <p className="partner-muted">등록된 마감이 없습니다.</p>}
+            {goals.length ? goals.map((item) => { const d = daysUntil(item.date); return <button type="button" key={`${item.title}:${item.date}`} onClick={() => onOpenPlanItem?.(item.id)}><span><strong>{item.title}</strong><small>{item.date}</small></span><b>{d == null ? "" : d >= 0 ? `D-${d}` : `D+${Math.abs(d)}`}</b></button>; }) : <p className="partner-muted">등록된 마감이 없습니다.</p>}
           </div>
         </section>
         {lastDiagnostic && <section className="partner-panel partner-last-diagnostic">
