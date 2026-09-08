@@ -100,7 +100,7 @@ export default function AuthModal({ user, onClose }) {
       </> : <>
         <span className="eyebrow">WELCOME TO MAKEROS</span>
         <h2>로그인</h2>
-        <p className="muted">학습 기록과 AI 해설을 안전하게 동기화합니다.</p>
+        <p className="muted">비회원 AI 체험을 모두 사용했습니다. 로그인하면 학습 기록을 동기화하고 계속 이용할 수 있습니다.</p>
         <form onSubmit={submit}>
           <label>이메일<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
           <label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength="6" required /></label>
