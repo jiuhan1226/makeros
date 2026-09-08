@@ -8,7 +8,8 @@ export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPendin
   const shown = pending || active;
   const diff = pending && active ? planDiff(active, pending) : null;
   const history = normalized.planVersions.filter((item) => item.status === "superseded").slice(0, 5);
-  const horizonWeeks = shown?.weeks?.length || 0;
+  const visibleWeeks = (shown?.weeks || []).filter((week) => (week.items || []).length > 0);
+  const displaySummary = String(shown?.summary || "").replace(/\s+\d+주 계획을/, " 계획을");
 
   useEffect(() => {
     if (!focusGoalId || !shown) return;
@@ -32,20 +33,21 @@ export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPendin
 
     {shown && <>
       <section className="partner-panel">
-        <div className="partner-section-title"><div><span>{pending ? "검토 중인 계획" : "현재 확정 계획"}</span><h2>{shown.summary}</h2></div><span className={`partner-status-chip ${pending ? "draft" : "active"}`}>{pending ? "확정 전" : "적용 중"}</span></div>
+        <div className="partner-section-title"><div><span>{pending ? "검토 중인 계획" : "현재 확정 계획"}</span><h2>{displaySummary}</h2></div><span className={`partner-status-chip ${pending ? "draft" : "active"}`}>{pending ? "확정 전" : "적용 중"}</span></div>
         <div className="partner-roadmap-grid">
           {(shown.roadmap || []).map((goal) => <article id={`plan-goal-${goal.goalId}`} className={`partner-roadmap-goal ${String(focusGoalId) === String(goal.goalId) ? "focus" : ""}`} key={goal.goalId}>
-            <header><span>{goal.type === "academic" ? "내신" : goal.type === "certificate" ? "자격증" : goal.type === "career" ? "취업" : "대회·활동"}</span><strong>{goal.title}</strong><small>{goal.deadline ? `목표일 ${goal.deadline}` : "장기 목표"}</small></header>
+            <header><span>{goal.type === "academic" ? "내신" : goal.type === "certificate" ? "자격증" : goal.type === "career" ? "취업" : "대회·활동"}</span><strong>{goal.title}</strong><small>{goal.startDate && goal.deadline && goal.startDate !== goal.deadline ? `${goal.startDate} ~ ${goal.deadline}` : goal.deadline ? `목표일 ${goal.deadline}` : goal.startDate ? `시작일 ${goal.startDate}` : "장기 목표"}</small></header>
             <div>{(goal.milestones || []).map((item, index) => <div className="partner-milestone" key={item.id || index}><i>{index + 1}</i><span><strong>{item.title}</strong><small>{item.reason}</small></span></div>)}</div>
           </article>)}
         </div>
       </section>
 
       <section className="partner-panel">
-        <div className="partner-section-title"><div><span>주간 계획</span><h2>{horizonWeeks}주 동안 목표일까지 분량 배치</h2></div></div>
+        <div className="partner-section-title"><div><span>주간 계획</span><h2>입력한 기간에 맞춘 학습 분량</h2></div></div>
         <div className="partner-week-grid">
-          {(shown.weeks || []).map((week) => <article key={week.weekIndex} className={week.weekIndex === 0 ? "current" : ""}><header><strong>{week.weekIndex === 0 ? "이번 주" : `${week.weekIndex + 1}주차`}</strong><small>{week.startsAt} ~ {week.endsAt}</small></header><div className="partner-week-load"><i style={{ width: `${Math.min(100, (week.totalMinutes || 0) / Math.max(1, shown.constraints?.weeklyAvailableMinutes || 480) * 100)}%` }}/></div><small>{Math.round((week.totalMinutes || 0) / 60 * 10) / 10}시간</small><ul>{(week.items || []).slice(0, 4).map((item) => <li key={item.id}>{item.title}</li>)}</ul></article>)}
+          {visibleWeeks.map((week) => <article key={week.weekIndex} className={week.weekIndex === 0 ? "current" : ""}><header><strong>{week.weekIndex === 0 ? "이번 주" : `${week.startsAt.slice(5).replace("-", ".")} 주간`}</strong><small>{week.startsAt} ~ {week.endsAt}</small></header><div className="partner-week-load"><i style={{ width: `${Math.min(100, (week.totalMinutes || 0) / Math.max(1, shown.constraints?.weeklyAvailableMinutes || 480) * 100)}%` }}/></div><small>{Math.round((week.totalMinutes || 0) / 60 * 10) / 10}시간</small><ul>{(week.items || []).slice(0, 4).map((item) => <li key={item.id}>{item.title}</li>)}</ul></article>)}
         </div>
+        {!visibleWeeks.length && <div className="partner-simple-empty">목표 기간을 입력하고 계획을 다시 만들면 주간 분량이 표시됩니다.</div>}
       </section>
     </>}
 
