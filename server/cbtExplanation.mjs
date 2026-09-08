@@ -13,6 +13,10 @@ export function buildExplanationHash(payload = {}) {
     answerIndex: Number(payload.answerIndex),
     subject: clean(payload.subject),
     topic: clean(payload.topic),
+    images: (Array.isArray(payload.images) ? payload.images : []).map((item) => ({
+      label: clean(item?.label),
+      url: clean(item?.url),
+    })),
   })).digest("hex");
 }
 
