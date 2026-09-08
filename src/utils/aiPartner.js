@@ -184,7 +184,7 @@ function inferGoalType(item = {}) {
   const text = `${item.title || ""} ${item.details || ""}`;
   if (/내신|과목|중간고사|기말고사|수행평가/.test(text)) return "academic";
   if (/취업|입사|지원|면접|자소서|기업|직무/.test(text)) return "career";
-  if (/대회|공모전|프로젝트|해커톤|발표|제출|포트폴리오/.test(text)) return "activity";
+  if (/대회|공모전|해커톤|발표|제출/.test(text)) return "activity";
   return "custom";
 }
 
@@ -238,11 +238,16 @@ function milestoneTemplates(goal) {
       ["지원 문서 초안 보완", 60, "지원 시기에 맞춰 자기소개와 경험 근거를 미리 준비합니다."],
     ];
   }
-  return [
+  if (goal.type === "activity") return [
     ["요구사항과 마감 확인", 40, "대회·프로젝트 마감과 평가 기준을 먼저 확인합니다."],
     ["이번 주 핵심 산출물 제작", 90, "마감에 가장 직접적인 결과물을 먼저 완성합니다."],
     ["팀 진행 상황 점검", 35, "역할과 남은 일을 확인해 지연 가능성을 줄입니다."],
     ["제출 전 검토", 60, "제출 직전에는 새 기능보다 누락과 품질 검토를 우선합니다."],
+  ];
+  return [
+    ["해야 할 내용 확인", 30, "입력한 일정과 완료 조건을 먼저 확인합니다."],
+    ["핵심 작업 진행", 60, "마감 전에 끝낼 수 있도록 가장 중요한 일부터 진행합니다."],
+    ["마무리 확인", 30, "완료 전에 빠진 내용이 없는지 확인합니다."],
   ];
 }
 
@@ -272,11 +277,17 @@ function todayAvailableMinutes(state, today = new Date()) {
   return Math.max(20, Number(profile.dailyAvailableMinutes?.[key] || Math.round(weeklyAvailableMinutes(state) / 7)));
 }
 
-function targetWeek(goal, stepIndex, stepCount, today) {
+function planHorizonWeeks(goals, today) {
+  const dated = goals.map((goal) => daysUntil(goal.deadline, today)).filter((value) => value != null && value >= 0);
+  if (!dated.length) return 4;
+  return Math.max(1, Math.min(52, Math.ceil((Math.max(...dated) + 1) / 7)));
+}
+
+function targetWeek(goal, stepIndex, stepCount, today, horizonWeeks) {
   const dday = daysUntil(goal.deadline, today);
-  const horizonWeeks = dday == null ? 12 : Math.max(1, Math.min(12, Math.ceil(Math.max(1, dday) / 7)));
+  const goalWeeks = dday == null ? horizonWeeks : Math.max(1, Math.min(horizonWeeks, Math.ceil((Math.max(0, dday) + 1) / 7)));
   const ratio = stepCount <= 1 ? 0 : stepIndex / (stepCount - 1);
-  return Math.max(0, Math.min(11, Math.floor(ratio * Math.max(0, horizonWeeks - 1))));
+  return Math.max(0, Math.min(horizonWeeks - 1, Math.floor(ratio * Math.max(0, goalWeeks - 1))));
 }
 
 export function buildDeterministicPlan(state, options = {}) {
@@ -285,7 +296,8 @@ export function buildDeterministicPlan(state, options = {}) {
   const goals = collectGoals(normalized)
     .map((goal) => ({ ...goal, priority: goalPriority(goal, today) }))
     .sort((a, b) => b.priority - a.priority);
-  const weeks = Array.from({ length: 12 }, (_, index) => ({
+  const horizonWeeks = planHorizonWeeks(goals, today);
+  const weeks = Array.from({ length: horizonWeeks }, (_, index) => ({
     weekIndex: index,
     startsAt: weekStart(today, index),
     endsAt: weekEnd(today, index),
@@ -297,7 +309,7 @@ export function buildDeterministicPlan(state, options = {}) {
   for (const goal of goals) {
     const templates = milestoneTemplates(goal);
     const milestones = templates.map(([title, duration, reason], index) => {
-      const weekIndex = targetWeek(goal, index, templates.length, today);
+      const weekIndex = targetWeek(goal, index, templates.length, today, horizonWeeks);
       const deadline = goal.deadline || weeks[weekIndex].endsAt;
       const item = {
         id: partnerId("plan"),
@@ -310,7 +322,7 @@ export function buildDeterministicPlan(state, options = {}) {
         priority: Number((goal.priority * (1 - index * 0.04)).toFixed(2)),
         status: "todo",
         source: "rules",
-        action: goal.type === "certificate" ? "cbt" : goal.type === "academic" ? "academic" : goal.type === "career" ? "career" : "activity",
+        action: goal.type === "certificate" ? "cbt" : goal.type === "academic" ? "academic" : goal.type === "career" ? "career" : goal.type === "activity" ? "activity" : "plan",
       };
       weeks[weekIndex].items.push(item);
       weeks[weekIndex].totalMinutes += duration;
@@ -354,7 +366,7 @@ export function buildDeterministicPlan(state, options = {}) {
   if (!todayItems.length) {
     todayItems.push({
       id: partnerId("today"), goalId: "onboarding", goalType: "system", title: goals.length ? "이번 주 계획 확인" : "첫 목표 입력하기",
-      reason: goals.length ? "이번 주 목표와 마감을 확인하고 오늘 가능한 분량부터 시작합니다." : "내신·자격증·취업·활동 정보를 입력하면 12주 계획을 만들 수 있습니다.",
+      reason: goals.length ? "이번 주 목표와 마감을 확인하고 오늘 가능한 분량부터 시작합니다." : "목표와 날짜를 입력하면 마감일까지의 계획을 만들 수 있습니다.",
       dueAt: isoDate(today), durationMinutes: 20, priority: 1, status: "todo", source: "rules", action: goals.length ? "plan" : "goals",
     });
   }
@@ -367,7 +379,7 @@ export function buildDeterministicPlan(state, options = {}) {
     status: "draft",
     source: options.source || "rules",
     summary: goals.length
-      ? `${goals.length}개의 목표와 주 ${Math.round(weekLimit / 60 * 10) / 10}시간의 가능 시간을 기준으로 12주 계획을 구성했습니다.`
+      ? `${goals.length}개의 목표일과 주 ${Math.round(weekLimit / 60 * 10) / 10}시간의 가능 시간을 기준으로 ${horizonWeeks}주 계획을 구성했습니다.`
       : "목표 정보가 부족해 첫 설정 행동만 제안합니다.",
     roadmap,
     weeks,
@@ -388,7 +400,7 @@ export function validatePartnerPlan(plan, state) {
   const weekLimit = weeklyAvailableMinutes(normalized);
   const output = JSON.parse(JSON.stringify(plan || {}));
   output.warnings = Array.isArray(output.warnings) ? output.warnings : [];
-  output.weeks = Array.isArray(output.weeks) ? output.weeks.slice(0, 12) : [];
+  output.weeks = Array.isArray(output.weeks) ? output.weeks.slice(0, 52) : [];
   output.roadmap = Array.isArray(output.roadmap) ? output.roadmap : [];
   output.today = output.today || { date: isoDate(new Date()), availableMinutes: todayAvailableMinutes(normalized), items: [] };
   output.today.items = Array.isArray(output.today.items) ? output.today.items.slice(0, 5) : [];
@@ -576,7 +588,18 @@ export function partnerCalendarItems(state) {
   const items = [];
   normalized.goals.forEach((item) => item?.deadline && items.push({ id: item.id || partnerId("cal"), type: inferGoalType(item), title: item.title, date: item.deadline, locked: false }));
   normalized.certificateGoals.forEach((item) => item?.examDate && items.push({ id: `certificate-exam:${item.id || item.name}`, type: "certificate", title: `${item.name} 시험`, date: item.examDate, locked: true }));
-  normalized.calendarExtras.forEach((item) => item?.date && items.push(item));
+  normalized.calendarExtras.forEach((item) => {
+    const start = item?.startDate || item?.date;
+    const end = item?.isSingleDay ? start : item?.endDate || start;
+    const startDate = dateAtNoon(start);
+    const endDate = dateAtNoon(end);
+    if (!startDate) return;
+    const safeEnd = endDate && endDate >= startDate ? endDate : startDate;
+    for (let date = new Date(startDate), index = 0; date <= safeEnd && index < 366; date = addDays(date, 1), index += 1) {
+      const dateKey = isoDate(date);
+      items.push({ ...item, id: `${item.id || partnerId("cal")}:${dateKey}`, sourceId: item.id || "", date: dateKey, startDate: start, endDate: end });
+    }
+  });
   return items.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
