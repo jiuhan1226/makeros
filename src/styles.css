@@ -618,6 +618,44 @@ html{overflow-x:hidden;-webkit-text-size-adjust:100%}body{min-width:320px;overfl
 @media(max-width:900px){.partner-simple-presets{grid-template-columns:1fr}.partner-add-row.certificate,.partner-add-row.goal{grid-template-columns:1fr 180px}.partner-add-row.certificate button{grid-column:1/-1;min-height:44px}.partner-add-row.goal textarea{grid-column:1/-1}.partner-add-row.goal button{grid-column:1/-1;grid-row:auto;min-height:44px}.partner-simple-list article{grid-template-columns:45px minmax(0,1fr) 150px}.partner-simple-list article>button{grid-column:2;justify-self:start}.partner-simple-list article.general>button{grid-column:2}.partner-simple-list article.general>input[type="date"]{grid-column:3}}
 @media(max-width:600px){.partner-simple-goals .partner-page-head h1{font-size:34px}.partner-simple-section{padding:18px}.partner-simple-heading{grid-template-columns:34px 1fr}.partner-simple-heading>strong{grid-column:2}.partner-form-grid.two{grid-template-columns:1fr}.partner-add-row.certificate,.partner-add-row.goal{grid-template-columns:1fr}.partner-add-row.goal textarea{grid-column:1}.partner-simple-list article,.partner-simple-list article.general{grid-template-columns:42px minmax(0,1fr)}.partner-simple-list article>input[type="date"],.partner-simple-list article.general>input[type="date"],.partner-simple-list article>small,.partner-simple-list article>button{grid-column:2}.partner-submit-bar{align-items:stretch;flex-direction:column}.partner-submit-bar .partner-primary{width:100%}}
 
+/* v3.1.7 기간 목표와 이어지는 캘린더 */
+.partner-add-row.certificate,.partner-add-row.goal{grid-template-columns:minmax(220px,1fr) minmax(390px,1.35fr) auto;align-items:stretch}
+.partner-add-row.goal textarea{grid-column:1/3}.partner-add-row.goal>button{grid-column:3;grid-row:1/3}
+.partner-period-inputs,.partner-list-period{display:grid;grid-template-columns:repeat(2,minmax(125px,1fr)) auto;align-items:end;gap:8px}
+.partner-period-inputs>label:not(.partner-period-check),.partner-list-period>label:not(.partner-period-check){display:grid;gap:5px;min-width:0}
+.partner-period-inputs label>span,.partner-list-period label>span{color:#6d8091;font-size:12px;font-weight:800}
+.partner-period-inputs input[type="date"],.partner-list-period input[type="date"]{min-width:0}
+.partner-period-check{display:flex;align-items:center;gap:6px;align-self:center;white-space:nowrap;color:#476177;font-size:13px;font-weight:800;cursor:pointer}
+.partner-period-check input{width:16px!important;height:16px;accent-color:#0d9fe8}
+.partner-simple-list article{grid-template-columns:50px minmax(170px,.8fr) minmax(390px,1.35fr) auto auto}
+.partner-simple-list article.general{grid-template-columns:50px minmax(220px,1fr) minmax(390px,1.2fr) auto}
+.partner-list-period input{padding:9px 10px}
+
+.partner-calendar-events{overflow:visible}
+.partner-calendar-events button span{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.partner-calendar-events button.range-event{position:relative;z-index:2;border-radius:0}
+.partner-calendar-events button.range-event.range-start{width:calc(100% + 10px);border-radius:7px 0 0 7px}
+.partner-calendar-events button.range-event.range-middle{width:calc(100% + 20px);margin-left:-10px}
+.partner-calendar-events button.range-event.range-end{width:calc(100% + 10px);margin-left:-10px;border-radius:0 7px 7px 0}
+.partner-calendar-events button.range-event.range-single{border-radius:7px}
+.partner-calendar-events button.range-event:hover{filter:brightness(.97);z-index:3}
+
+@media(max-width:1000px){
+  .partner-add-row.certificate,.partner-add-row.goal{grid-template-columns:1fr}
+  .partner-add-row.goal textarea,.partner-add-row.goal>button{grid-column:1;grid-row:auto}
+  .partner-add-row>button{min-height:44px}
+  .partner-simple-list article,.partner-simple-list article.general{grid-template-columns:46px minmax(0,1fr)}
+  .partner-simple-list article .partner-list-period,.partner-simple-list article>small,.partner-simple-list article>button{grid-column:2}
+  .partner-simple-list article>button{justify-self:start}
+}
+@media(max-width:600px){
+  .partner-period-inputs,.partner-list-period{grid-template-columns:1fr 1fr}
+  .partner-period-check{grid-column:1/-1}
+  .partner-calendar-events button.range-event.range-start{width:calc(100% + 6px)}
+  .partner-calendar-events button.range-event.range-middle{width:calc(100% + 12px);margin-left:-6px}
+  .partner-calendar-events button.range-event.range-end{width:calc(100% + 6px);margin-left:-6px}
+}
+
 /* v3.1.4 간단 학습 흐름 */
 .simple-learning-home,.simple-ai-learning{max-width:1120px;padding-top:28px}
 .simple-learning-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:18px}.simple-learning-head h1{margin:4px 0 0;color:#102238;font-size:38px;letter-spacing:-.04em}.simple-learning-head .primary{min-height:48px;padding:0 22px}
