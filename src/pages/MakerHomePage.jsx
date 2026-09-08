@@ -60,7 +60,7 @@ export default function MakerHomePage({ onNavigate, history = [], wrongNotes = [
     <section className="maker-section">
       <div className="maker-section-title"><span>MakerOS 모듈</span><h2>지금 필요한 단계로 바로 이동하세요</h2></div>
       <div className="maker-module-grid">
-        <ModuleCard icon="L" eyebrow="LEARN" title="AI 학습" description="PDF 학습 자료와 자격증 CBT를 분리해 AI 노트·단어카드·Learning Tree로 연결합니다." action="학습하기" onClick={() => onNavigate("catalog")} meta={`${pdfLibrary.length}개 자료`} tone="blue"/>
+        <ModuleCard icon="L" eyebrow="LEARN" title="AI 학습" description="PDF 학습 자료와 자격증 CBT를 분리해 AI 노트·개념카드·Learning Tree로 연결합니다." action="학습하기" onClick={() => onNavigate("catalog")} meta={`${pdfLibrary.length}개 자료`} tone="blue"/>
         <ModuleCard icon="I" eyebrow="INVENT" title="AI 발명 코치" description="문제 발견부터 선행기술 비교와 권리화 준비까지 단계별로 안내합니다." action="아이디어 발전" onClick={() => onNavigate("invent")} meta={`${inventorProjects.length}개 아이디어`} tone="violet"/>
         <ModuleCard icon="B" eyebrow="BUILD" title="프로젝트" description="아이디어를 실행 계획, 역할, 일정과 결과물로 연결합니다." action="프로젝트 보기" onClick={() => onNavigate("projects")} meta={`${buildProjects.length}개 프로젝트`} tone="green"/>
         <ModuleCard icon="P" eyebrow="SHOWCASE" title="포트폴리오" description="학습과 프로젝트 과정에서 나온 근거를 성장 기록으로 정리합니다." action="기록 정리" onClick={() => onNavigate("portfolio")} tone="orange"/>
