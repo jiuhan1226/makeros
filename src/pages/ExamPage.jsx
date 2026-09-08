@@ -3,6 +3,7 @@ import AnswerSheet from "../components/AnswerSheet";
 import { circled, formatTime } from "../utils/exam";
 import {
   explanationFingerprint,
+  hasQuestionImages,
   requestVerifiedCbtExplanation,
   submitExplanationFeedback,
 } from "../utils/cbtExplanation";
@@ -131,7 +132,9 @@ export default function ExamPage({ session, onExit, onSaveConfidence, getDifficu
 
     setExplanationState({
       status: "loading",
-      message: "AI 해설을 1차 생성한 뒤 공식 정답과 다시 대조하고 있습니다.",
+      message: hasQuestionImages(q)
+        ? "문제와 선택지 이미지를 분석한 뒤, AI 해설을 공식 정답과 다시 대조하고 있습니다."
+        : "AI 해설을 1차 생성한 뒤 공식 정답과 다시 대조하고 있습니다.",
     });
 
     requestVerifiedCbtExplanation(q)
