@@ -22,6 +22,7 @@ export async function readJsonResponse(response, fallbackMessage = "요청을 �
   }
 
   if (!response.ok) {
+    if (body?.requiresLogin && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("makeros:login-required", { detail: body }));
     const error = new Error(body?.error || `${fallbackMessage} (HTTP ${response.status})`);
     error.status = response.status;
     error.body = body;
