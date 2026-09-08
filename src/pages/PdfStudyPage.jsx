@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { readStudyAssets, saveStudyAssets, upsertPdfDocument } from "../utils/studyPlatform";
 import { generateStudyAssetsFromPages } from "../utils/aiStudyAssets";
+import { postJson } from "../utils/api";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 const clean = (value = "") => String(value).replace(/\u0000/g, " ").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
@@ -42,6 +43,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
   const [tab, setTab] = useState("setup");
   const [assets, setAssets] = useState({ notes: [], cards: [] });
   const [flipped, setFlipped] = useState({});
+  const [editing, setEditing] = useState(null);
 
   const selectedPages = useMemo(
     () => doc?.pages?.filter((page) => page.page >= startPage && page.page <= endPage) || [],
@@ -93,13 +95,11 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
     setBusy(true);
     setStatus("선택한 PDF 범위를 바탕으로 이해도 확인 퀴즈를 만들고 있습니다…");
     try {
-      const response = await fetch("/api/generate-quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pages: selectedPages, count, difficulty, mode: "PDF 이해도 확인", fileName: sourceName }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "문제 생성 실패");
+      const data = await postJson(
+        "/api/generate-quiz",
+        { pages: selectedPages, count, difficulty, mode: "PDF 이해도 확인", fileName: sourceName },
+        "문제 생성에 실패했습니다.",
+      );
       onStartQuiz(data.questions || [], { name: sourceName, startPage, endPage, pdfId: doc?.id });
     } catch (error) {
       setStatus(error.message);
@@ -141,6 +141,50 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
     }
   }
 
+  useEffect(() => {
+    try {
+      const requested = JSON.parse(localStorage.getItem("studylock-open-pdf") || "null");
+      const target = (library || []).find((item) => item.id === requested?.id);
+      if (target && target.id !== doc?.id) loadDocument(target);
+    } catch { /* 선택 정보가 없으면 업로드 화면을 유지합니다. */ }
+  }, [library]);
+
+  function persistDocumentAssets(nextDocumentAssets) {
+    const saved = readStudyAssets();
+    const sameDocument = (item) => item.pdfId === doc?.id || normalizedName(item.sourceName) === normalizedName(sourceName);
+    const next = {
+      notes: [...nextDocumentAssets.notes, ...(saved.notes || []).filter((item) => !sameDocument(item))],
+      cards: [...nextDocumentAssets.cards, ...(saved.cards || []).filter((item) => !sameDocument(item))],
+    };
+    saveStudyAssets(next);
+    setAssets(nextDocumentAssets);
+  }
+
+  function deleteDocumentAsset(type, id) {
+    persistDocumentAssets({ ...assets, [type]: assets[type].filter((item) => item.id !== id) });
+  }
+
+  function deleteAllDocumentAssets() {
+    if (!window.confirm(`‘${sourceName}’에서 만든 AI 노트와 개념카드를 모두 삭제할까요?`)) return;
+    persistDocumentAssets({ notes: [], cards: [] });
+    setTab("setup");
+  }
+
+  function startAssetEdit(type, item) {
+    setEditing(type === "notes"
+      ? { type, id: item.id, title: item.title || "", summary: item.summary || "", details: item.details || "", keyPoints: (item.keyPoints || []).join("\n") }
+      : { type, id: item.id, front: item.front || "", back: item.back || "" });
+  }
+
+  function saveAssetEdit() {
+    if (!editing) return;
+    const patch = editing.type === "notes"
+      ? { title: editing.title.trim(), summary: editing.summary.trim(), details: editing.details.trim(), keyPoints: editing.keyPoints.split("\n").map((item) => item.trim()).filter(Boolean) }
+      : { front: editing.front.trim(), back: editing.back.trim() };
+    persistDocumentAssets({ ...assets, [editing.type]: assets[editing.type].map((item) => item.id === editing.id ? { ...item, ...patch, updatedAt: Date.now() } : item) });
+    setEditing(null);
+  }
+
   const mindmap = useMemo(
     () => assets.notes.map((note, index) => ({ title: note.title, children: note.keyPoints || [], index })),
     [assets.notes],
@@ -151,15 +195,15 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
       <div>
         <span className="eyebrow">AI PDF STUDY</span>
         <h1>PDF 학습</h1>
-        <p>PDF를 업로드하고 AI 노트, 단어카드, 퀴즈로 반복 학습해 보세요.</p>
+        <p>PDF를 업로드하고 AI 노트, 개념카드, 퀴즈로 반복 학습해 보세요.</p>
       </div>
-      {doc && <button className="secondary" onClick={() => { setDoc(null); setAssets({ notes: [], cards: [] }); }}>다른 PDF 선택</button>}
+      {doc && <div className="pdf-page-actions">{!!(assets.notes.length || assets.cards.length) && <button className="text-button danger-text" onClick={deleteAllDocumentAssets}>이 PDF 학습자료 삭제</button>}<button className="secondary" onClick={() => { setDoc(null); setAssets({ notes: [], cards: [] }); }}>다른 PDF 선택</button></div>}
     </section>
 
     <section className="pdf-study-shell">
       <aside className="panel pdf-study-sidebar">
         <strong>PDF 학습 메뉴</strong>
-        {[["setup", "학습 설정"], ["summary", "AI 상세 노트"], ["cards", "단어카드"], ["mindmap", "개념 구조"]].map(([key, label]) => (
+        {[["setup", "학습 설정"], ["summary", "AI 상세 노트"], ["cards", "개념카드"], ["mindmap", "개념 구조"]].map(([key, label]) => (
           <button key={key} className={tab === key ? "active" : ""} disabled={key !== "setup" && !assets.notes.length} onClick={() => setTab(key)}>{label}</button>
         ))}
         <button onClick={() => onOpenTutor?.(sourceName)} disabled={!doc}>AI Tutor 질문</button>
@@ -200,12 +244,12 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
         {tab === "summary" && <section className="panel pdf-feature-panel">
           <div className="section-title"><div><span className="eyebrow">DETAILED AI NOTES</span><h2>전체 범위 상세 노트</h2><p>전체 범위를 구간별로 정리해 핵심 개념과 세부 내용을 함께 보여드려요.</p></div><button className="primary" onClick={generateQuiz}>이 범위로 퀴즈 풀기</button></div>
           <div className="pdf-note-outline">{assets.notes.map((note, index) => <a key={note.id} href={`#pdf-note-${index}`}>{note.pageStart ? `${note.pageStart}${note.pageEnd && note.pageEnd !== note.pageStart ? `~${note.pageEnd}` : ""}쪽 · ` : ""}{note.title}</a>)}</div>
-          <div className="note-grid pdf-detailed-note-grid">{assets.notes.map((note, index) => <article className="ai-note-card" id={`pdf-note-${index}`} key={note.id}><span className="result-type">{note.pageStart ? `${note.pageStart}${note.pageEnd && note.pageEnd !== note.pageStart ? `~${note.pageEnd}` : ""}쪽` : "PDF"}</span><h3>{note.title}</h3><p>{note.summary}</p>{note.details && <p className="pdf-note-details">{note.details}</p>}<ul>{(note.keyPoints || []).map((point, pointIndex) => <li key={pointIndex}>{point}</li>)}</ul></article>)}</div>
+          <div className="note-grid pdf-detailed-note-grid">{assets.notes.map((note, index) => <article className="ai-note-card" id={`pdf-note-${index}`} key={note.id}><span className="result-type">{note.pageStart ? `${note.pageStart}${note.pageEnd && note.pageEnd !== note.pageStart ? `~${note.pageEnd}` : ""}쪽` : "PDF"}</span><h3>{note.title}</h3><p>{note.summary}</p>{note.details && <p className="pdf-note-details">{note.details}</p>}<ul>{(note.keyPoints || []).map((point, pointIndex) => <li key={pointIndex}>{point}</li>)}</ul><div className="asset-card-actions"><button className="text-button" onClick={() => startAssetEdit("notes", note)}>수정</button><button className="text-button danger-text" onClick={() => deleteDocumentAsset("notes", note.id)}>삭제</button></div></article>)}</div>
         </section>}
 
         {tab === "cards" && <section className="panel pdf-feature-panel">
-          <div className="section-title"><div><span className="eyebrow">FLASH CARDS</span><h2>AI 단어카드</h2></div><span>{assets.cards.length}장</span></div>
-          <div className="flashcard-grid">{assets.cards.map((card) => <button className={`flashcard ${flipped[card.id] ? "flipped" : ""}`} key={card.id} onClick={() => setFlipped((value) => ({ ...value, [card.id]: !value[card.id] }))}><span>{flipped[card.id] ? "정답" : "질문"}</span><strong>{flipped[card.id] ? card.back : card.front}</strong><small>{card.pageStart ? `${card.pageStart}${card.pageEnd && card.pageEnd !== card.pageStart ? `~${card.pageEnd}` : ""}쪽 · ` : ""}카드를 눌러 뒤집기</small></button>)}</div>
+          <div className="section-title"><div><span className="eyebrow">CONCEPT CARDS</span><h2>AI 개념카드</h2></div><span>{assets.cards.length}장</span></div>
+          <div className="flashcard-grid">{assets.cards.map((card) => <article className={`flashcard ${flipped[card.id] ? "flipped" : ""}`} key={card.id}><button className="flashcard-flip" onClick={() => setFlipped((value) => ({ ...value, [card.id]: !value[card.id] }))}><span>{flipped[card.id] ? "정답" : "질문"}</span><strong>{flipped[card.id] ? card.back : card.front}</strong><small>{card.pageStart ? `${card.pageStart}${card.pageEnd && card.pageEnd !== card.pageStart ? `~${card.pageEnd}` : ""}쪽 · ` : ""}카드를 눌러 뒤집기</small></button><div className="asset-card-actions"><button className="text-button" onClick={() => startAssetEdit("cards", card)}>수정</button><button className="text-button danger-text" onClick={() => deleteDocumentAsset("cards", card.id)}>삭제</button></div></article>)}</div>
         </section>}
 
         {tab === "mindmap" && <section className="panel pdf-feature-panel">
@@ -214,5 +258,6 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
         </section>}
       </section>
     </section>
+    {editing && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditing(null)}><section className="modal asset-edit-modal" role="dialog" aria-modal="true"><button className="modal-close" onClick={() => setEditing(null)} aria-label="닫기">×</button><span className="eyebrow">EDIT</span><h2>{editing.type === "notes" ? "AI 노트 수정" : "개념카드 수정"}</h2>{editing.type === "notes" ? <><label>제목<input value={editing.title} onChange={(event) => setEditing({ ...editing, title: event.target.value })}/></label><label>요약<textarea value={editing.summary} onChange={(event) => setEditing({ ...editing, summary: event.target.value })}/></label><label>상세 내용<textarea value={editing.details} onChange={(event) => setEditing({ ...editing, details: event.target.value })}/></label><label>핵심 개념 · 한 줄에 하나<textarea value={editing.keyPoints} onChange={(event) => setEditing({ ...editing, keyPoints: event.target.value })}/></label></> : <><label>앞면<input value={editing.front} onChange={(event) => setEditing({ ...editing, front: event.target.value })}/></label><label>뒷면<textarea value={editing.back} onChange={(event) => setEditing({ ...editing, back: event.target.value })}/></label></>}<div className="asset-edit-actions"><button className="secondary" onClick={() => setEditing(null)}>취소</button><button className="primary" onClick={saveAssetEdit}>저장</button></div></section></div>}
   </main>;
 }
