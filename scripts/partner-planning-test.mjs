@@ -33,12 +33,22 @@ assert.ok(plan.weeks.at(-1).endsAt >= '2027-01-10', '계획 마지막 주가 가
 assert.ok(plan.today.items.length >= 1 && plan.today.items.length <= 5, '오늘 계획은 1~5개여야 합니다.');
 assert.ok(plan.weeks.every((week) => week.totalMinutes <= plan.constraints.weeklyAvailableMinutes), '주간 계획이 가능 시간을 넘으면 안 됩니다.');
 assert.ok(plan.today.totalMinutes <= plan.today.availableMinutes, '오늘 계획이 오늘 가능 시간을 넘으면 안 됩니다.');
+assert.equal(plan.algorithmVersion, 3, '새 균형 분배 알고리즘을 사용해야 합니다.');
 assert.ok(plan.roadmap.some((goal) => goal.type === 'academic'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'certificate'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'career'));
 assert.equal(plan.roadmap.filter((goal) => goal.type === 'certificate').length, 2, '여러 자격증이 각각 계획에 포함되어야 합니다.');
 assert.ok(!plan.roadmap.some((goal) => goal.title === '저장된 프로젝트'), '프로젝트 모듈 데이터는 목표 계획에 자동 포함되면 안 됩니다.');
 assert.ok(plan.roadmap.find((goal) => goal.goalId === 'a1').milestones.every((item) => item.weekIndex >= 1), '목표 시작일 전에는 학습 단계를 배치하면 안 됩니다.');
+
+const balancedState = createDefaultPartnerState();
+balancedState.goals = [{ id: 'balanced-a', type: 'academic', title: '전기기기 내신', startDate: '2026-09-09', deadline: '2026-10-03' }];
+balancedState.certificateGoals = [{ id: 'balanced-c', name: '산업안전산업기사', startDate: '2026-09-09', examDate: '2026-10-03', cbtAccuracy: 46 }];
+const balancedPlan = buildDeterministicPlan(balancedState, { today: '2026-09-08' });
+const middleWeekMinutes = balancedPlan.weeks.slice(1, 3).map((week) => week.totalMinutes);
+assert.ok(Math.max(...middleWeekMinutes) - Math.min(...middleWeekMinutes) <= 60, '전체 기간의 주간 학습량이 한 주에 몰리면 안 됩니다.');
+assert.ok(balancedPlan.weeks.every((week) => week.totalMinutes <= (week.availableMinutes || balancedPlan.constraints.weeklyAvailableMinutes)), '부분 주차도 실제 남은 가능 시간을 넘으면 안 됩니다.');
+assert.ok(new Set(balancedPlan.weeks[1].items.slice(0, 2).map((item) => item.goalId)).size > 1, '같은 주의 여러 목표가 번갈아 배치되어야 합니다.');
 
 const calendar = normalizePartnerState({
   ...base,
