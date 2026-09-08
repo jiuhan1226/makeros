@@ -44,6 +44,51 @@ export function hasQuestionImages(question = {}) {
   );
 }
 
+export function questionExplanationImages(question = {}) {
+  const questionImages = Array.isArray(question.questionImageUrls) && question.questionImageUrls.length
+    ? question.questionImageUrls
+    : question.imageUrl
+      ? [question.imageUrl]
+      : [];
+  const images = questionImages.filter(Boolean).map((url, index) => ({
+    label: `문제 이미지 ${index + 1}`,
+    url: String(url),
+  }));
+  (Array.isArray(question.choiceImageUrls) ? question.choiceImageUrls : []).forEach((url, index) => {
+    if (url) images.push({ label: `${index + 1}번 선택지 이미지`, url: String(url) });
+  });
+  return images.slice(0, 6);
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+    reader.onerror = () => reject(new Error("문제 이미지를 읽지 못했습니다."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function inlineQuestionImages(question) {
+  const sources = questionExplanationImages(question);
+  const output = [];
+  let totalBytes = 0;
+  for (const source of sources) {
+    const direct = /^(?:data:|blob:|\/)/i.test(source.url);
+    const requestUrl = direct ? source.url : `/api/image-proxy?url=${encodeURIComponent(source.url)}`;
+    const response = await fetch(requestUrl);
+    if (!response.ok) throw new Error(`${source.label}을 불러오지 못했습니다.`);
+    const blob = await response.blob();
+    const mimeType = String(blob.type || "").split(";")[0].toLowerCase();
+    if (!/^image\/(?:png|jpe?g|webp|gif)$/.test(mimeType)) throw new Error(`${source.label}의 이미지 형식을 지원하지 않습니다.`);
+    if (blob.size > 4 * 1024 * 1024) throw new Error(`${source.label}의 용량이 4MB를 초과합니다.`);
+    totalBytes += blob.size;
+    if (totalBytes > 8 * 1024 * 1024) throw new Error("문제 이미지 전체 용량이 8MB를 초과합니다.");
+    output.push({ ...source, mimeType, data: await blobToBase64(blob) });
+  }
+  return output;
+}
+
 function isCacheShapeValid(parsed, question) {
   return Boolean(
     parsed?.verified
@@ -83,7 +128,7 @@ function writeCachedExplanation(question, result) {
 
 async function authContext() {
   const user = auth?.currentUser;
-  if (!user) throw new Error("검증된 AI 해설을 사용하려면 로그인해 주세요.");
+  if (!user) return { user: null, uid: "", token: "" };
   const token = await user.getIdToken();
   return { user, uid: user.uid, token };
 }
@@ -100,6 +145,7 @@ async function verifyStoredExplanation(record, question, token) {
         answerIndex: Number(question.answerIndex),
         subject: question.subject || "공통",
         topic: question.topic || "",
+        images: questionExplanationImages(question),
       },
       token,
       "저장된 AI 해설을 검증하지 못했습니다.",
@@ -118,7 +164,7 @@ async function loadTrustedCache(question, context) {
     clearCachedExplanation(question);
   }
 
-  const cloud = await getUserAiExplanation(context.uid, explanationFingerprint(question)).catch(() => null);
+  const cloud = context.uid ? await getUserAiExplanation(context.uid, explanationFingerprint(question)).catch(() => null) : null;
   if (cloud) {
     const trusted = await verifyStoredExplanation({ ...cloud, cacheSource: "cloud" }, question, context.token);
     if (trusted) {
@@ -142,6 +188,8 @@ export async function requestVerifiedCbtExplanation(question, { force = false } 
   const fingerprint = explanationFingerprint(question);
   if (!force && inflight.has(fingerprint)) return inflight.get(fingerprint);
 
+  const images = hasQuestionImages(question) ? await inlineQuestionImages(question) : [];
+
   const request = postJsonWithToken(
     "/api/cbt/generate-explanation",
     {
@@ -152,7 +200,7 @@ export async function requestVerifiedCbtExplanation(question, { force = false } 
       answerIndex: Number(question.answerIndex),
       subject: question.subject || "공통",
       topic: question.topic || "",
-      hasImages: hasQuestionImages(question),
+      images,
       force,
     },
     context.token,
@@ -161,7 +209,7 @@ export async function requestVerifiedCbtExplanation(question, { force = false } 
     if (result?.verified) {
       const trusted = { ...result, clientFingerprint: fingerprint };
       writeCachedExplanation(question, trusted);
-      await saveUserAiExplanation(context.uid, trusted).catch(() => {});
+      if (context.uid) await saveUserAiExplanation(context.uid, trusted).catch(() => {});
       return trusted;
     }
     if (result?.status === "needs_review") {
