@@ -17,6 +17,7 @@ import {
 } from "./firebase";
 import AppHeader from "./components/AppHeader";
 import AuthModal from "./components/AuthModal";
+import TutorialModal, { shouldShowTutorial } from "./components/TutorialModal";
 import CatalogPage from "./pages/CatalogPage";
 import CertificateHomePage from "./pages/CertificateHomePage";
 import PastExamsPage from "./pages/PastExamsPage";
@@ -143,6 +144,7 @@ function App() {
   const [selectedExam, setSelectedExam] = useState(null);
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(shouldShowTutorial);
   const [history, setHistory] = useState(initial.history || []);
   const [practiceHistory, setPracticeHistory] = useState(initial.practiceHistory || []);
   const [wrongNotes, setWrongNotes] = useState(initial.wrongNotes || []);
@@ -172,9 +174,15 @@ function App() {
   const [partnerState, setPartnerState] = useState(() => readPartnerLocal());
   const [partnerBusy, setPartnerBusy] = useState(false);
   const [partnerLearningAction, setPartnerLearningAction] = useState({ itemId: "", status: "idle", message: "" });
+  const [planFocusGoalId, setPlanFocusGoalId] = useState("");
   const session = useExamSession();
 
   useEffect(() => (firebaseConfigured ? onAuthStateChanged(auth, setUser) : undefined), []);
+  useEffect(() => {
+    const showLogin = () => setShowAuth(true);
+    window.addEventListener("makeros:login-required", showLogin);
+    return () => window.removeEventListener("makeros:login-required", showLogin);
+  }, []);
   useEffect(() => { listCertificates().then(setCertificates).catch(console.error); }, []);
   useEffect(() => { if (certificate) listExams(certificate.id).then(setExams).catch(console.error); }, [certificate]);
   useEffect(() => {
@@ -597,7 +605,13 @@ function App() {
     if (next === "graph") setGraphQuery("");
     if (next === "notes") setAssetFocus(null);
     if (next === "tutor" && page !== "pdfstudy") setTutorSeed({ question: "", pdfId: "" });
+    if (next === "partnerPlan") setPlanFocusGoalId("");
     setPage(next);
+  }
+
+  function openPartnerPlan(goalId = "") {
+    setPlanFocusGoalId(String(goalId || ""));
+    setPage("partnerPlan");
   }
 
   function partnerTargetCertificate(item) {
@@ -834,6 +848,7 @@ function App() {
 
   function openPdf(document, pageNumber = 1) {
     if (document) localStorage.setItem("studylock-open-pdf", JSON.stringify({ id: document.id, page: pageNumber }));
+    else localStorage.removeItem("studylock-open-pdf");
     setPage("pdfstudy");
   }
 
@@ -921,6 +936,25 @@ function App() {
     setAssets(next);
   }
 
+  function updateAsset(type, id, patch) {
+    const next = { ...assets, [type]: (assets[type] || []).map((item) => item.id === id ? { ...item, ...patch, updatedAt: Date.now() } : item) };
+    saveStudyAssets(next);
+    setAssets(next);
+  }
+
+  function deleteAssetFolder(root, folder) {
+    if (root !== "PDF" || !folder || folder === "전체") return;
+    const normalized = String(folder).replace(/\.pdf$/i, "").trim().toLowerCase();
+    const matches = (item) => String(item.sourceType || "").toLowerCase().includes("pdf")
+      && String(item.sourceName || "").replace(/\.pdf$/i, "").trim().toLowerCase() === normalized;
+    const next = {
+      notes: (assets.notes || []).filter((item) => !matches(item)),
+      cards: (assets.cards || []).filter((item) => !matches(item)),
+    };
+    saveStudyAssets(next);
+    setAssets(next);
+  }
+
   function openStudyAsset(type, item) {
     if (!item?.id) return;
     setAssetFocus({ type, id: item.id, openedAt: Date.now() });
@@ -939,9 +973,8 @@ function App() {
       const latestEvent = baseState.changeEvents?.[0];
       const fallbackPlan = buildDeterministicPlan(baseState, { basedOnEventId: latestEvent?.id || "", source: "rules" });
       let finalPlan = fallbackPlan;
-      if (user?.uid) {
-        try {
-          const response = await postJson(
+      try {
+        const response = await postJson(
             "/api/partner/plan",
             {
               snapshot: profileSnapshot(baseState),
@@ -951,10 +984,9 @@ function App() {
             },
             "AI 계획 생성에 실패했습니다.",
           );
-          finalPlan = mergeAiPlan(response?.plan, fallbackPlan, baseState);
-        } catch (error) {
-          console.warn("[MakerOS AI Partner] AI 계획 생성 실패, 규칙 기반 계획 사용:", error.message);
-        }
+        finalPlan = mergeAiPlan(response?.plan, fallbackPlan, baseState);
+      } catch (error) {
+        console.warn("[MakerOS AI Partner] AI 계획 생성 실패, 규칙 기반 계획 사용:", error.message);
       }
       setPartnerState(createPlanVersion(baseState, finalPlan, { activate: true }));
       if (destination) setPage(destination);
@@ -998,10 +1030,10 @@ function App() {
 
   return (
     <div className="app">
-      <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} user={user} onLogin={() => setShowAuth(true)} isAdmin={isAdminUser(user)} />
-      {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." })} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
-      {page === "partnerPlan" && <PartnerPlanPage state={partnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." })} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
-      {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onNavigate={navigate} />}
+      <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} user={user} onLogin={() => setShowAuth(true)} onTutorial={() => setShowTutorial(true)} isAdmin={isAdminUser(user)} />
+      {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} onOpenPlanItem={openPartnerPlan} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
+      {page === "partnerPlan" && <PartnerPlanPage state={partnerState} focusGoalId={planFocusGoalId} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
+      {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
       {page === "partnerGoals" && <PartnerGoalsPage value={partnerState} onChange={setPartnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "학생 정보가 변경되어 가능한 시간에 맞춘 계획을 적용했습니다." }, { destination: "partnerToday" })} busy={partnerBusy} />}
       {page === "makerHome" && <MakerHomePage onNavigate={navigate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} />}
       {page === "invent" && <InventPage projects={inventorProjects} onChangeProjects={setInventorProjects} onCreateBuildProject={createBuildProject} />}
@@ -1009,14 +1041,14 @@ function App() {
       {page === "portfolio" && <PortfolioPage inventorProjects={inventorProjects} buildProjects={buildProjects} history={history} assets={assets} resumeProfile={resumeProfile} onChangeResumeProfile={setResumeProfile} awards={awards} onChangeAwards={setAwards} certifications={certifications} onChangeCertifications={setCertifications} portfolioItems={portfolioItems} onChangePortfolioItems={setPortfolioItems} />}
       {page === "career" && <CareerPage assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} pdfLibrary={pdfLibrary} history={history} awards={awards} certifications={certifications} onNavigate={navigate} />}
       {page === "catalog" && <CatalogPage certificates={certificates} onSelect={selectCertificate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} onNavigate={navigate} />}
-      {page === "certificate" && <CertificateHomePage certificate={certificate} exams={exams} history={certificateHistory} practiceHistory={certificatePracticeHistory} wrongNotes={certificateWrongNotes} learningProgress={certificateLearningProgress} plan={plan} pdfLibrary={pdfLibrary} onNavigate={navigate} onOpenExam={openExam} onStartRecommended={startRecommended} />}
+      {page === "certificate" && <CertificateHomePage certificate={certificate} exams={exams} history={certificateHistory} practiceHistory={certificatePracticeHistory} wrongNotes={certificateWrongNotes} learningProgress={certificateLearningProgress} plan={plan} pdfLibrary={pdfLibrary} loadQuestions={getExamQuestions} onNavigate={navigate} onOpenExam={openExam} onStartRecommended={startRecommended} />}
       {page === "learning" && <LearningCenterPage certificate={certificate} history={certificateHistory} practiceHistory={certificatePracticeHistory} wrongNotes={certificateWrongNotes} learningProgress={certificateLearningProgress} plan={plan} pdfLibrary={pdfLibrary} exams={exams} loadQuestions={getExamQuestions} onStartRecommended={startRecommended} onStartDueReview={startDueReview} onStartRepeatedWrong={startWrongReview} onNavigate={navigate} />}
       {page === "knowledge" && <UnifiedSearchPage searchCbt={searchQuestions} pdfLibrary={pdfLibrary} wrongNotes={[...wrongNotes, ...pdfWrongNotes]} bookmarks={savedBookmarks} notes={assets.notes} cards={assets.cards} onOpenCbt={openSearchResult} onOpenPdf={openPdf} />}
       {page === "library" && <PdfLibraryPage library={pdfLibrary} onRefresh={() => setPdfLibrary(readPdfLibrary())} onOpen={openPdf} onCreateAssets={createAssetsFromPdf} />}
       {page === "pdfstudy" && <PdfStudyPage library={pdfLibrary} onRefresh={() => setPdfLibrary(readPdfLibrary())} onStartQuiz={startPdfQuiz} onOpenTutor={openTutorWithPdf} />}
-      {page === "notes" && <NotesCardsPage assets={assets} onDelete={deleteAsset} onGenerateFromWrong={createAssetsFromWrong} busy={assetBusy} initialFocus={assetFocus} />}
+      {page === "notes" && <NotesCardsPage assets={assets} onDelete={deleteAsset} onUpdate={updateAsset} onDeleteFolder={deleteAssetFolder} onGenerateFromWrong={createAssetsFromWrong} busy={assetBusy} initialFocus={assetFocus} />}
       {page === "report" && <GrowthReportPage certificate={certificate} history={certificateHistory} practiceHistory={certificatePracticeHistory} studyEvents={certificateStudyEvents} wrongNotes={certificateWrongNotes} learningProgress={certificateLearningProgress} />}
-      {page === "tutor" && <AiTutorPage certificate={certificate} initialQuery={tutorSeed.question} initialPdfId={tutorSeed.pdfId} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} searchCbt={searchQuestions} onOpenCbt={openSearchResult} onOpenPdf={openPdf} onOpenGraph={(query) => { setGraphQuery(query); setPage("graph"); }} />}
+      {page === "tutor" && <AiTutorPage certificate={certificate} initialQuery={tutorSeed.question} initialPdfId={tutorSeed.pdfId} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} userKey={user?.uid || "guest"} searchCbt={searchQuestions} onOpenCbt={openSearchResult} onOpenPdf={openPdf} onOpenGraph={(query) => { setGraphQuery(query); setPage("graph"); }} />}
       {page === "graph" && <KnowledgeGraphPage initialQuery={graphQuery} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} searchCbt={searchQuestions} onOpenCbt={openSearchResult} onOpenPdf={openPdf} onOpenAsset={openStudyAsset} onAskTutor={(payload) => { const value = typeof payload === "string" ? { question: payload, pdfId: "" } : payload || { question: "", pdfId: "" }; setTutorSeed(value); setPage("tutor"); }} />}
       {page === "past" && <PastExamsPage exams={exams} loadQuestions={getExamQuestions} onOpen={openExam} onNavigate={navigate} />}
       {page === "subject" && <SubjectStudyPage certificate={certificate} exams={exams} history={certificatePracticeHistory.filter((item) => item.studyScope === "subject")} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "subject", learningType: "subjectPractice", returnPage: "subject" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
@@ -1029,6 +1061,7 @@ function App() {
       {page === "planner" && <PlannerPage certificate={certificate} wrongNotes={certificateWrongNotes} history={certificateHistory} practiceHistory={certificatePracticeHistory} learningProgress={certificateLearningProgress} exams={exams} plan={plan} onSavePlan={setPlan} onStartRecommended={startRecommended} onStartDueReview={startDueReview} onStartRepeatedWrong={startWrongReview} pdfLibrary={pdfLibrary} />}
       {page === "admin" && isAdminUser(user) && <AdminPage />}
       {showAuth && <AuthModal user={user} onClose={() => setShowAuth(false)} />}
+      <TutorialModal open={showTutorial} onClose={() => setShowTutorial(false)} onNavigate={navigate}/>
       <div className="sync-indicator">{assetBusy ? "AI 자료 생성 중…" : user ? (cloudReady ? "클라우드 동기화" : "동기화 중…") : "이 기기에 자동 저장"}</div>
     </div>
   );
