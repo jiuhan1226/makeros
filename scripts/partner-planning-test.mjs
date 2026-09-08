@@ -13,10 +13,17 @@ import {
 const base = createDefaultPartnerState();
 base.profile.weeklyAvailableHours = 8;
 base.profile.dailyAvailableMinutes = { mon: 90, tue: 90, wed: 90, thu: 90, fri: 60, sat: 180, sun: 120 };
-base.academics = [{ id: 'a1', subject: '전기기기', currentScore: 58, targetScore: 80, examDate: '2026-09-25', weakUnits: ['변압기'] }];
-base.certificateGoal = { id: 'c1', name: '전기기능사', status: 'preparing', examDate: '2026-10-18', cbtAccuracy: 62, weakSubjects: ['전기기기'] };
-base.careerGoal = { industry: '건설', company: '테스트기업', role: '전기직', targetDate: '2027-01-10', skills: ['전기설비'] };
-base.activities = [{ id: 'p1', type: 'competition', title: 'AI Competition', deadline: '2026-10-12', stage: 'preparing' }];
+base.goals = [
+  { id: 'a1', type: 'academic', title: '전기기기 내신 80점', deadline: '2026-09-25', details: '현재 58점, 목표 80점, 변압기' },
+  { id: 'career1', type: 'career', title: '테스트기업 전기직 취업 준비', deadline: '2027-01-10', details: '전기설비' },
+  { id: 'p1', type: 'activity', title: 'AI Competition', deadline: '2026-10-12', details: '작품 제출' },
+];
+base.certificateGoals = [
+  { id: 'c1', name: '전기기능사', status: 'preparing', examDate: '2026-10-18', cbtAccuracy: 62, weakSubjects: ['전기기기'] },
+  { id: 'c2', name: '산업안전산업기사', status: 'preparing', examDate: '2026-11-08', cbtAccuracy: 48, weakSubjects: ['산업안전관리론'] },
+];
+base.certificateGoal = base.certificateGoals[0];
+base.primaryCertificateGoalId = 'c1';
 
 const plan = buildDeterministicPlan(base, { today: '2026-09-08' });
 assert.equal(plan.weeks.length, 12, '12주 계획이어야 합니다.');
@@ -26,13 +33,15 @@ assert.ok(plan.today.totalMinutes <= plan.today.availableMinutes, '오늘 계획
 assert.ok(plan.roadmap.some((goal) => goal.type === 'academic'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'certificate'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'career'));
+assert.equal(plan.roadmap.filter((goal) => goal.type === 'certificate').length, 2, '여러 자격증이 각각 계획에 포함되어야 합니다.');
 
 let state = createPlanVersion(base, plan, { activate: false });
 assert.ok(state.pendingPlanVersionId, '첫 계획은 학생 확정 전 draft여야 합니다.');
 state = confirmPendingPlan(state);
 assert.ok(getActivePartnerPlan(state), '확정 후 active 계획이 있어야 합니다.');
 
-const changed = normalizePartnerState({ ...state, certificateGoal: { ...state.certificateGoal, cbtAccuracy: 45 } });
+const changedCertificates = state.certificateGoals.map((item) => item.id === 'c1' ? { ...item, cbtAccuracy: 45 } : item);
+const changed = normalizePartnerState({ ...state, certificateGoals: changedCertificates, certificateGoal: changedCertificates[0] });
 const replanned = buildDeterministicPlan(changed, { today: '2026-09-08' });
 const diff = planDiff(getActivePartnerPlan(state), replanned);
 assert.ok(diff && Array.isArray(diff.changed));
@@ -43,5 +52,13 @@ state = confirmPendingPlan(state);
 assert.notEqual(state.activePlanVersionId, previousActive, '새 계획 버전이 활성화되어야 합니다.');
 state = rollbackPartnerPlan(state, previousActive);
 assert.ok(state.activePlanVersionId, '롤백 후에도 active 버전이 있어야 합니다.');
+
+const legacy = normalizePartnerState({
+  schemaVersion: 1,
+  academics: [{ id: 'legacy-a', subject: '수학', targetScore: 90, examDate: '2026-09-30', weakUnits: ['함수'] }],
+  certificateGoal: { id: 'legacy-c', name: '전기산업기사', examDate: '2026-12-01' },
+});
+assert.equal(legacy.certificateGoals.length, 1, '기존 단일 자격증 데이터가 새 목록으로 이전되어야 합니다.');
+assert.equal(legacy.goals.length, 1, '기존 목표 데이터가 간단 목표 목록으로 이전되어야 합니다.');
 
 console.log('[partner-planning-test] OK');
