@@ -84,6 +84,13 @@ import {
   filterCertificateAttempts,
   mergeAttemptEvents,
 } from "./utils/learningMaintenance";
+import {
+  buildDiagnosticProfile,
+  buildFallbackDiagnostic,
+  diagnosticReferencePayload,
+  normalizeGeneratedDiagnostic,
+  selectDiagnosticReferences,
+} from "./utils/partnerDiagnostic";
 import "./styles.css";
 
 const LOCAL_KEY = "studylock-v3-state";
@@ -165,6 +172,7 @@ function App() {
   const [careerProfile, setCareerProfile] = useState(makerInitial.careerProfile || {});
   const [partnerState, setPartnerState] = useState(() => readPartnerLocal());
   const [partnerBusy, setPartnerBusy] = useState(false);
+  const [partnerLearningAction, setPartnerLearningAction] = useState({ itemId: "", status: "idle", message: "" });
   const session = useExamSession();
 
   useEffect(() => (firebaseConfigured ? onAuthStateChanged(auth, setUser) : undefined), []);
@@ -447,14 +455,34 @@ function App() {
 
     setPartnerState((previous) => {
       const normalized = normalizePartnerState(previous);
-      const target = normalized.certificateGoal;
+      const target = normalized.certificateGoals.find((item) => item.name === certificateName || item.id === certificateId)
+        || normalized.certificateGoal;
       if (!target?.name) return normalized;
       const sameTarget = !certificateName || target.name === certificateName || target.id === certificateId;
       if (!sameTarget) return normalized;
-      let next = {
-        ...normalized,
-        certificateGoal: { ...target, cbtAccuracy: result.score, lastCbtAt: now },
+      const weakestSubjects = [...(result.subjects || [])]
+        .sort((a, b) => Number(a.score || 0) - Number(b.score || 0) || Number(b.wrong || 0) - Number(a.wrong || 0))
+        .slice(0, 3)
+        .map((item) => item.subject)
+        .filter(Boolean);
+      const updatedTarget = {
+          ...target,
+          cbtAccuracy: result.score,
+          weakSubjects: weakestSubjects,
+          lastCbtAt: now,
+          lastDiagnostic: session.exam?.studyScope === "diagnostic" ? {
+            score: result.score,
+            total: result.total,
+            correct: result.correct,
+            weakSubjects: weakestSubjects,
+            generated: session.exam?.generationMode === "ai",
+            createdAt: now,
+          } : target.lastDiagnostic,
       };
+      let next = normalizePartnerState({
+        ...normalized,
+        certificateGoals: normalized.certificateGoals.map((item) => item.id === target.id ? updatedTarget : item),
+      });
       next = recordChangeEvent(next, {
         type: "study_result_saved",
         label: `${target.name} CBT 결과 ${result.score}점이 저장되어 자격증 계획을 다시 확인합니다.`,
@@ -464,7 +492,7 @@ function App() {
       });
       if (!getActivePartnerPlan(next)) return next;
       const replanned = buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" });
-      return createPlanVersion(next, replanned, { activate: false });
+      return createPlanVersion(next, replanned, { activate: true });
     });
 
     if (result.assessmentType === "practice") {
@@ -543,6 +571,9 @@ function App() {
 
   function finishExam() {
     recordFinishedSession();
+    if (session.submitted && session.exam?.partnerItemId) {
+      changeTodayPartnerItem(session.exam.partnerItemId, "completed");
+    }
     const scope = resolveStudyScope(session.exam, session.mode);
     const fallback = {
       pdf: "pdfstudy",
@@ -570,21 +601,117 @@ function App() {
     setPage(next);
   }
 
-  function navigatePartnerAction(item) {
-    if (item?.action === "cbt") {
-      const goalName = String(partnerState.certificateGoal?.name || "").replace(/\s+/g, "").toLowerCase();
-      const matched = certificates.find((candidate) => {
-        const candidateName = String(candidate?.name || "").replace(/\s+/g, "").toLowerCase();
-        return goalName && (candidateName === goalName || candidateName.includes(goalName) || goalName.includes(candidateName));
-      });
-      const target = matched || certificate;
-      if (!target) {
-        setPage("catalog");
-        return;
-      }
+  function partnerTargetCertificate(item) {
+    const normalized = normalizePartnerState(partnerState);
+    const linkedGoal = normalized.certificateGoals.find((goal) => String(goal.id) === String(item?.goalId))
+      || normalized.certificateGoal;
+    const goalName = String(linkedGoal?.name || "").replace(/\s+/g, "").toLowerCase();
+    return certificates.find((candidate) => {
+      const candidateName = String(candidate?.name || "").replace(/\s+/g, "").toLowerCase();
+      return goalName && (candidateName === goalName || candidateName.includes(goalName) || goalName.includes(candidateName));
+    }) || certificate;
+  }
+
+  async function startPartnerCbtAction(item) {
+    const target = partnerTargetCertificate(item);
+    if (!target) {
+      setPartnerLearningAction({ itemId: item?.id || "", status: "error", message: "먼저 목표 자격증과 학습할 CBT 종목을 연결해 주세요." });
+      setPage("catalog");
+      return;
+    }
+    const focusWeak = /취약|복습/.test(String(item?.title || ""));
+    try {
+      setPartnerLearningAction({ itemId: item.id, status: "analyzing", message: "기존 풀이 기록과 기출 범위를 분석하고 있어요." });
       setCertificate(target);
       setActiveCertificateId(target.id || "");
-      setPage("past");
+      const targetExams = certificate?.id === target.id && exams.length ? exams : await listExams(target.id);
+      const batches = await Promise.all(targetExams.map(async (exam) => ({
+        exam,
+        questions: await getExamQuestions(exam.id),
+      })));
+      const questionPool = batches.flatMap(({ exam, questions }) => (questions || []).map((question) => ({
+        ...question,
+        sourceExamId: question.sourceExamId || exam.id,
+        certificateId: target.id || "",
+        certificateName: target.name || "",
+      })));
+      if (questionPool.length < 4) throw new Error("진단에 사용할 등록 기출문제가 부족합니다. 관리자에서 기출문제를 먼저 등록해 주세요.");
+      const profile = buildDiagnosticProfile({
+        questions: questionPool,
+        progress: certificate?.id === target.id ? certificateLearningProgress : learningProgress.filter((row) => row.certificateId === target.id),
+        history: history.filter((row) => row.certificateId === target.id),
+        practiceHistory: practiceHistory.filter((row) => row.certificateId === target.id),
+      });
+      const targetProgress = certificate?.id === target.id ? certificateLearningProgress : learningProgress.filter((row) => row.certificateId === target.id);
+      const references = selectDiagnosticReferences({
+        questions: questionPool,
+        progress: targetProgress,
+        weakSubjects: profile.weakSubjects,
+        limit: 36,
+        focusWeak,
+      });
+      const requestedCount = Math.min(focusWeak ? 10 : 15, references.length);
+      setPartnerLearningAction({
+        itemId: item.id,
+        status: "generating",
+        message: profile.hasReliableHistory
+          ? `누적 ${profile.attemptCount}문제 · 정답률 ${profile.accuracy}%를 반영해 새 문제를 만들고 있어요.`
+          : "풀이 기록이 적어 전체 과목을 고르게 확인하는 첫 진단 문제를 만들고 있어요.",
+      });
+
+      let diagnosticQuestions = [];
+      let generationMode = "ai";
+      let generationNotice = "";
+      try {
+        const generated = await postJson(
+          "/api/partner/cbt-diagnostic",
+          {
+            certificateName: target.name,
+            mode: focusWeak ? "weak-practice" : "diagnostic",
+            count: requestedCount,
+            profile,
+            references: diagnosticReferencePayload(references),
+          },
+          "맞춤 진단 문제 생성에 실패했습니다.",
+        );
+        diagnosticQuestions = normalizeGeneratedDiagnostic(generated.questions, target);
+        generationNotice = generated.summary || "";
+      } catch (generationError) {
+        console.warn("맞춤 진단 AI 생성 실패, 선별 기출로 전환:", generationError);
+        generationMode = "past-question-fallback";
+        generationNotice = "AI 문제 생성이 지연되어 현재 기록에 맞춰 선별한 기출문제로 진단을 시작합니다.";
+        diagnosticQuestions = buildFallbackDiagnostic(references, target, requestedCount);
+      }
+      if (diagnosticQuestions.length < 4) throw new Error("진단 문제를 충분히 구성하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+
+      setExams(targetExams);
+      session.start({
+        id: `${focusWeak ? "adaptive-practice" : "diagnostic"}-${Date.now()}`,
+        title: focusWeak ? "AI 맞춤 취약 과목 복습" : "AI 맞춤 기출 수준 진단",
+        durationMinutes: Math.max(10, Math.min(Number(item.durationMinutes || 40), diagnosticQuestions.length * 2)),
+        hasSubjectCutoff: false,
+        assessmentType: focusWeak ? "practice" : "exam",
+        studyScope: focusWeak ? "adaptive" : "diagnostic",
+        learningType: focusWeak ? "aiAdaptivePractice" : "aiDiagnostic",
+        returnPage: "partnerToday",
+        certificateId: target.id || "",
+        certificateName: target.name || "",
+        partnerItemId: item.id,
+        generationMode,
+        generationNotice,
+        diagnosticProfile: profile,
+      }, diagnosticQuestions, focusWeak ? "연습모드" : "실전모드");
+      setPartnerLearningAction({ itemId: item.id, status: "ready", message: generationNotice });
+      setPage("exam");
+    } catch (error) {
+      console.error("파트너 CBT 실행 실패:", error);
+      setPartnerLearningAction({ itemId: item?.id || "", status: "error", message: error?.message || "맞춤 학습을 시작하지 못했습니다." });
+    }
+  }
+
+  function navigatePartnerAction(item) {
+    if (item?.action === "cbt") {
+      startPartnerCbtAction(item);
       return;
     }
     const targets = { academic: "library", career: "career", activity: "projects", plan: "partnerPlan", goals: "partnerGoals" };
@@ -801,7 +928,10 @@ function App() {
     setPage("notes");
   }
 
-  async function generatePartnerPlan(trigger = { type: "manual", label: "학생이 계획 갱신을 요청했습니다." }) {
+  async function generatePartnerPlan(
+    trigger = { type: "manual", label: "학생이 계획 갱신을 요청했습니다." },
+    { destination = "" } = {},
+  ) {
     setPartnerBusy(true);
     try {
       const baseState = trigger?.type && trigger.type !== "manual"
@@ -827,7 +957,8 @@ function App() {
           console.warn("[MakerOS AI Partner] AI 계획 생성 실패, 규칙 기반 계획 사용:", error.message);
         }
       }
-      setPartnerState(createPlanVersion(baseState, finalPlan, { activate: false }));
+      setPartnerState(createPlanVersion(baseState, finalPlan, { activate: true }));
+      if (destination) setPage(destination);
     } finally {
       setPartnerBusy(false);
     }
@@ -859,10 +990,7 @@ function App() {
       let next = updateTodayItemStatus(previous, itemId, status);
       if (status !== "completed") return next;
       next = recordChangeEvent(next, { type: "plan_item_completed", label: "오늘 계획의 행동을 완료했습니다.", actor: "student" });
-      const activePlan = getActivePartnerPlan(next);
-      if (!activePlan) return next;
-      const replanned = buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" });
-      return createPlanVersion(next, replanned, { activate: false });
+      return next;
     });
   }
 
@@ -872,10 +1000,10 @@ function App() {
   return (
     <div className="app">
       <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} user={user} onLogin={() => setShowAuth(true)} isAdmin={isAdminUser(user)} />
-      {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} onToggleItem={changeTodayPartnerItem} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." })} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
+      {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." })} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
       {page === "partnerPlan" && <PartnerPlanPage state={partnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." })} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
       {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onNavigate={navigate} />}
-      {page === "partnerGoals" && <PartnerGoalsPage value={partnerState} onChange={setPartnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "학생 정보가 변경되어 새 계획안을 만들었습니다." })} busy={partnerBusy} />}
+      {page === "partnerGoals" && <PartnerGoalsPage value={partnerState} onChange={setPartnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "학생 정보가 변경되어 가능한 시간에 맞춘 계획을 적용했습니다." }, { destination: "partnerToday" })} busy={partnerBusy} />}
       {page === "makerHome" && <MakerHomePage onNavigate={navigate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} />}
       {page === "invent" && <InventPage projects={inventorProjects} onChangeProjects={setInventorProjects} onCreateBuildProject={createBuildProject} />}
       {page === "projects" && <ProjectsPage projects={buildProjects} inventorProjects={inventorProjects} onChangeProjects={setBuildProjects} onOpenInvent={() => setPage("invent")} />}
