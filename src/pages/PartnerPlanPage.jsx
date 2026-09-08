@@ -11,7 +11,7 @@ export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPendin
 
   return <main className="partner-page">
     <section className="partner-page-head">
-      <div><span className="partner-kicker">12-WEEK ROADMAP</span><h1>미래 목표에서 이번 주까지</h1><p>계획은 덮어쓰지 않고 버전으로 저장됩니다. 새 정보가 생기면 영향을 받은 범위만 다시 계산합니다.</p></div>
+      <div><span className="partner-kicker">12-WEEK ROADMAP</span><h1>AI가 나눈 학습 일정</h1><p>입력한 마감과 가능한 시간을 기준으로 하루 분량을 자동 배치했습니다. 새 정보가 생기면 다시 계산됩니다.</p></div>
       <button className="partner-primary" disabled={busy} onClick={onGeneratePlan}>{busy ? "계획 계산 중…" : active ? "재계획 만들기" : "첫 계획 만들기"}</button>
     </section>
 
