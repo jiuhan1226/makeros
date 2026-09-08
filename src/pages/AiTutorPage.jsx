@@ -85,15 +85,13 @@ export default function AiTutorPage({certificate,initialQuery="",initialPdfId=""
   const scopeLabel=isPdfScope?stripPdf(selectedPdf?.name||"PDF"):isCbtScope?`${certificate?.name||"자격증"} CBT`:"전체 학습 자료";
 
   return <main className="page-shell tutor-page">
-    <section className="page-heading"><div><span className="eyebrow">MAKEROS LEARN</span><h1>AI Tutor</h1><p>선택한 학습 자료를 바탕으로 질문하고 이해를 넓혀보세요.</p></div>{isPdfScope&&selectedPdf&&<button className="secondary" onClick={()=>onOpenGraph(selectedPdf.name)}>이 PDF의 Learning Tree 보기</button>}</section>
-
-    <section className="card tutor-scope-card">
-      <div><span className="eyebrow">REFERENCE SCOPE</span><h2>어떤 자료를 참고할까요?</h2><p>답변에 참고할 PDF 또는 자격증 CBT를 선택하세요.</p></div>
-      <select value={scope} onChange={e=>setScope(e.target.value)}>
+    <section className="tutor-compact-head">
+      <div><span className="eyebrow">AI 튜터</span><h1>{scopeLabel}</h1></div>
+      <div className="tutor-compact-actions"><select aria-label="AI 튜터 참고 자료" value={scope} onChange={e=>setScope(e.target.value)}>
         {certificate?.id&&<option value={`cbt:${certificate.id}`}>{certificate.name} CBT·오답</option>}
         {(pdfLibrary||[]).map(doc=><option key={doc.id} value={`pdf:${doc.id}`}>PDF · {stripPdf(doc.name)}</option>)}
         <option value="all">전체 학습 자료</option>
-      </select>
+      </select>{isPdfScope&&selectedPdf&&<button className="secondary" onClick={()=>onOpenGraph(selectedPdf.name)}>개념 트리</button>}</div>
     </section>
 
     <div className="tutor-layout"><aside className="card tutor-sidebar"><h3>추천 질문</h3>{suggestions.map(s=><button key={s} onClick={()=>ask(s)}>{s}</button>)}<div className="tutor-context"><b>현재 참고 범위</b><strong>{scopeLabel}</strong><span>CBT 오답 {scopedWrongNotes.length}개</span><span>PDF {scopedPdfs.length}개</span><span>AI 노트 {scopedNotes.length}개</span><span>단어카드 {scopedCards.length}개</span></div></aside>
