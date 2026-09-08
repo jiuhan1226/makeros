@@ -1,43 +1,53 @@
 import { useEffect, useState } from "react";
 
+const CERTIFICATE_PAGES = new Set(["catalog", "certificate", "past", "subject", "topic", "mock", "bookmark", "learning", "report", "planner", "search"]);
+const SCHOOL_PAGES = new Set(["library", "pdfstudy", "notes", "graph", "tutor"]);
+
 function activeModule(active) {
   if (["partnerToday", "partnerPlan", "partnerCalendar", "partnerGoals"].includes(active)) return "partner";
-  if (["invent"].includes(active)) return "invent";
-  if (["projects"].includes(active)) return "projects";
-  if (["portfolio"].includes(active)) return "portfolio";
-  if (["career"].includes(active)) return "career";
+  if (CERTIFICATE_PAGES.has(active)) return "certificateLearn";
+  if (SCHOOL_PAGES.has(active)) return "schoolLearn";
+  if (active === "invent") return "invent";
+  if (active === "projects") return "projects";
+  if (active === "portfolio") return "portfolio";
+  if (active === "career") return "career";
   if (active === "makerHome") return "legacy";
-  return "learn";
+  return "partner";
 }
 
 export default function AppHeader({ active, onNavigate, certificateName, user, onLogin, isAdmin }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const module = activeModule(active);
+  const certificateHome = certificateName ? "certificate" : "catalog";
   const mainItems = [
-    ["partnerToday", "오늘"],
-    ["partnerPlan", "계획"],
-    ["partnerCalendar", "캘린더"],
-    [certificateName ? "certificate" : "catalog", "학습"],
-    ["partnerGoals", "목표"],
+    { key: "partnerToday", label: "오늘" },
+    { key: "partnerPlan", label: "계획" },
+    { key: "partnerCalendar", label: "캘린더" },
+    { key: certificateHome, label: "자격증", module: "certificateLearn" },
+    { key: "library", label: "내신", module: "schoolLearn" },
+    { key: "partnerGoals", label: "목표" },
   ];
-  const learnItems = [
-    [certificateName ? "certificate" : "catalog", "학습 홈"],
-    ["past", "CBT"],
-    ["library", "PDF"],
+  const certificateItems = [
+    [certificateHome, "학습 홈"],
+    ["past", "기출문제"],
+    ["subject", "과목별"],
+    ["topic", "주제별"],
+    ["bookmark", "오답·복습"],
+    ["learning", "AI 추천 학습"],
+    ["planner", "시험 계획"],
+  ];
+  const schoolItems = [
+    ["library", "내신 자료"],
     ["notes", "AI 노트·카드"],
-    ["graph", "Learning Tree"],
-    ["tutor", "AI Tutor"],
-    ["stats", "학습 기록"],
-  ];
-  const cbtItems = [
-    ["past", "기출문제"], ["subject", "과목별"], ["topic", "주제별"],
-    ["mock", "모의고사"], ["bookmark", "오답노트"], ["learning", "학습 코치"],
-    ["report", "성장 리포트"], ["planner", "학습 플래너"],
+    ["graph", "개념 트리"],
+    ["tutor", "AI 튜터"],
   ];
   const legacyItems = [["makerHome", "기존 MakerOS 홈"], ["invent", "발명"], ["projects", "프로젝트"], ["portfolio", "포트폴리오"], ["career", "기존 진로"]];
-  const cbtContextPages = new Set(["certificate", ...cbtItems.map(([key]) => key)]);
-  const pdfContextPages = new Set(["library", "pdfstudy", "graph"]);
-  const cbtActive = cbtItems.some(([key]) => key === active);
+  const currentSubItems = module === "certificateLearn" ? certificateItems : module === "schoolLearn" ? schoolItems : [];
+
+  function isMainActive(item) {
+    return item.module ? module === item.module : active === item.key;
+  }
 
   function navigate(key) {
     setMobileMenuOpen(false);
@@ -70,11 +80,8 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
           <span className="maker-brand-mark">M</span>
           <span><strong>MakerOS</strong><small>계획은 바뀌어도, 목표까지 함께.</small></span>
         </button>
-        <nav className="maker-main-nav" aria-label="AI 파트너 주요 메뉴">
-          {mainItems.map(([key, label]) => {
-            const current = key === "partnerToday" ? active === "partnerToday" : key === "partnerPlan" ? active === "partnerPlan" : key === "partnerCalendar" ? active === "partnerCalendar" : key === "partnerGoals" ? active === "partnerGoals" : module === "learn";
-            return <button key={key} className={current ? "active" : ""} onClick={() => navigate(key)}>{label}</button>;
-          })}
+        <nav className="maker-main-nav" aria-label="주요 메뉴">
+          {mainItems.map((item) => <button key={`${item.key}:${item.label}`} className={isMainActive(item) ? "active" : ""} onClick={() => navigate(item.key)}>{item.label}</button>)}
         </nav>
         <div className="maker-header-actions">
           <button className="maker-search-button" onClick={() => navigate("knowledge")}>검색</button>
@@ -83,22 +90,23 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
           <button type="button" className="maker-menu-button" aria-label="전체 메뉴 열기" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(true)}><span/><span/><span/></button>
         </div>
       </div>
-      {module === "learn" && <div className="maker-subbar">
-        <nav aria-label="학습 메뉴">{learnItems.map(([key, label]) => <button key={key} className={active === key || (key === "past" && cbtActive) ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav>
-        {certificateName && cbtContextPages.has(active) && <span className="maker-context-chip">CBT · {certificateName}</span>}
-        {pdfContextPages.has(active) && <span className="maker-context-chip neutral">내신·PDF 학습</span>}
+      {!!currentSubItems.length && <div className="maker-subbar">
+        <nav aria-label={module === "certificateLearn" ? "자격증 학습 메뉴" : "내신 학습 메뉴"}>
+          {currentSubItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}
+        </nav>
+        {module === "certificateLearn" && certificateName && <span className="maker-context-chip">{certificateName}</span>}
+        {module === "schoolLearn" && <span className="maker-context-chip neutral">내신 학습</span>}
       </div>}
-      {module === "learn" && certificateName && cbtActive && <div className="maker-contextbar"><nav>{cbtItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav><button onClick={() => navigate("catalog")}>종목 변경</button></div>}
     </header>
 
     <button type="button" className={`maker-mobile-menu-backdrop ${mobileMenuOpen ? "visible" : ""}`} aria-label="메뉴 닫기" onClick={() => setMobileMenuOpen(false)}/>
     <aside className={`maker-mobile-drawer ${mobileMenuOpen ? "open" : ""}`} aria-hidden={!mobileMenuOpen}>
-      <header><div className="maker-mobile-drawer-brand"><span className="maker-brand-mark">M</span><div><strong>MakerOS</strong><small>학생의 목표와 계획을 함께 갱신하는 AI 파트너</small></div></div><button type="button" className="maker-drawer-close" onClick={() => setMobileMenuOpen(false)} aria-label="전체 메뉴 닫기">×</button></header>
+      <header><div className="maker-mobile-drawer-brand"><span className="maker-brand-mark">M</span><div><strong>MakerOS</strong><small>목표와 학습을 한 번에 관리</small></div></div><button type="button" className="maker-drawer-close" onClick={() => setMobileMenuOpen(false)} aria-label="전체 메뉴 닫기">×</button></header>
       <div className="maker-mobile-drawer-scroll">
-        <section><span>AI 파트너</span><nav>{mainItems.map(([key, label]) => <button key={key} className={active === key || (label === "학습" && module === "learn") ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
-        <section><span>학습 도구</span><nav>{learnItems.map(([key, label]) => <button key={key} className={active === key || (key === "past" && cbtActive) ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
-        {certificateName && <section><span>{certificateName} CBT</span><nav>{cbtItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>}
-        <section><span>기존 MakerOS 기능</span><nav>{legacyItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
+        <section><span>일정</span><nav>{mainItems.filter((item) => !item.module).map((item) => <button key={item.key} className={isMainActive(item) ? "active" : ""} onClick={() => navigate(item.key)}>{item.label}</button>)}</nav></section>
+        <section><span>자격증</span><nav>{certificateItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
+        <section><span>내신</span><nav>{schoolItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
+        <section><span>만들기·진로</span><nav>{legacyItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
       </div>
       <footer><button type="button" onClick={() => navigate("knowledge")}>통합 검색</button>{isAdmin && <button type="button" onClick={() => navigate("admin")}>관리자</button>}<button type="button" className="primary" onClick={handleAccount}>{user ? "계정 관리" : "로그인"}</button></footer>
     </aside>
@@ -106,7 +114,8 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
     <nav className="maker-mobile-bottom-nav partner-mobile-nav" aria-label="모바일 빠른 메뉴">
       <button className={active === "partnerToday" ? "active" : ""} onClick={() => navigate("partnerToday")}><span>⌂</span><small>오늘</small></button>
       <button className={active === "partnerPlan" ? "active" : ""} onClick={() => navigate("partnerPlan")}><span>▤</span><small>계획</small></button>
-      <button className={module === "learn" ? "active" : ""} onClick={() => navigate(certificateName ? "certificate" : "catalog")}><span>▣</span><small>학습</small></button>
+      <button className={module === "certificateLearn" ? "active" : ""} onClick={() => navigate(certificateHome)}><span>▣</span><small>자격증</small></button>
+      <button className={module === "schoolLearn" ? "active" : ""} onClick={() => navigate("library")}><span>□</span><small>내신</small></button>
       <button className={active === "partnerGoals" ? "active" : ""} onClick={() => navigate("partnerGoals")}><span>◎</span><small>목표</small></button>
     </nav>
   </>;
