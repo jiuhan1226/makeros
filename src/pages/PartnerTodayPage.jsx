@@ -1,13 +1,13 @@
 import React, { useMemo } from "react";
 import { daysUntil, getActivePartnerPlan, getPendingPartnerPlan, normalizePartnerState, planDiff, todayLabel } from "../utils/aiPartner";
 
-function ActionButton({ item, onNavigate }) {
+function ActionButton({ item, onNavigate, onQuickAction }) {
   const labels = { cbt: "CBT 시작", academic: "내신 학습", career: "진로 준비", activity: "활동 확인", plan: "계획 보기", goals: "목표 입력" };
-  const target = item.action === "cbt" ? "catalog" : item.action === "academic" ? "library" : item.action === "career" ? "career" : item.action === "plan" ? "partnerPlan" : item.action === "goals" ? "partnerGoals" : "projects";
-  return <button className="partner-mini-action" onClick={() => onNavigate(target)}>{labels[item.action] || "열기"}</button>;
+  const target = item.action === "cbt" ? "past" : item.action === "academic" ? "library" : item.action === "career" ? "career" : item.action === "plan" ? "partnerPlan" : item.action === "goals" ? "partnerGoals" : "projects";
+  return <button className="partner-mini-action" onClick={() => onQuickAction ? onQuickAction(item) : onNavigate(target)}>{labels[item.action] || "열기"}</button>;
 }
 
-export default function PartnerTodayPage({ state, onNavigate, onToggleItem, onGeneratePlan, onConfirmPending, busy = false }) {
+export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onToggleItem, onGeneratePlan, onConfirmPending, busy = false }) {
   const normalized = useMemo(() => normalizePartnerState(state), [state]);
   const active = getActivePartnerPlan(normalized);
   const pending = getPendingPartnerPlan(normalized);
@@ -49,7 +49,7 @@ export default function PartnerTodayPage({ state, onNavigate, onToggleItem, onGe
           {items.map((item, index) => <article key={item.id} className={`partner-task ${item.status === "completed" ? "done" : ""}`}>
             <button className="partner-check" aria-label="완료 상태 변경" onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
             <div><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><p>{item.reason}</p><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "설정"}</small></div>
-            <ActionButton item={item} onNavigate={onNavigate}/>
+            <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction}/>
           </article>)}
         </div>
       </div>
@@ -60,10 +60,6 @@ export default function PartnerTodayPage({ state, onNavigate, onToggleItem, onGe
           <div className="partner-deadline-list">
             {goals.length ? goals.map((item) => { const d = daysUntil(item.date); return <div key={`${item.title}:${item.date}`}><span><strong>{item.title}</strong><small>{item.date}</small></span><b>{d == null ? "" : d >= 0 ? `D-${d}` : `D+${Math.abs(d)}`}</b></div>; }) : <p className="partner-muted">등록된 마감이 없습니다.</p>}
           </div>
-        </section>
-        <section className="partner-panel">
-          <div className="partner-section-title compact"><div><span>AI 파트너 원칙</span><h2>계획은 제안, 확정은 학생</h2></div></div>
-          <ul className="partner-principles"><li>고정 일정과 가능한 시간을 먼저 지킵니다.</li><li>성적·정답·자격 상태는 AI가 바꾸지 않습니다.</li><li>계획이 바뀌면 이유와 전후 차이를 보여줍니다.</li></ul>
         </section>
       </aside>
     </section>
