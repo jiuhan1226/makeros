@@ -15,13 +15,14 @@
     "test:learning": "node scripts/learning-smoke-test.mjs",
     "test:explanation": "node scripts/explanation-safety-test.mjs",
     "test:maintenance": "node scripts/learning-maintenance-test.mjs",
-    "test": "npm run test:partner && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:copy && npm run test:submission && npm run test:responsive",
+    "test": "npm run test:partner && npm run test:diagnostic && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:copy && npm run test:submission && npm run test:responsive",
     "test:copy": "node scripts/copy-audit.mjs",
     "seed:demo": "node scripts/seed-demo-account.mjs",
     "test:submission": "node scripts/submission-readiness-test.mjs",
     "seed:judge": "node scripts/seed-demo-account.mjs",
     "test:responsive": "node scripts/responsive-smoke-test.mjs",
-    "test:partner": "node scripts/partner-planning-test.mjs"
+    "test:partner": "node scripts/partner-planning-test.mjs",
+    "test:diagnostic": "node scripts/partner-diagnostic-test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
