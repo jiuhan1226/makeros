@@ -6,6 +6,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const requiredFiles = [
   "LICENSE",
   "README.md",
+  "README_V3.1_AI_PARTNER.md",
   "COMPETITION_SUBMISSION_CHECKLIST.md",
   "PITCH_3MIN_SCRIPT.md",
   "AI_USAGE_DISCLOSURE.md",
@@ -21,9 +22,10 @@ for (const file of requiredFiles) {
   if (!fs.existsSync(target)) throw new Error(`제출 필수 파일 누락: ${file}`);
 }
 
-const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
-for (const section of ["문제 정의", "아키텍처", "기술 스택", "실행 방법", "AI 사용 내역", "라이선스", "심사 계정"]) {
-  if (!readme.includes(section)) throw new Error(`README 필수 섹션 누락: ${section}`);
+// 기존 README는 보존하고, v3.1 제품 정의는 별도 README에서 검증한다.
+const partnerReadme = fs.readFileSync(path.join(root, "README_V3.1_AI_PARTNER.md"), "utf8");
+for (const section of ["v3.1 핵심 화면", "계획 안전 구조", "데이터", "AI가 바꾸지 않는 값"]) {
+  if (!partnerReadme.includes(section)) throw new Error(`v3.1 README 필수 섹션 누락: ${section}`);
 }
 
 const env = fs.readFileSync(path.join(root, ".env.example"), "utf8");
@@ -38,10 +40,13 @@ const main = fs.readFileSync(path.join(root, "src/main.jsx"), "utf8");
 for (const forbidden of ["CompetitionPage", "global-demo-banner", "isDemoUser"]) {
   if (main.includes(forbidden)) throw new Error(`제품 화면에 심사용 분기 잔존: ${forbidden}`);
 }
+for (const required of ["PartnerTodayPage", "PartnerPlanPage", "PartnerCalendarPage", "PartnerGoalsPage", "partnerState"]) {
+  if (!main.includes(required)) throw new Error(`AI 파트너 핵심 연결 누락: ${required}`);
+}
 
 const auth = fs.readFileSync(path.join(root, "src/components/AuthModal.jsx"), "utf8");
 if (auth.includes("데모 계정으로 시작") || auth.includes("VITE_DEMO")) {
   throw new Error("로그인 화면에 특수 데모 로그인 기능이 남아 있습니다.");
 }
 
-console.log("Submission readiness test passed.");
+console.log("Submission readiness test passed for MakerOS v3.1.");
