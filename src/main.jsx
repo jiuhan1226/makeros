@@ -43,12 +43,30 @@ import InventPage from "./pages/InventPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import PortfolioPage from "./pages/PortfolioPage";
 import CareerPage from "./pages/CareerPage";
+import PartnerTodayPage from "./pages/PartnerTodayPage";
+import PartnerPlanPage from "./pages/PartnerPlanPage";
+import PartnerCalendarPage from "./pages/PartnerCalendarPage";
+import PartnerGoalsPage from "./pages/PartnerGoalsPage";
 import { shuffle } from "./utils/exam";
 import { useExamSession } from "./hooks/useExamSession";
 import { assetId, readPdfLibrary, readStudyAssets, saveStudyAssets } from "./utils/studyPlatform";
 import { createBuildProject as makeBuildProject, readMakerState, saveMakerState } from "./utils/makerPlatform";
 import { generateStudyAssetsFromPages } from "./utils/aiStudyAssets";
 import { postJson } from "./utils/api";
+import {
+  buildDeterministicPlan,
+  confirmPendingPlan,
+  createDefaultPartnerState,
+  createPlanVersion,
+  getActivePartnerPlan,
+  mergeAiPlan,
+  normalizePartnerState,
+  planDiff,
+  profileSnapshot,
+  recordChangeEvent,
+  rollbackPartnerPlan,
+  updateTodayItemStatus,
+} from "./utils/aiPartner";
 import {
   buildRepeatedWrong,
   getDueReviews,
@@ -70,6 +88,7 @@ import "./styles.css";
 
 const LOCAL_KEY = "studylock-v3-state";
 const LEGACY_PDF_KEY = "studylock-v1.5-state";
+const PARTNER_KEY = "makeros-ai-partner-v3.1";
 
 function readLocal() {
   try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || "{}"); }
@@ -79,6 +98,11 @@ function readLocal() {
 function readLegacyPdf() {
   try { return JSON.parse(localStorage.getItem(LEGACY_PDF_KEY) || "{}"); }
   catch { return {}; }
+}
+
+function readPartnerLocal() {
+  try { return normalizePartnerState(JSON.parse(localStorage.getItem(PARTNER_KEY) || "{}")); }
+  catch { return createDefaultPartnerState(); }
 }
 
 function sameCertificate(item, certificateId, examIds) {
@@ -106,7 +130,7 @@ function progressToQuestion(item, index = 0) {
 function App() {
   const initial = useRef(migrateLearningState(readLocal())).current;
   const makerInitial = useRef(readMakerState()).current;
-  const [page, setPage] = useState("makerHome");
+  const [page, setPage] = useState("partnerToday");
   const [certificates, setCertificates] = useState([]);
   const [certificate, setCertificate] = useState(null);
   const [exams, setExams] = useState([]);
@@ -139,6 +163,8 @@ function App() {
   const [certifications, setCertifications] = useState(makerInitial.certifications || []);
   const [resumeProfile, setResumeProfile] = useState(makerInitial.resumeProfile || {});
   const [careerProfile, setCareerProfile] = useState(makerInitial.careerProfile || {});
+  const [partnerState, setPartnerState] = useState(() => readPartnerLocal());
+  const [partnerBusy, setPartnerBusy] = useState(false);
   const session = useExamSession();
 
   useEffect(() => (firebaseConfigured ? onAuthStateChanged(auth, setUser) : undefined), []);
@@ -174,6 +200,7 @@ function App() {
           setPlan(migrated.plan || {});
           setQuestionBookmarks(migrated.questionBookmarks || []);
           setActiveCertificateId(String(migrated.activeCertificateId || data.activeCertificateId || ""));
+          if (data.partnerState) setPartnerState(normalizePartnerState(data.partnerState));
         }
         if (cloudAttempts.length) setAttemptEvents(cloudAttempts);
         setCloudLoadedForUid(user.uid);
@@ -203,15 +230,18 @@ function App() {
     };
     localStorage.setItem(LOCAL_KEY, JSON.stringify(state));
     if (user && cloudReady && cloudLoadedForUid === user.uid) {
-      const cloudState = { history, practiceHistory, wrongNotes, learningProgress, studyEvents, plan, questionBookmarks, activeCertificateId: certificate?.id || activeCertificateId };
+      const cloudState = { history, practiceHistory, wrongNotes, learningProgress, studyEvents, plan, questionBookmarks, activeCertificateId: certificate?.id || activeCertificateId, partnerState };
       const id = setTimeout(() => saveCloudState(user.uid, cloudState).catch(console.error), 500);
       return () => clearTimeout(id);
     }
     return undefined;
-  }, [history, practiceHistory, wrongNotes, learningProgress, studyEvents, attemptEvents, plan, questionBookmarks, pdfQuizHistory, pdfQuizWrongNotes, activeCertificateId, certificate?.id, user, cloudReady, cloudLoadedForUid]);
+  }, [history, practiceHistory, wrongNotes, learningProgress, studyEvents, attemptEvents, plan, questionBookmarks, pdfQuizHistory, pdfQuizWrongNotes, activeCertificateId, certificate?.id, partnerState, user, cloudReady, cloudLoadedForUid]);
   useEffect(() => {
     saveMakerState({ inventorProjects, buildProjects, portfolioItems, awards, certifications, resumeProfile, careerProfile });
   }, [inventorProjects, buildProjects, portfolioItems, awards, certifications, resumeProfile, careerProfile]);
+  useEffect(() => {
+    localStorage.setItem(PARTNER_KEY, JSON.stringify(partnerState));
+  }, [partnerState]);
 
   const active = useMemo(
     () => page === "mode" ? "past" : page === "exam" ? (session.exam?.sourceType === "pdf" ? "pdfstudy" : "past") : page,
@@ -414,6 +444,28 @@ function App() {
       subjects: result.subjects,
       createdAt: now,
     };
+
+    setPartnerState((previous) => {
+      const normalized = normalizePartnerState(previous);
+      const target = normalized.certificateGoal;
+      if (!target?.name) return normalized;
+      const sameTarget = !certificateName || target.name === certificateName || target.id === certificateId;
+      if (!sameTarget) return normalized;
+      let next = {
+        ...normalized,
+        certificateGoal: { ...target, cbtAccuracy: result.score, lastCbtAt: now },
+      };
+      next = recordChangeEvent(next, {
+        type: "study_result_saved",
+        label: `${target.name} CBT 결과 ${result.score}점이 저장되어 자격증 계획을 다시 확인합니다.`,
+        before: { cbtAccuracy: target.cbtAccuracy ?? null },
+        after: { cbtAccuracy: result.score },
+        actor: "system",
+      });
+      if (!getActivePartnerPlan(next)) return next;
+      const replanned = buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" });
+      return createPlanVersion(next, replanned, { activate: false });
+    });
 
     if (result.assessmentType === "practice") {
       setPracticeHistory((previous) => [sessionRecord, ...previous].slice(0, 500));
@@ -728,12 +780,81 @@ function App() {
     setPage("notes");
   }
 
+  async function generatePartnerPlan(trigger = { type: "manual", label: "학생이 계획 갱신을 요청했습니다." }) {
+    setPartnerBusy(true);
+    try {
+      const baseState = trigger?.type && trigger.type !== "manual"
+        ? recordChangeEvent(partnerState, trigger)
+        : normalizePartnerState(partnerState);
+      const latestEvent = baseState.changeEvents?.[0];
+      const fallbackPlan = buildDeterministicPlan(baseState, { basedOnEventId: latestEvent?.id || "", source: "rules" });
+      let finalPlan = fallbackPlan;
+      if (user?.uid) {
+        try {
+          const response = await postJson(
+            "/api/partner/plan",
+            {
+              snapshot: profileSnapshot(baseState),
+              currentPlan: getActivePartnerPlan(baseState),
+              fallbackPlan,
+              trigger: latestEvent || trigger,
+            },
+            "AI 계획 생성에 실패했습니다.",
+          );
+          finalPlan = mergeAiPlan(response?.plan, fallbackPlan, baseState);
+        } catch (error) {
+          console.warn("[MakerOS AI Partner] AI 계획 생성 실패, 규칙 기반 계획 사용:", error.message);
+        }
+      }
+      setPartnerState(createPlanVersion(baseState, finalPlan, { activate: false }));
+    } finally {
+      setPartnerBusy(false);
+    }
+  }
+
+  function confirmPartnerPlan() {
+    setPartnerState((previous) => confirmPendingPlan(previous));
+  }
+
+  function discardPendingPartnerPlan() {
+    setPartnerState((previous) => {
+      const normalized = normalizePartnerState(previous);
+      const pendingId = normalized.pendingPlanVersionId;
+      return {
+        ...normalized,
+        pendingPlanVersionId: "",
+        planVersions: normalized.planVersions.map((item) => item.versionId === pendingId ? { ...item, status: "discarded" } : item),
+        lastUpdatedAt: Date.now(),
+      };
+    });
+  }
+
+  function rollbackPartnerVersion(versionId) {
+    setPartnerState((previous) => rollbackPartnerPlan(previous, versionId));
+  }
+
+  function changeTodayPartnerItem(itemId, status) {
+    setPartnerState((previous) => {
+      let next = updateTodayItemStatus(previous, itemId, status);
+      if (status !== "completed") return next;
+      next = recordChangeEvent(next, { type: "plan_item_completed", label: "오늘 계획의 행동을 완료했습니다.", actor: "student" });
+      const activePlan = getActivePartnerPlan(next);
+      if (!activePlan) return next;
+      const replanned = buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" });
+      return createPlanVersion(next, replanned, { activate: false });
+    });
+  }
+
   const repeatedWrong = useMemo(() => buildRepeatedWrong(certificateLearningProgress), [certificateLearningProgress]);
   const dueReviews = useMemo(() => getDueReviews(certificateLearningProgress), [certificateLearningProgress]);
 
   return (
     <div className="app">
       <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} user={user} onLogin={() => setShowAuth(true)} isAdmin={isAdminUser(user)} />
+      {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onToggleItem={changeTodayPartnerItem} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." })} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
+      {page === "partnerPlan" && <PartnerPlanPage state={partnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." })} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
+      {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onNavigate={navigate} />}
+      {page === "partnerGoals" && <PartnerGoalsPage value={partnerState} onChange={setPartnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "학생 정보가 변경되어 새 계획안을 만들었습니다." })} busy={partnerBusy} />}
       {page === "makerHome" && <MakerHomePage onNavigate={navigate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} />}
       {page === "invent" && <InventPage projects={inventorProjects} onChangeProjects={setInventorProjects} onCreateBuildProject={createBuildProject} />}
       {page === "projects" && <ProjectsPage projects={buildProjects} inventorProjects={inventorProjects} onChangeProjects={setBuildProjects} onOpenInvent={() => setPage("invent")} />}
