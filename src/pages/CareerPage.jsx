@@ -188,6 +188,6 @@ export default function CareerPage({
       <article className="maker-card career-job-detail"><span>직무 준비 가이드</span><h2>{selectedJob}</h2><p>{roleGuide.summary}</p><div className="career-job-detail-columns"><div><strong>필요 역량</strong><ul>{roleGuide.skills.map((item) => <li key={item}>{item}</li>)}</ul></div><div><strong>포트폴리오 근거</strong><ul>{roleGuide.proof.map((item) => <li key={item}>{item}</li>)}</ul></div></div><div className="career-job-actions"><button className="secondary" onClick={() => onNavigate?.("catalog")}>관련 학습 찾기</button><button className="secondary" onClick={() => onNavigate?.("invent")}>아이디어 만들기</button><button className="primary" onClick={() => onNavigate?.("portfolio")}>이력서 근거 정리</button></div></article>
     </section>
 
-    <section className="maker-card career-evidence-card"><span>분석에 사용된 실제 기록</span><ol><li>AI 노트 {analysis.counts.notes}개 · 단어카드 {analysis.counts.cards}개</li><li>완료 작업 {analysis.counts.completedTasks}개 · 프로젝트 일지 {analysis.counts.journals}개</li><li>자격증 {analysis.counts.certifications}개 · 수상 경력 {analysis.counts.awards}개</li></ol></section>
+    <section className="maker-card career-evidence-card"><span>분석에 사용된 실제 기록</span><ol><li>AI 노트 {analysis.counts.notes}개 · 개념카드 {analysis.counts.cards}개</li><li>완료 작업 {analysis.counts.completedTasks}개 · 프로젝트 일지 {analysis.counts.journals}개</li><li>자격증 {analysis.counts.certifications}개 · 수상 경력 {analysis.counts.awards}개</li></ol></section>
   </main>;
 }
