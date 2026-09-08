@@ -171,6 +171,7 @@ const protectedAiPaths = [
   "/api/cbt-learning-coach",
   "/api/invent/coach",
   "/api/partner/plan",
+  "/api/partner/cbt-diagnostic",
 ];
 app.use(protectedAiPaths, requireFirebaseUser);
 
@@ -496,6 +497,100 @@ ${JSON.stringify(fallbackPlan)}`.slice(0, 55000);
     return res.json({ plan, model: generated.selectedModel, provider: "Google Gemini SDK" });
   } catch (error) {
     console.error("[MakerOS AI Partner Plan Error]", error);
+    const friendly = friendlyError(error);
+    return res.status(friendly.status).json({ error: friendly.message });
+  }
+});
+
+function cleanDiagnosticReferences(value) {
+  return (Array.isArray(value) ? value : []).slice(0, 48).map((item, index) => {
+    const choices = (Array.isArray(item?.choices) ? item.choices : []).slice(0, 5).map(normalize).filter(Boolean);
+    const answerIndex = Number(item?.answerIndex);
+    if (!normalize(item?.question) || choices.length < 2 || !Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= choices.length) return null;
+    return {
+      id: normalize(item.id || `reference-${index + 1}`).slice(0, 120),
+      subject: normalize(item.subject || "공통").slice(0, 80),
+      topic: normalize(item.topic || "").slice(0, 80),
+      question: normalize(item.question).slice(0, 600),
+      choices: choices.map((choice) => choice.slice(0, 300)),
+      answerIndex,
+      explanation: normalize(item.explanation || "").slice(0, 800),
+    };
+  }).filter(Boolean);
+}
+
+function validateDiagnosticQuestions(value, references, requestedCount) {
+  const referenceMap = new Map(references.map((item) => [item.id, item]));
+  return deduplicateQuestions((Array.isArray(value) ? value : []).map((item) => {
+    const sourceId = normalize(item?.sourceId || "");
+    const source = referenceMap.get(sourceId);
+    const choices = (Array.isArray(item?.choices) ? item.choices : []).slice(0, 5).map(normalize).filter(Boolean);
+    const answerIndex = Number(item?.answerIndex);
+    const question = normalize(item?.question || "");
+    if (!source || question.length < 15 || question === source.question) return null;
+    if (choices.length < 4 || new Set(choices).size !== choices.length) return null;
+    if (!Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= choices.length) return null;
+    return {
+      sourceId,
+      subject: normalize(item.subject || source.subject || "공통").slice(0, 80),
+      topic: normalize(item.topic || source.topic || "").slice(0, 80),
+      question,
+      choices,
+      answerIndex,
+      explanation: normalize(item.explanation || "").slice(0, 1200),
+    };
+  }).filter((item) => item?.explanation?.length >= 15)).slice(0, requestedCount);
+}
+
+app.post("/api/partner/cbt-diagnostic", async (req, res) => {
+  try {
+    if (!apiKey || !ai) return res.status(503).json({ error: "서버에 GEMINI_API_KEY가 설정되지 않았습니다." });
+    const references = cleanDiagnosticReferences(req.body?.references);
+    if (references.length < 4) return res.status(400).json({ error: "맞춤 진단 문제를 만들 기출 근거가 부족합니다." });
+    const requestedCount = Math.min(Math.max(Number(req.body?.count) || 10, 5), 15);
+    const profile = req.body?.profile || {};
+    const mode = req.body?.mode === "weak-practice" ? "취약 영역 맞춤 복습" : "기출 범위 진단";
+    const weakSubjects = (Array.isArray(profile.weakSubjects) ? profile.weakSubjects : []).slice(0, 5).map(normalize).filter(Boolean);
+    const prompt = `당신은 한국 국가기술자격 CBT 학습을 돕는 문제 출제자입니다.
+아래에는 학생이 선택한 자격 종목의 실제 등록 기출문제와 공식 정답이 참고 근거로 제공됩니다.
+참고 근거에 들어 있는 지식만 사용하여 새로운 맞춤형 진단 문제를 만드십시오. 외부 지식, 최신 법령 수치, 존재하지 않는 출제 기준은 추가하지 마십시오.
+
+학습자 진단:
+- 자격 종목: ${normalize(req.body?.certificateName || "선택 자격증")}
+- 활동: ${mode}
+- 누적 풀이: ${Math.max(0, Number(profile.attemptCount || 0))}문제
+- 최근 정답률: ${Math.max(0, Math.min(100, Number(profile.accuracy || 0)))}%
+- 기출 범위 학습률: ${Math.max(0, Math.min(100, Number(profile.coverage || 0)))}%
+- 추천 난이도: ${normalize(profile.difficulty || "보통")}
+- 우선 보완 과목: ${weakSubjects.join(", ") || "전체 과목 균형"}
+
+출제 규칙:
+1. 총 ${requestedCount}개를 만들고, 각 문제는 정답이 하나인 4지 또는 5지선다형으로 작성합니다.
+2. sourceId에는 반드시 그 문제의 사실 근거가 된 참고 문제 id 하나를 그대로 넣습니다.
+3. 원문 문제를 복사하거나 선택지만 재배열하지 말고, 같은 개념을 다른 조건·상황·표현으로 물어봅니다.
+4. sourceId 원문의 공식 정답 관계가 바뀌지 않도록 정답과 해설을 작성합니다.
+5. 오답은 그럴듯하지만 참고 근거와 명확히 구분되어야 합니다.
+6. explanation에는 정답 근거와 핵심 판단 기준을 한국어로 설명합니다.
+7. 취약 과목이 있으면 절반 이상을 해당 과목에 배정하고, 나머지는 전체 범위를 확인하도록 배분합니다.
+8. 법령·수치가 참고 문제에 명시되지 않았다면 새로 만들어 묻지 않습니다.
+9. 설명 없이 다음 JSON 하나만 반환합니다.
+{"summary":"출제 구성 한 문장","questions":[{"sourceId":"참고 id","subject":"과목","topic":"개념","question":"새 문제","choices":["선택지1","선택지2","선택지3","선택지4"],"answerIndex":0,"explanation":"정답과 판단 근거"}]}
+
+참고 기출문제:
+${JSON.stringify(references)}`;
+    const generated = await generateLooseJsonWithFallback({ prompt, maxOutputTokens: 12000 });
+    const questions = validateDiagnosticQuestions(generated.parsed?.questions, references, requestedCount);
+    if (questions.length < Math.min(5, requestedCount)) {
+      return res.status(422).json({ error: "생성된 문제 중 기출 근거와 형식 검증을 통과한 문항이 부족합니다. 다시 시도해 주세요." });
+    }
+    return res.json({
+      questions,
+      summary: normalize(generated.parsed?.summary || `${questions.length}개 맞춤 진단 문항을 생성했습니다.`),
+      model: generated.selectedModel,
+      provider: "Google Gemini SDK",
+    });
+  } catch (error) {
+    console.error("[MakerOS Partner CBT Diagnostic Error]", error);
     const friendly = friendlyError(error);
     return res.status(friendly.status).json({ error: friendly.message });
   }
@@ -1532,4 +1627,3 @@ app.listen(port, host, () => {
   console.log(`[MakerOS] provider=Google Gemini SDK requestedModel=${requestedModel}`);
   console.log(`[MakerOS] API key configured=${Boolean(apiKey)}`);
 });
-
