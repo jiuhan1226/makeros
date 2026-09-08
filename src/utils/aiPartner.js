@@ -149,6 +149,7 @@ function certificateGoal(item) {
     goalId: item.id || `certificate:${item.name}`,
     type: "certificate",
     title: `${item.name} 준비`,
+    startDate: item.startDate || "",
     deadline: item.examDate || "",
     importance: Math.min(1, 0.72 + Math.max(0, 70 - accuracy) / 200),
     meta: { name: item.name, status: item.status || "preparing", accuracy, weakSubjects: item.weakSubjects || [] },
@@ -195,6 +196,7 @@ function simpleGoal(item, index) {
     goalId: item.id || `goal:${index}`,
     type,
     title: item.title,
+    startDate: item.startDate || "",
     deadline: item.deadline || "",
     importance: 0.76,
     meta: { ...item, details: item.details || "" },
@@ -278,16 +280,28 @@ function todayAvailableMinutes(state, today = new Date()) {
 }
 
 function planHorizonWeeks(goals, today) {
-  const dated = goals.map((goal) => daysUntil(goal.deadline, today)).filter((value) => value != null && value >= 0);
+  const dated = goals
+    .flatMap((goal) => [goal.startDate, goal.deadline])
+    .map((value) => dateAtNoon(value))
+    .filter(Boolean);
   if (!dated.length) return 4;
-  return Math.max(1, Math.min(52, Math.ceil((Math.max(...dated) + 1) / 7)));
+  const lastDate = dated.sort((a, b) => b - a)[0];
+  const firstWeek = dateAtNoon(weekStart(today, 0));
+  const lastWeekIndex = Math.max(0, Math.floor((lastDate - firstWeek) / 604800000));
+  return Math.max(1, Math.min(52, lastWeekIndex + 1));
 }
 
 function targetWeek(goal, stepIndex, stepCount, today, horizonWeeks) {
-  const dday = daysUntil(goal.deadline, today);
-  const goalWeeks = dday == null ? horizonWeeks : Math.max(1, Math.min(horizonWeeks, Math.ceil((Math.max(0, dday) + 1) / 7)));
+  const firstWeek = dateAtNoon(weekStart(today, 0));
+  const weekIndexFor = (value, fallback) => {
+    const date = dateAtNoon(value);
+    if (!date) return fallback;
+    return Math.max(0, Math.min(horizonWeeks - 1, Math.floor((date - firstWeek) / 604800000)));
+  };
+  const startWeek = weekIndexFor(goal.startDate, 0);
+  const endWeek = Math.max(startWeek, weekIndexFor(goal.deadline || goal.startDate, horizonWeeks - 1));
   const ratio = stepCount <= 1 ? 0 : stepIndex / (stepCount - 1);
-  return Math.max(0, Math.min(horizonWeeks - 1, Math.floor(ratio * Math.max(0, goalWeeks - 1))));
+  return Math.max(startWeek, Math.min(endWeek, Math.round(startWeek + ratio * (endWeek - startWeek))));
 }
 
 export function buildDeterministicPlan(state, options = {}) {
@@ -332,6 +346,7 @@ export function buildDeterministicPlan(state, options = {}) {
       goalId: goal.goalId,
       type: goal.type,
       title: goal.title,
+      startDate: goal.startDate || "",
       deadline: goal.deadline,
       priority: goal.priority,
       milestones,
@@ -379,7 +394,7 @@ export function buildDeterministicPlan(state, options = {}) {
     status: "draft",
     source: options.source || "rules",
     summary: goals.length
-      ? `${goals.length}개의 목표일과 주 ${Math.round(weekLimit / 60 * 10) / 10}시간의 가능 시간을 기준으로 ${horizonWeeks}주 계획을 구성했습니다.`
+      ? `${goals.length}개의 목표 기간과 주 ${Math.round(weekLimit / 60 * 10) / 10}시간의 가능 시간을 기준으로 계획을 구성했습니다.`
       : "목표 정보가 부족해 첫 설정 행동만 제안합니다.",
     roadmap,
     weeks,
@@ -586,21 +601,47 @@ export function mergeAiPlan(aiPlan, fallbackPlan, state) {
 export function partnerCalendarItems(state) {
   const normalized = normalizePartnerState(state);
   const items = [];
-  normalized.goals.forEach((item) => item?.deadline && items.push({ id: item.id || partnerId("cal"), type: inferGoalType(item), title: item.title, date: item.deadline, locked: false }));
-  normalized.certificateGoals.forEach((item) => item?.examDate && items.push({ id: `certificate-exam:${item.id || item.name}`, type: "certificate", title: `${item.name} 시험`, date: item.examDate, locked: true }));
-  normalized.calendarExtras.forEach((item) => {
-    const start = item?.startDate || item?.date;
-    const end = item?.isSingleDay ? start : item?.endDate || start;
+  function appendRange(item, options = {}) {
+    const start = options.start || item?.startDate || item?.date || options.end;
+    const end = options.isSingleDay ? start : options.end || item?.endDate || start;
     const startDate = dateAtNoon(start);
     const endDate = dateAtNoon(end);
     if (!startDate) return;
     const safeEnd = endDate && endDate >= startDate ? endDate : startDate;
+    const rangeStart = isoDate(startDate);
+    const rangeEnd = isoDate(safeEnd);
+    const rangeKey = String(options.id || item?.id || partnerId("cal"));
     for (let date = new Date(startDate), index = 0; date <= safeEnd && index < 366; date = addDays(date, 1), index += 1) {
       const dateKey = isoDate(date);
-      items.push({ ...item, id: `${item.id || partnerId("cal")}:${dateKey}`, sourceId: item.id || "", date: dateKey, startDate: start, endDate: end });
+      items.push({
+        ...item,
+        id: `${rangeKey}:${dateKey}`,
+        sourceId: options.editable ? item?.id || "" : "",
+        type: options.type || item?.type || "custom",
+        title: options.title || item?.title || "일정",
+        locked: Boolean(options.locked),
+        date: dateKey,
+        startDate: rangeStart,
+        endDate: rangeEnd,
+        rangeStart,
+        rangeEnd,
+        rangeKey,
+        isRange: rangeStart !== rangeEnd,
+      });
     }
+  }
+  normalized.goals.forEach((item) => {
+    if (!item?.startDate && !item?.deadline) return;
+    appendRange(item, { id: item.id, type: inferGoalType(item), title: item.title, start: item.startDate || item.deadline, end: item.deadline || item.startDate });
   });
-  return items.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  normalized.certificateGoals.forEach((item) => {
+    if (!item?.startDate && !item?.examDate) return;
+    appendRange(item, { id: `certificate:${item.id || item.name}`, type: "certificate", title: item.name, start: item.startDate || item.examDate, end: item.examDate || item.startDate, locked: true });
+  });
+  normalized.calendarExtras.forEach((item) => {
+    appendRange(item, { id: item.id, start: item?.startDate || item?.date, end: item?.isSingleDay ? item?.startDate || item?.date : item?.endDate, isSingleDay: item?.isSingleDay, editable: true });
+  });
+  return items.sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.rangeKey).localeCompare(String(b.rangeKey)));
 }
 
 export function todayLabel(date = new Date()) {
