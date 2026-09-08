@@ -570,6 +570,27 @@ function App() {
     setPage(next);
   }
 
+  function navigatePartnerAction(item) {
+    if (item?.action === "cbt") {
+      const goalName = String(partnerState.certificateGoal?.name || "").replace(/\s+/g, "").toLowerCase();
+      const matched = certificates.find((candidate) => {
+        const candidateName = String(candidate?.name || "").replace(/\s+/g, "").toLowerCase();
+        return goalName && (candidateName === goalName || candidateName.includes(goalName) || goalName.includes(candidateName));
+      });
+      const target = matched || certificate;
+      if (!target) {
+        setPage("catalog");
+        return;
+      }
+      setCertificate(target);
+      setActiveCertificateId(target.id || "");
+      setPage("past");
+      return;
+    }
+    const targets = { academic: "library", career: "career", activity: "projects", plan: "partnerPlan", goals: "partnerGoals" };
+    navigate(targets[item?.action] || "partnerToday");
+  }
+
   function createBuildProject(invent) {
     const exists = buildProjects.find((item) => item.sourceInventId === invent.id);
     if (exists) { setPage("projects"); return; }
@@ -851,7 +872,7 @@ function App() {
   return (
     <div className="app">
       <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} user={user} onLogin={() => setShowAuth(true)} isAdmin={isAdminUser(user)} />
-      {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onToggleItem={changeTodayPartnerItem} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." })} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
+      {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} onToggleItem={changeTodayPartnerItem} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." })} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
       {page === "partnerPlan" && <PartnerPlanPage state={partnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." })} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
       {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onNavigate={navigate} />}
       {page === "partnerGoals" && <PartnerGoalsPage value={partnerState} onChange={setPartnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "학생 정보가 변경되어 새 계획안을 만들었습니다." })} busy={partnerBusy} />}
