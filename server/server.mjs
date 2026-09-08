@@ -170,6 +170,7 @@ const protectedAiPaths = [
   "/api/ai-tutor",
   "/api/cbt-learning-coach",
   "/api/invent/coach",
+  "/api/partner/plan",
 ];
 app.use(protectedAiPaths, requireFirebaseUser);
 
@@ -412,9 +413,97 @@ async function generateWithModelFallback({ prompt }) {
   throw error;
 }
 
+async function generateLooseJsonWithFallback({ prompt, maxOutputTokens = 10000 }) {
+  const candidates = await resolveCandidateModels();
+  const failures = [];
+  for (const candidate of candidates) {
+    try {
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model: candidate,
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          config: { responseMimeType: "application/json", maxOutputTokens },
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini request timeout")), 120000)),
+      ]);
+      const raw = String(response.text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      if (!raw) throw new Error("Gemini가 빈 응답을 반환했습니다.");
+      const parsed = JSON.parse(raw);
+      activeModel = candidate;
+      return { parsed, selectedModel: candidate };
+    } catch (error) {
+      failures.push(`${candidate}: ${String(error?.message || error).slice(0, 140)}`);
+      if (statusFromError(error) === 404) continue;
+      throw error;
+    }
+  }
+  const error = new Error(`사용 가능한 Gemini 모델이 없습니다. ${failures.join(" | ")}`);
+  error.status = 404;
+  throw error;
+}
+
+app.post("/api/partner/plan", async (req, res) => {
+  try {
+    if (!ai || !apiKey) return res.status(503).json({ error: "GEMINI_API_KEY가 설정되지 않았습니다." });
+    const snapshot = req.body?.snapshot;
+    const fallbackPlan = req.body?.fallbackPlan;
+    const currentPlan = req.body?.currentPlan || null;
+    const trigger = req.body?.trigger || null;
+    if (!snapshot || !fallbackPlan) return res.status(400).json({ error: "학생 정보 스냅샷과 규칙 기반 계획안이 필요합니다." });
+
+    const prompt = `당신은 마이스터고 학생의 일정·학습 계획을 보조하는 MakerOS AI 파트너입니다.
+아래 규칙 기반 계획안을 안전하게 다듬되, 공식 정보와 학생이 제공한 사실을 절대로 추정하거나 변경하지 마십시오.
+
+절대 규칙:
+1. 학생의 성적, 시험일, 자격 취득 상태, 희망 기업·직무, 대회 마감은 입력값을 그대로 사용합니다.
+2. 고정 일정, 휴식, 주간·일일 가능 시간을 늘리지 않습니다.
+3. 기존 fallbackPlan의 목표(goalId), 마감(dueAt), 총 12주 범위를 임의 삭제하거나 새로운 공식 사실을 만들지 않습니다.
+4. AI는 우선순위, 행동 순서, 설명(reason), 표현을 개선할 수 있습니다.
+5. 오늘 계획은 1~5개 행동이며 각 행동은 15~75분입니다.
+6. 계획 변경 이유를 학생이 이해할 수 있는 한국어로 씁니다.
+7. 합격 확률, 성적 상승 보장, 취업 성공률을 예측하지 않습니다.
+8. JSON만 반환합니다.
+
+반환 형식:
+{
+  "plan": {
+    "summary": "한 문장",
+    "roadmap": [...fallbackPlan.roadmap과 같은 구조...],
+    "weeks": [...fallbackPlan.weeks와 같은 구조, 최대 12주...],
+    "today": {"date":"YYYY-MM-DD","items":[...]},
+    "warnings": ["필요 시"]
+  }
+}
+
+학생 정보 스냅샷:
+${JSON.stringify(snapshot)}
+
+재계획 원인:
+${JSON.stringify(trigger)}
+
+현재 확정 계획:
+${JSON.stringify(currentPlan)}
+
+규칙 기반 안전 계획안:
+${JSON.stringify(fallbackPlan)}`.slice(0, 55000);
+
+    const generated = await generateLooseJsonWithFallback({ prompt, maxOutputTokens: 12000 });
+    const plan = generated.parsed?.plan || generated.parsed;
+    if (!plan || typeof plan !== "object") throw new Error("AI 계획 응답에 plan 객체가 없습니다.");
+    if (plan.weeks && !Array.isArray(plan.weeks)) throw new Error("AI 계획의 weeks 형식이 올바르지 않습니다.");
+    if (Array.isArray(plan.weeks)) plan.weeks = plan.weeks.slice(0, 12);
+    if (plan.today?.items && Array.isArray(plan.today.items)) plan.today.items = plan.today.items.slice(0, 5);
+    return res.json({ plan, model: generated.selectedModel, provider: "Google Gemini SDK" });
+  } catch (error) {
+    console.error("[MakerOS AI Partner Plan Error]", error);
+    const friendly = friendlyError(error);
+    return res.status(friendly.status).json({ error: friendly.message });
+  }
+});
+
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "0.12.0-launch-copy",
+    version: "3.1.0-ai-partner",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
