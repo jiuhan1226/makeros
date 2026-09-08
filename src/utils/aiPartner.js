@@ -281,7 +281,7 @@ function todayAvailableMinutes(state, today = new Date()) {
 
 function planHorizonWeeks(goals, today) {
   const dated = goals
-    .flatMap((goal) => [goal.startDate, goal.deadline])
+    .map((goal) => goal.deadline || (goal.startDate ? isoDate(addDays(dateAtNoon(goal.startDate), 27)) : ""))
     .map((value) => dateAtNoon(value))
     .filter(Boolean);
   if (!dated.length) return 4;
@@ -291,17 +291,87 @@ function planHorizonWeeks(goals, today) {
   return Math.max(1, Math.min(52, lastWeekIndex + 1));
 }
 
-function targetWeek(goal, stepIndex, stepCount, today, horizonWeeks) {
+function planWeekIndex(value, today, horizonWeeks, fallback) {
   const firstWeek = dateAtNoon(weekStart(today, 0));
-  const weekIndexFor = (value, fallback) => {
-    const date = dateAtNoon(value);
-    if (!date) return fallback;
-    return Math.max(0, Math.min(horizonWeeks - 1, Math.floor((date - firstWeek) / 604800000)));
-  };
-  const startWeek = weekIndexFor(goal.startDate, 0);
-  const endWeek = Math.max(startWeek, weekIndexFor(goal.deadline || goal.startDate, horizonWeeks - 1));
+  const date = dateAtNoon(value);
+  if (!date) return fallback;
+  return Math.max(0, Math.min(horizonWeeks - 1, Math.floor((date - firstWeek) / 604800000)));
+}
+
+function targetWeek(goal, stepIndex, stepCount, today, horizonWeeks) {
+  const startWeek = planWeekIndex(goal.startDate, today, horizonWeeks, 0);
+  const endWeek = Math.max(startWeek, planWeekIndex(goal.deadline || goal.startDate, today, horizonWeeks, horizonWeeks - 1));
   const ratio = stepCount <= 1 ? 0 : stepIndex / (stepCount - 1);
   return Math.max(startWeek, Math.min(endWeek, Math.round(startWeek + ratio * (endWeek - startWeek))));
+}
+
+function minutesInDateRange(profile, start, end) {
+  const first = dateAtNoon(start);
+  const last = dateAtNoon(end);
+  if (!first || !last || last < first) return 0;
+  let minutes = 0;
+  for (let date = new Date(first), index = 0; date <= last && index < 7; date = addDays(date, 1), index += 1) {
+    minutes += Math.max(0, Number(profile.dailyAvailableMinutes?.[DAY_KEYS[date.getDay()]] || 0));
+  }
+  return minutes;
+}
+
+function goalWeekAvailability(goal, week, state, today) {
+  const weekStartDate = dateAtNoon(week.startsAt);
+  const weekEndDate = dateAtNoon(week.endsAt);
+  const todayDate = dateAtNoon(today);
+  const goalStartDate = dateAtNoon(goal.startDate);
+  const goalEndDate = dateAtNoon(goal.deadline);
+  const start = [weekStartDate, todayDate, goalStartDate].filter(Boolean).sort((a, b) => b - a)[0];
+  const end = [weekEndDate, goalEndDate].filter(Boolean).sort((a, b) => a - b)[0];
+  return minutesInDateRange(state.profile, start, end);
+}
+
+function weekAvailability(week, state, today) {
+  const start = [dateAtNoon(week.startsAt), dateAtNoon(today)].filter(Boolean).sort((a, b) => b - a)[0];
+  return minutesInDateRange(state.profile, start, week.endsAt);
+}
+
+function weeklyGoalDemand(goal) {
+  if (goal.type === "certificate") {
+    const accuracy = Math.max(0, Math.min(100, Number(goal.meta?.accuracy || 0)));
+    return Math.min(440, 300 + Math.max(0, 70 - accuracy) * 2);
+  }
+  if (goal.type === "academic") return Math.min(360, 240 + Math.max(0, Number(goal.meta?.gap || 0)) * 3);
+  if (goal.type === "activity") return 210;
+  if (goal.type === "career") return 150;
+  return 150;
+}
+
+function splitStudyMinutes(totalMinutes, maxSessionMinutes = 110) {
+  let remaining = Math.max(20, Math.round(totalMinutes / 5) * 5);
+  const sessionCount = Math.max(1, Math.ceil(remaining / maxSessionMinutes));
+  const sessions = [];
+  for (let index = 0; index < sessionCount; index += 1) {
+    const slots = sessionCount - index;
+    const duration = index === sessionCount - 1 ? remaining : Math.max(20, Math.round((remaining / slots) / 5) * 5);
+    sessions.push(duration);
+    remaining -= duration;
+  }
+  return sessions;
+}
+
+function interleaveStudyItems(items) {
+  const groups = [...items.reduce((map, item) => {
+    const key = item.goalId || item.id;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+    return map;
+  }, new Map()).values()]
+    .map((group) => group.sort((a, b) => b.priority - a.priority || String(a.dueAt).localeCompare(String(b.dueAt))))
+    .sort((a, b) => (b[0]?.priority || 0) - (a[0]?.priority || 0));
+  const output = [];
+  while (groups.some((group) => group.length)) {
+    groups.forEach((group) => {
+      if (group.length) output.push(group.shift());
+    });
+  }
+  return output;
 }
 
 export function buildDeterministicPlan(state, options = {}) {
@@ -319,28 +389,27 @@ export function buildDeterministicPlan(state, options = {}) {
     totalMinutes: 0,
   }));
   const roadmap = [];
+  const allocations = weeks.map(() => []);
+  const weekLimit = weeklyAvailableMinutes(normalized);
 
   for (const goal of goals) {
     const templates = milestoneTemplates(goal);
     const milestones = templates.map(([title, duration, reason], index) => {
       const weekIndex = targetWeek(goal, index, templates.length, today, horizonWeeks);
-      const deadline = goal.deadline || weeks[weekIndex].endsAt;
-      const item = {
+      return {
         id: partnerId("plan"),
         goalId: goal.goalId,
         goalType: goal.type,
         title,
         reason,
-        dueAt: deadline,
+        dueAt: goal.deadline || weeks[weekIndex].endsAt,
         durationMinutes: duration,
         priority: Number((goal.priority * (1 - index * 0.04)).toFixed(2)),
         status: "todo",
         source: "rules",
         action: goal.type === "certificate" ? "cbt" : goal.type === "academic" ? "academic" : goal.type === "career" ? "career" : goal.type === "activity" ? "activity" : "plan",
+        weekIndex,
       };
-      weeks[weekIndex].items.push(item);
-      weeks[weekIndex].totalMinutes += duration;
-      return { ...item, weekIndex };
     });
     roadmap.push({
       goalId: goal.goalId,
@@ -351,11 +420,55 @@ export function buildDeterministicPlan(state, options = {}) {
       priority: goal.priority,
       milestones,
     });
+
+    const startWeek = planWeekIndex(goal.startDate, today, horizonWeeks, 0);
+    const endWeek = Math.max(startWeek, planWeekIndex(goal.deadline, today, horizonWeeks, horizonWeeks - 1));
+    for (let weekIndex = startWeek; weekIndex <= endWeek; weekIndex += 1) {
+      const availableMinutes = goalWeekAvailability(goal, weeks[weekIndex], normalized, today);
+      if (availableMinutes <= 0) continue;
+      const progress = endWeek === startWeek ? 1 : (weekIndex - startWeek) / (endWeek - startWeek);
+      const periodShare = Math.min(1, availableMinutes / weekLimit);
+      const ramp = 0.92 + progress * 0.16;
+      allocations[weekIndex].push({ goal, templates, progress, requestedMinutes: weeklyGoalDemand(goal) * periodShare * ramp });
+    }
   }
 
-  const weekLimit = weeklyAvailableMinutes(normalized);
   for (const week of weeks) {
-    week.items.sort((a, b) => b.priority - a.priority || String(a.dueAt).localeCompare(String(b.dueAt)));
+    const weekIndex = week.weekIndex;
+    const availableMinutes = Math.max(0, Math.min(weekLimit, weekAvailability(week, normalized, today)));
+    week.availableMinutes = availableMinutes;
+    const requestedTotal = allocations[weekIndex].reduce((sum, item) => sum + item.requestedMinutes, 0);
+    const studyBudget = Math.floor((availableMinutes * 0.88) / 5) * 5;
+    const scale = requestedTotal > studyBudget && requestedTotal > 0 ? studyBudget / requestedTotal : 1;
+    for (const allocation of allocations[weekIndex]) {
+      const plannedMinutes = Math.max(20, Math.round((allocation.requestedMinutes * scale) / 5) * 5);
+      const sessions = splitStudyMinutes(plannedMinutes);
+      const titleCounts = new Map();
+      sessions.forEach((durationMinutes, sessionIndex) => {
+        const basePhase = Math.min(allocation.templates.length - 1, Math.floor(allocation.progress * allocation.templates.length));
+        const phaseIndex = Math.min(allocation.templates.length - 1, basePhase + (sessionIndex % 2));
+        const [baseTitle, , reason] = allocation.templates[phaseIndex];
+        const count = (titleCounts.get(baseTitle) || 0) + 1;
+        titleCounts.set(baseTitle, count);
+        const title = count > 1 ? `${baseTitle} · ${count}회차` : baseTitle;
+        const dueAt = allocation.goal.deadline && allocation.goal.deadline < week.endsAt ? allocation.goal.deadline : week.endsAt;
+        week.items.push({
+          id: partnerId("plan"),
+          goalId: allocation.goal.goalId,
+          goalType: allocation.goal.type,
+          title,
+          reason,
+          dueAt,
+          durationMinutes,
+          priority: Number((allocation.goal.priority * (1 + allocation.progress * 0.08)).toFixed(2)),
+          status: "todo",
+          source: "rules",
+          action: allocation.goal.type === "certificate" ? "cbt" : allocation.goal.type === "academic" ? "academic" : allocation.goal.type === "career" ? "career" : allocation.goal.type === "activity" ? "activity" : "plan",
+        });
+      });
+    }
+    week.totalMinutes = week.items.reduce((sum, item) => sum + item.durationMinutes, 0);
+    week.items = interleaveStudyItems(week.items);
     if (week.totalMinutes > weekLimit && week.items.length) {
       const ratio = weekLimit / week.totalMinutes;
       week.items = week.items.map((item) => ({
@@ -387,6 +500,7 @@ export function buildDeterministicPlan(state, options = {}) {
   }
 
   const plan = {
+    algorithmVersion: 3,
     versionId: partnerId("version"),
     inputSnapshotId: partnerId("snapshot"),
     createdAt: Date.now(),
