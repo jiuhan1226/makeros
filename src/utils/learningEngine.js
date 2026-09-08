@@ -619,7 +619,7 @@ export function buildTodayStudyPlan({ progress = [], wrongNotes = [], practiceHi
       id: "pdf",
       title: pdfLibrary[0]?.name || "PDF 학습",
       count: pdfGoal,
-      detail: pdfGoal ? "AI 노트·단어카드 복습" : "PDF 목표가 설정되지 않았습니다.",
+      detail: pdfGoal ? "AI 노트·개념카드 복습" : "PDF 목표가 설정되지 않았습니다.",
       enabled: pdfGoal > 0 && pdfLibrary.length > 0,
       reasons: ["사용자가 설정한 PDF 학습 목표", "CBT와 별도 학습량으로 관리"],
     },
