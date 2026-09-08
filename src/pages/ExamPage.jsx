@@ -16,7 +16,7 @@ function registeredExplanation(question) {
       explanation: official,
       keyPoint: "",
       choiceReasons: [],
-      label: "등록 해설",
+      label: question?.aiGenerated ? "AI 맞춤 문제 해설" : "등록 해설",
     };
   }
 
@@ -288,6 +288,11 @@ export default function ExamPage({ session, onExit, onSaveConfidence, getDifficu
           )}
         </header>
 
+        {exam?.generationNotice && <div className={`diagnostic-source-notice ${exam.generationMode === "ai" ? "ai" : "fallback"}`}>
+          <strong>{exam.generationMode === "ai" ? "AI 맞춤 출제" : "기출 선별 진단"}</strong>
+          <span>{exam.generationNotice}</span>
+        </div>}
+
         {submitted && (
           <section className={`result-banner ${isPracticeAssessment ? "practice" : result.passed ? "pass" : "fail"}`}>
             <div>
@@ -295,9 +300,11 @@ export default function ExamPage({ session, onExit, onSaveConfidence, getDifficu
               <span>{result.correct}/{result.total} 정답</span>
             </div>
             <div className="result-status">
-              <strong>{result.resultLabel}</strong>
+              <strong>{exam?.studyScope === "diagnostic" ? "진단 완료" : result.resultLabel}</strong>
               <span>
-                {isPracticeAssessment
+                {exam?.studyScope === "diagnostic"
+                  ? "과목별 정답률과 취약 영역이 목표 계획에 자동으로 반영됩니다."
+                  : isPracticeAssessment
                   ? `연습 결과는 답한 ${result.total}문제를 기준으로 계산했어요. 미응답 ${result.unanswered}문제는 점수에 포함되지 않아요.`
                   : `평균 ${result.passScore}점 이상${result.cutoffEnabled ? ` · 과목별 ${result.cutoffScore}점 이상` : ""}`}
               </span>
