@@ -1,17 +1,24 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { getActivePartnerPlan, getPendingPartnerPlan, normalizePartnerState, planDiff } from "../utils/aiPartner";
 
-export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPending, onDiscardPending, onRollback, busy = false }) {
+export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPending, onDiscardPending, onRollback, focusGoalId = "", busy = false }) {
   const normalized = useMemo(() => normalizePartnerState(state), [state]);
   const active = getActivePartnerPlan(normalized);
   const pending = getPendingPartnerPlan(normalized);
   const shown = pending || active;
   const diff = pending && active ? planDiff(active, pending) : null;
   const history = normalized.planVersions.filter((item) => item.status === "superseded").slice(0, 5);
+  const horizonWeeks = shown?.weeks?.length || 0;
+
+  useEffect(() => {
+    if (!focusGoalId || !shown) return;
+    const timer = setTimeout(() => document.getElementById(`plan-goal-${focusGoalId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+    return () => clearTimeout(timer);
+  }, [focusGoalId, shown?.versionId]);
 
   return <main className="partner-page">
     <section className="partner-page-head">
-      <div><span className="partner-kicker">12-WEEK ROADMAP</span><h1>AI가 나눈 학습 일정</h1><p>입력한 마감과 가능한 시간을 기준으로 하루 분량을 자동 배치했습니다. 새 정보가 생기면 다시 계산됩니다.</p></div>
+      <div><span className="partner-kicker">DEADLINE ROADMAP</span><h1>AI가 나눈 학습 일정</h1><p>입력한 목표일부터 역산해 하루 분량을 자동 배치했습니다. 날짜가 바뀌면 기간도 다시 계산됩니다.</p></div>
       <button className="partner-primary" disabled={busy} onClick={onGeneratePlan}>{busy ? "계획 계산 중…" : active ? "재계획 만들기" : "첫 계획 만들기"}</button>
     </section>
 
@@ -27,7 +34,7 @@ export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPendin
       <section className="partner-panel">
         <div className="partner-section-title"><div><span>{pending ? "검토 중인 계획" : "현재 확정 계획"}</span><h2>{shown.summary}</h2></div><span className={`partner-status-chip ${pending ? "draft" : "active"}`}>{pending ? "확정 전" : "적용 중"}</span></div>
         <div className="partner-roadmap-grid">
-          {(shown.roadmap || []).map((goal) => <article className="partner-roadmap-goal" key={goal.goalId}>
+          {(shown.roadmap || []).map((goal) => <article id={`plan-goal-${goal.goalId}`} className={`partner-roadmap-goal ${String(focusGoalId) === String(goal.goalId) ? "focus" : ""}`} key={goal.goalId}>
             <header><span>{goal.type === "academic" ? "내신" : goal.type === "certificate" ? "자격증" : goal.type === "career" ? "취업" : "대회·활동"}</span><strong>{goal.title}</strong><small>{goal.deadline ? `목표일 ${goal.deadline}` : "장기 목표"}</small></header>
             <div>{(goal.milestones || []).map((item, index) => <div className="partner-milestone" key={item.id || index}><i>{index + 1}</i><span><strong>{item.title}</strong><small>{item.reason}</small></span></div>)}</div>
           </article>)}
@@ -35,7 +42,7 @@ export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPendin
       </section>
 
       <section className="partner-panel">
-        <div className="partner-section-title"><div><span>주간 계획</span><h2>12주 동안 분량을 가능한 시간 안에 배치</h2></div></div>
+        <div className="partner-section-title"><div><span>주간 계획</span><h2>{horizonWeeks}주 동안 목표일까지 분량 배치</h2></div></div>
         <div className="partner-week-grid">
           {(shown.weeks || []).map((week) => <article key={week.weekIndex} className={week.weekIndex === 0 ? "current" : ""}><header><strong>{week.weekIndex === 0 ? "이번 주" : `${week.weekIndex + 1}주차`}</strong><small>{week.startsAt} ~ {week.endsAt}</small></header><div className="partner-week-load"><i style={{ width: `${Math.min(100, (week.totalMinutes || 0) / Math.max(1, shown.constraints?.weeklyAvailableMinutes || 480) * 100)}%` }}/></div><small>{Math.round((week.totalMinutes || 0) / 60 * 10) / 10}시간</small><ul>{(week.items || []).slice(0, 4).map((item) => <li key={item.id}>{item.title}</li>)}</ul></article>)}
         </div>
