@@ -6,6 +6,7 @@ import {
   createPlanVersion,
   getActivePartnerPlan,
   normalizePartnerState,
+  partnerCalendarItems,
   planDiff,
   rollbackPartnerPlan,
 } from '../src/utils/aiPartner.js';
@@ -24,9 +25,11 @@ base.certificateGoals = [
 ];
 base.certificateGoal = base.certificateGoals[0];
 base.primaryCertificateGoalId = 'c1';
+base.buildProjects = [{ id: 'project-1', title: '저장된 프로젝트' }];
 
 const plan = buildDeterministicPlan(base, { today: '2026-09-08' });
-assert.equal(plan.weeks.length, 12, '12주 계획이어야 합니다.');
+assert.equal(plan.weeks.length, 18, '가장 늦은 입력 목표일까지 필요한 주차를 계산해야 합니다.');
+assert.ok(plan.weeks.at(-1).endsAt >= '2027-01-10', '계획 마지막 주가 가장 늦은 목표일을 포함해야 합니다.');
 assert.ok(plan.today.items.length >= 1 && plan.today.items.length <= 5, '오늘 계획은 1~5개여야 합니다.');
 assert.ok(plan.weeks.every((week) => week.totalMinutes <= plan.constraints.weeklyAvailableMinutes), '주간 계획이 가능 시간을 넘으면 안 됩니다.');
 assert.ok(plan.today.totalMinutes <= plan.today.availableMinutes, '오늘 계획이 오늘 가능 시간을 넘으면 안 됩니다.');
@@ -34,6 +37,13 @@ assert.ok(plan.roadmap.some((goal) => goal.type === 'academic'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'certificate'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'career'));
 assert.equal(plan.roadmap.filter((goal) => goal.type === 'certificate').length, 2, '여러 자격증이 각각 계획에 포함되어야 합니다.');
+assert.ok(!plan.roadmap.some((goal) => goal.title === '저장된 프로젝트'), '프로젝트 모듈 데이터는 목표 계획에 자동 포함되면 안 됩니다.');
+
+const calendar = normalizePartnerState({
+  ...base,
+  calendarExtras: [{ id: 'range-1', title: '집중 학습 기간', startDate: '2026-09-10', endDate: '2026-09-12', isSingleDay: false, type: 'custom' }],
+});
+assert.equal(partnerCalendarItems(calendar).filter((item) => item.sourceId === 'range-1').length, 3, '기간 일정은 시작일부터 종료일까지 표시되어야 합니다.');
 
 let state = createPlanVersion(base, plan, { activate: false });
 assert.ok(state.pendingPlanVersionId, '첫 계획은 학생 확정 전 draft여야 합니다.');
