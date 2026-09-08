@@ -1,7 +1,7 @@
 {
   "name": "makeros-product-final",
   "private": true,
-  "version": "1.0.3",
+  "version": "3.1.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"node --watch server/server.mjs\"",
@@ -15,12 +15,13 @@
     "test:learning": "node scripts/learning-smoke-test.mjs",
     "test:explanation": "node scripts/explanation-safety-test.mjs",
     "test:maintenance": "node scripts/learning-maintenance-test.mjs",
-    "test": "npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:copy && npm run test:submission && npm run test:responsive",
+    "test": "npm run test:partner && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:copy && npm run test:submission && npm run test:responsive",
     "test:copy": "node scripts/copy-audit.mjs",
     "seed:demo": "node scripts/seed-demo-account.mjs",
     "test:submission": "node scripts/submission-readiness-test.mjs",
     "seed:judge": "node scripts/seed-demo-account.mjs",
-    "test:responsive": "node scripts/responsive-smoke-test.mjs"
+    "test:responsive": "node scripts/responsive-smoke-test.mjs",
+    "test:partner": "node scripts/partner-planning-test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
