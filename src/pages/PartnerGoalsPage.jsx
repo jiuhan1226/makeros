@@ -10,8 +10,8 @@ function Field({ label, children, hint }) {
 export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy = false }) {
   const state = useMemo(() => normalizePartnerState(value), [value]);
   const [saved, setSaved] = useState(false);
-  const [certificateDraft, setCertificateDraft] = useState({ name: "", examDate: "" });
-  const [goalDraft, setGoalDraft] = useState({ title: "", deadline: "", details: "" });
+  const [certificateDraft, setCertificateDraft] = useState({ name: "", startDate: "", examDate: "", isSingleDay: false });
+  const [goalDraft, setGoalDraft] = useState({ title: "", startDate: "", deadline: "", details: "", isSingleDay: false });
   const [formMessage, setFormMessage] = useState("");
   const [customTimeOpen, setCustomTimeOpen] = useState(false);
 
@@ -44,10 +44,17 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
       setFormMessage("준비할 자격증 이름을 입력해 주세요.");
       return;
     }
+    const examDate = certificateDraft.isSingleDay ? certificateDraft.startDate : certificateDraft.examDate;
+    if ((certificateDraft.startDate || examDate) && (!certificateDraft.startDate || !examDate || examDate < certificateDraft.startDate)) {
+      setFormMessage("준비 기간의 시작일과 종료일을 순서대로 입력해 주세요.");
+      return;
+    }
     const next = {
       id: partnerId('certificate'),
       name,
-      examDate: certificateDraft.examDate,
+      startDate: certificateDraft.startDate,
+      examDate,
+      isSingleDay: certificateDraft.isSingleDay,
       status: 'preparing',
       cbtAccuracy: 0,
       weakSubjects: [],
@@ -57,7 +64,7 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
       primaryCertificateGoalId: state.primaryCertificateGoalId || next.id,
       certificateGoal: state.certificateGoal || next,
     });
-    setCertificateDraft({ name: "", examDate: "" });
+    setCertificateDraft({ name: "", startDate: "", examDate: "", isSingleDay: false });
   }
 
   function updateCertificate(id, patch) {
@@ -80,14 +87,21 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
       setFormMessage("AI가 계획할 해야 할 일을 입력해 주세요.");
       return;
     }
+    const deadline = goalDraft.isSingleDay ? goalDraft.startDate : goalDraft.deadline;
+    if ((goalDraft.startDate || deadline) && (!goalDraft.startDate || !deadline || deadline < goalDraft.startDate)) {
+      setFormMessage("할 일의 시작일과 종료일을 순서대로 입력해 주세요.");
+      return;
+    }
     commit({ goals: [...state.goals, {
       id: partnerId('goal'),
       type: 'auto',
       title,
-      deadline: goalDraft.deadline,
+      startDate: goalDraft.startDate,
+      deadline,
+      isSingleDay: goalDraft.isSingleDay,
       details: goalDraft.details,
     }] });
-    setGoalDraft({ title: "", deadline: "", details: "" });
+    setGoalDraft({ title: "", startDate: "", deadline: "", details: "", isSingleDay: false });
   }
 
   function updateGoal(id, patch) {
@@ -133,14 +147,22 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
       <div className="partner-simple-heading plain"><div><h2>준비할 자격증</h2></div></div>
       <div className="partner-add-row certificate">
         <input value={certificateDraft.name} onChange={(event) => setCertificateDraft({ ...certificateDraft, name: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") addCertificate(); }} placeholder="예: 산업안전산업기사" />
-        <input type="date" aria-label="자격증 시험일" value={certificateDraft.examDate} onChange={(event) => setCertificateDraft({ ...certificateDraft, examDate: event.target.value })}/>
+        <div className="partner-period-inputs">
+          <label><span>시작일</span><input type="date" aria-label="자격증 준비 시작일" value={certificateDraft.startDate} onChange={(event) => setCertificateDraft({ ...certificateDraft, startDate: event.target.value, examDate: certificateDraft.isSingleDay || certificateDraft.examDate < event.target.value ? event.target.value : certificateDraft.examDate })}/></label>
+          {!certificateDraft.isSingleDay && <label><span>목표일</span><input type="date" aria-label="자격증 시험일" min={certificateDraft.startDate} value={certificateDraft.examDate} onChange={(event) => setCertificateDraft({ ...certificateDraft, examDate: event.target.value })}/></label>}
+          <label className="partner-period-check"><input type="checkbox" checked={certificateDraft.isSingleDay} onChange={(event) => setCertificateDraft({ ...certificateDraft, isSingleDay: event.target.checked, examDate: event.target.checked ? certificateDraft.startDate : certificateDraft.examDate })}/> 하루 일정</label>
+        </div>
         <button type="button" onClick={addCertificate}>추가</button>
       </div>
       <div className="partner-simple-list">
         {state.certificateGoals.map((item) => <article key={item.id}>
           <span className="partner-goal-icon certificate">자격</span>
           <input value={item.name || ""} aria-label="자격증명" onChange={(event) => updateCertificate(item.id, { name: event.target.value })}/>
-          <input type="date" aria-label="시험일" value={item.examDate || ""} onChange={(event) => updateCertificate(item.id, { examDate: event.target.value })}/>
+          <div className="partner-list-period">
+            <label><span>시작</span><input type="date" aria-label={`${item.name} 준비 시작일`} value={item.startDate || ""} onChange={(event) => updateCertificate(item.id, { startDate: event.target.value, examDate: item.isSingleDay || (item.examDate && item.examDate < event.target.value) ? event.target.value : item.examDate })}/></label>
+            {!item.isSingleDay && <label><span>목표</span><input type="date" aria-label={`${item.name} 시험일`} min={item.startDate || undefined} value={item.examDate || ""} onChange={(event) => updateCertificate(item.id, { examDate: event.target.value })}/></label>}
+            <label className="partner-period-check"><input type="checkbox" checked={Boolean(item.isSingleDay)} onChange={(event) => updateCertificate(item.id, { isSingleDay: event.target.checked, examDate: event.target.checked ? item.startDate || item.examDate : item.examDate })}/> 하루</label>
+          </div>
           <small>{item.lastCbtAt ? `최근 CBT ${item.cbtAccuracy || 0}점` : "CBT 기록 없음"}</small>
           <button type="button" onClick={() => removeCertificate(item.id)}>삭제</button>
         </article>)}
@@ -152,7 +174,11 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
       <div className="partner-simple-heading plain"><div><h2>그 밖에 해야 할 일</h2></div></div>
       <div className="partner-add-row goal">
         <input value={goalDraft.title} onChange={(event) => setGoalDraft({ ...goalDraft, title: event.target.value })} placeholder="예: 전기기기 내신 80점 만들기" />
-        <input type="date" aria-label="목표 마감일" value={goalDraft.deadline} onChange={(event) => setGoalDraft({ ...goalDraft, deadline: event.target.value })}/>
+        <div className="partner-period-inputs">
+          <label><span>시작일</span><input type="date" aria-label="할 일 시작일" value={goalDraft.startDate} onChange={(event) => setGoalDraft({ ...goalDraft, startDate: event.target.value, deadline: goalDraft.isSingleDay || goalDraft.deadline < event.target.value ? event.target.value : goalDraft.deadline })}/></label>
+          {!goalDraft.isSingleDay && <label><span>목표일</span><input type="date" aria-label="목표 마감일" min={goalDraft.startDate} value={goalDraft.deadline} onChange={(event) => setGoalDraft({ ...goalDraft, deadline: event.target.value })}/></label>}
+          <label className="partner-period-check"><input type="checkbox" checked={goalDraft.isSingleDay} onChange={(event) => setGoalDraft({ ...goalDraft, isSingleDay: event.target.checked, deadline: event.target.checked ? goalDraft.startDate : goalDraft.deadline })}/> 하루 일정</label>
+        </div>
         <textarea value={goalDraft.details} onChange={(event) => setGoalDraft({ ...goalDraft, details: event.target.value })} placeholder="추가로 알려줄 내용이 있다면 자유롭게 입력하세요. 띄어쓰기와 쉼표를 그대로 사용할 수 있어요." />
         <button type="button" onClick={addGoal}>AI에게 맡길 일 추가</button>
       </div>
@@ -165,7 +191,11 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
               <input value={item.title || ""} aria-label="해야 할 일" onChange={(event) => updateGoal(item.id, { title: event.target.value })}/>
               <textarea value={item.details || ""} aria-label="추가 설명" onChange={(event) => updateGoal(item.id, { details: event.target.value })} placeholder="추가 설명"/>
             </div>
-            <input type="date" aria-label="마감일" value={item.deadline || ""} onChange={(event) => updateGoal(item.id, { deadline: event.target.value })}/>
+            <div className="partner-list-period">
+              <label><span>시작</span><input type="date" aria-label={`${item.title} 시작일`} value={item.startDate || ""} onChange={(event) => updateGoal(item.id, { startDate: event.target.value, deadline: item.isSingleDay || (item.deadline && item.deadline < event.target.value) ? event.target.value : item.deadline })}/></label>
+              {!item.isSingleDay && <label><span>목표</span><input type="date" aria-label={`${item.title} 목표일`} min={item.startDate || undefined} value={item.deadline || ""} onChange={(event) => updateGoal(item.id, { deadline: event.target.value })}/></label>}
+              <label className="partner-period-check"><input type="checkbox" checked={Boolean(item.isSingleDay)} onChange={(event) => updateGoal(item.id, { isSingleDay: event.target.checked, deadline: event.target.checked ? item.startDate || item.deadline : item.deadline })}/> 하루</label>
+            </div>
             <button type="button" onClick={() => commit({ goals: state.goals.filter((row) => row.id !== item.id) })}>삭제</button>
           </article>)}
         </div>
