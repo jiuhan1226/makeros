@@ -22,6 +22,10 @@ assert(
   buildExplanationHash(base) !== buildExplanationHash({ ...base, answerIndex: 1 }),
   "정답이 바뀌면 해설 캐시 해시도 바뀌어야 합니다.",
 );
+assert(
+  buildExplanationHash(base) !== buildExplanationHash({ ...base, images: [{ label: "문제 이미지", url: "https://example.com/a.png" }] }),
+  "문제 이미지가 바뀌면 해설 캐시 해시도 바뀌어야 합니다.",
+);
 
 const draft = normalizeDraftExplanation({
   statedAnswerIndex: 0,
