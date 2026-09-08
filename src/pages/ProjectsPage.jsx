@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createBuildProject } from "../utils/makerPlatform";
+import BufferedListInput from "../components/BufferedListInput";
 
 function formatDate(value) {
   if (!value) return "날짜 없음";
@@ -150,7 +151,7 @@ export default function ProjectsPage({ projects = [], inventorProjects = [], onC
           <label className="invent-field"><span>팀 규모</span><input value={selected.teamSize || ""} onChange={(e) => updateProject(selected.id, { teamSize: e.target.value })} placeholder="예: 4명"/></label>
           <label className="invent-field"><span>시작일</span><input type="date" value={selected.startDate || ""} onChange={(e) => updateProject(selected.id, { startDate: e.target.value })}/></label>
           <label className="invent-field"><span>종료일</span><input type="date" value={selected.endDate || ""} onChange={(e) => updateProject(selected.id, { endDate: e.target.value })}/></label>
-          <label className="invent-field span-all"><span>사용 기술</span><small>쉼표로 구분해 입력하세요.</small><input value={(selected.techStack || []).join(", ")} onChange={(e) => updateProject(selected.id, { techStack: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="React, Firebase, PLC, Raspberry Pi"/></label>
+          <label className="invent-field span-all"><span>사용 기술</span><small>쉼표로 구분해 입력하세요.</small><BufferedListInput value={selected.techStack || []} onCommit={(items) => updateProject(selected.id, { techStack: items })} placeholder="React, Firebase, PLC, Raspberry Pi"/></label>
           <label className="invent-field span-all"><span>이력서용 프로젝트 요약</span><small>문제·역할·행동·성과가 드러나는 2~4문장으로 작성하세요.</small><textarea rows="5" value={selected.resumeSummary || ""} onChange={(e) => updateProject(selected.id, { resumeSummary: e.target.value })} placeholder="예: 팀장으로 참여하여..."/></label>
           <label className="invent-field span-all"><span>성과 및 결과</span><textarea rows="4" value={selected.outcome || ""} onChange={(e) => updateProject(selected.id, { outcome: e.target.value })} placeholder="수상, 사용자 테스트 결과, 제작 완료 여부, 개선 수치 등"/></label>
         </div>
@@ -172,7 +173,7 @@ export default function ProjectsPage({ projects = [], inventorProjects = [], onC
             <label className="invent-field"><span>진행 결과</span><textarea rows="3" value={journalDraft.progress || ""} onChange={(e) => setJournalDraft({ ...journalDraft, progress: e.target.value })} placeholder="완료한 것·확인된 것"/></label>
             <label className="invent-field"><span>문제 및 배운 점</span><textarea rows="3" value={journalDraft.issue || ""} onChange={(e) => setJournalDraft({ ...journalDraft, issue: e.target.value })} placeholder="오류, 원인, 배운 점"/></label>
             <label className="invent-field span-all"><span>다음 행동</span><input value={journalDraft.nextAction || ""} onChange={(e) => setJournalDraft({ ...journalDraft, nextAction: e.target.value })} placeholder="다음에 가장 먼저 할 일"/></label>
-            <label className="invent-field span-all"><span>태그</span><input value={(journalDraft.tags || []).join(", ")} onChange={(e) => setJournalDraft({ ...journalDraft, tags: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="테스트, 하드웨어, 오류 해결"/></label>
+            <label className="invent-field span-all"><span>태그</span><BufferedListInput value={journalDraft.tags || []} onCommit={(items) => setJournalDraft({ ...journalDraft, tags: items })} placeholder="테스트, 하드웨어, 오류 해결"/></label>
           </div>
           <button className="maker-primary maker-wide" onClick={saveJournal}>일지 저장</button>
         </section>
