@@ -24,6 +24,18 @@ function calendarCells(cursor) {
   return cells;
 }
 
+function rangeSegment(item, date) {
+  if (!item.isRange) return { className: "range-single", showTitle: true };
+  const key = `${monthKey(date)}-${String(date.getDate()).padStart(2, "0")}`;
+  const lastDayOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const starts = key === item.rangeStart || date.getDay() === 0 || date.getDate() === 1;
+  const ends = key === item.rangeEnd || date.getDay() === 6 || date.getDate() === lastDayOfMonth;
+  return {
+    className: starts && ends ? "range-single" : starts ? "range-start" : ends ? "range-end" : "range-middle",
+    showTitle: starts,
+  };
+}
+
 export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
   const normalized = useMemo(() => normalizePartnerState(state), [state]);
   const items = useMemo(() => partnerCalendarItems(normalized), [normalized]);
@@ -36,8 +48,11 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
     return map;
   }, {}), [items]);
   const upcoming = useMemo(() => {
-    const future = items.filter((item) => (daysUntil(item.date) ?? -1) >= 0);
-    return (future.length ? future : items).slice(0, 5);
+    const unique = [...new Map(items.map((item) => [item.rangeKey || item.id, item])).values()];
+    const future = unique.filter((item) => (daysUntil(item.rangeEnd || item.date) ?? -1) >= 0);
+    return (future.length ? future : unique)
+      .sort((a, b) => String(a.rangeEnd || a.date).localeCompare(String(b.rangeEnd || b.date)))
+      .slice(0, 5);
   }, [items]);
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -98,11 +113,16 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
           {cells.map((date, index) => {
             if (!date) return <div className="partner-calendar-cell empty" key={`empty-${index}`} />;
             const key = `${monthKey(date)}-${String(date.getDate()).padStart(2, "0")}`;
-            const dayItems = itemMap[key] || [];
+            const dayItems = [...(itemMap[key] || [])].sort((a, b) => String(a.rangeKey || a.title).localeCompare(String(b.rangeKey || b.title)));
             return <div className={`partner-calendar-cell ${key === todayKey ? "today" : ""}`} key={key} role="button" tabIndex="0" aria-label={`${key} 일정 추가`} onClick={() => openEditor(date)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openEditor(date); } }}>
               <span className="partner-calendar-day">{date.getDate()}</span>
               <div className="partner-calendar-events">
-                {dayItems.slice(0, 3).map((item) => <button type="button" key={item.id} className={item.type} title={item.title} onClick={(event) => { event.stopPropagation(); item.sourceId ? openEditor(item.date, item) : onNavigate("partnerGoals"); }}><i />{item.title}</button>)}
+                {dayItems.slice(0, 3).map((item) => {
+                  const segment = rangeSegment(item, date);
+                  return <button type="button" key={item.id} className={`${item.type} ${item.isRange ? "range-event" : ""} ${segment.className}`} title={item.title} aria-label={`${item.title} ${item.rangeStart}${item.isRange ? `부터 ${item.rangeEnd}까지` : ""}`} onClick={(event) => { event.stopPropagation(); item.sourceId ? openEditor(item.date, item) : onNavigate("partnerGoals"); }}>
+                    {segment.showTitle && <i />}<span>{segment.showTitle ? item.title : "\u00a0"}</span>
+                  </button>;
+                })}
                 {dayItems.length > 3 && <small>+{dayItems.length - 3}개 더보기</small>}
               </div>
             </div>;
@@ -115,11 +135,12 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
         <span className="partner-kicker">UPCOMING</span><h2>가까운 일정</h2><p>마감이 가까운 순서로 확인하세요.</p>
         <div className="partner-upcoming-list">
           {upcoming.map((item) => {
-            const d = daysUntil(item.date);
+            const dueDate = item.rangeEnd || item.date;
+            const d = daysUntil(dueDate);
             return <button type="button" key={item.id} onClick={() => showItemMonth(item)}>
               <span className={`partner-upcoming-type ${item.type}`}>{labels[item.type] || item.type}</span>
               <strong>{item.title}</strong>
-              <small>{item.date}{item.locked ? " · 고정" : ""}</small>
+              <small>{item.isRange ? `${item.rangeStart} ~ ${item.rangeEnd}` : item.date}{item.locked ? " · 고정" : ""}</small>
               <b>{d == null ? "" : d === 0 ? "D-DAY" : d > 0 ? `D-${d}` : `D+${Math.abs(d)}`}</b>
             </button>;
           })}
