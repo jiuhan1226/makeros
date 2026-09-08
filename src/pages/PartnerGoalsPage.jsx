@@ -148,29 +148,29 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
       </div>
     </section>
 
-    <details className="partner-panel partner-simple-section partner-collapsible-goals">
-      <summary><span>그 밖에 해야 할 일</span><small>{state.goals.length ? `${state.goals.length}개 등록됨` : "필요할 때 열기"}</small></summary>
-      <div className="partner-collapsible-body">
+    <section className="partner-panel partner-simple-section partner-other-goals">
+      <div className="partner-simple-heading plain"><div><h2>그 밖에 해야 할 일</h2></div></div>
       <div className="partner-add-row goal">
         <input value={goalDraft.title} onChange={(event) => setGoalDraft({ ...goalDraft, title: event.target.value })} placeholder="예: 전기기기 내신 80점 만들기" />
         <input type="date" aria-label="목표 마감일" value={goalDraft.deadline} onChange={(event) => setGoalDraft({ ...goalDraft, deadline: event.target.value })}/>
         <textarea value={goalDraft.details} onChange={(event) => setGoalDraft({ ...goalDraft, details: event.target.value })} placeholder="추가로 알려줄 내용이 있다면 자유롭게 입력하세요. 띄어쓰기와 쉼표를 그대로 사용할 수 있어요." />
         <button type="button" onClick={addGoal}>AI에게 맡길 일 추가</button>
       </div>
-      <div className="partner-simple-list">
-        {state.goals.map((item) => <article className="general" key={item.id}>
-          <span className="partner-goal-icon auto">AI</span>
-          <div>
-            <input value={item.title || ""} aria-label="해야 할 일" onChange={(event) => updateGoal(item.id, { title: event.target.value })}/>
-            <textarea value={item.details || ""} aria-label="추가 설명" onChange={(event) => updateGoal(item.id, { details: event.target.value })} placeholder="추가 설명"/>
-          </div>
-          <input type="date" aria-label="마감일" value={item.deadline || ""} onChange={(event) => updateGoal(item.id, { deadline: event.target.value })}/>
-          <button type="button" onClick={() => commit({ goals: state.goals.filter((row) => row.id !== item.id) })}>삭제</button>
-        </article>)}
-        {!state.goals.length && <div className="partner-simple-empty">아직 맡긴 일이 없습니다. 해야 할 일과 마감만 입력해 보세요.</div>}
-      </div>
-      </div>
-    </details>
+      {state.goals.length > 0 && <details className="partner-added-goals">
+        <summary><span>추가한 해야 할 일</span><small>{state.goals.length}개</small></summary>
+        <div className="partner-simple-list">
+          {state.goals.map((item) => <article className="general" key={item.id}>
+            <span className="partner-goal-icon auto">AI</span>
+            <div>
+              <input value={item.title || ""} aria-label="해야 할 일" onChange={(event) => updateGoal(item.id, { title: event.target.value })}/>
+              <textarea value={item.details || ""} aria-label="추가 설명" onChange={(event) => updateGoal(item.id, { details: event.target.value })} placeholder="추가 설명"/>
+            </div>
+            <input type="date" aria-label="마감일" value={item.deadline || ""} onChange={(event) => updateGoal(item.id, { deadline: event.target.value })}/>
+            <button type="button" onClick={() => commit({ goals: state.goals.filter((row) => row.id !== item.id) })}>삭제</button>
+          </article>)}
+        </div>
+      </details>}
+    </section>
 
     <section className="partner-submit-bar"><div><strong>입력이 끝났나요?</strong><span>AI가 모든 목표를 가능한 시간 안에 자동으로 나눕니다.</span></div><button className="partner-primary" disabled={busy} onClick={onGeneratePlan}>{busy ? "계획 만드는 중…" : "내 계획 자동으로 만들기"}</button></section>
   </main>;
