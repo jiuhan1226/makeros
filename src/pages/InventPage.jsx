@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createInventorProject, inventStageLabel } from "../utils/makerPlatform";
 import { postJson } from "../utils/api";
+import BufferedListInput from "../components/BufferedListInput";
 
 const stages = [
   [1, "문제 발견", "누가 언제 무엇을 불편해하는지 정의"],
@@ -177,7 +178,7 @@ export default function InventPage({ projects = [], onChangeProjects, onCreateBu
           </div>}
 
           {current.stage === 2 && <div className="invent-form-grid">
-            <label className="invent-field span-all"><span>가능한 원인</span><small>한 줄에 하나씩 적어주세요. AI가 원인과 증상을 구분해 정리합니다.</small><textarea rows="8" value={(current.causes || []).join("\n")} onChange={(e) => update({ causes: e.target.value.split("\n").map((v) => v.trim()).filter(Boolean) })}/></label>
+            <label className="invent-field span-all"><span>가능한 원인</span><small>한 줄에 하나씩 적어주세요. AI가 원인과 증상을 구분해 정리합니다.</small><BufferedListInput multiline separator="\n" rows="8" value={current.causes || []} onCommit={(items) => update({ causes: items })}/></label>
             <Field label="관찰 또는 근거" hint="직접 본 상황, 인터뷰, 횟수 등을 적어주세요." value={current.causeEvidence} onChange={(v) => update({ causeEvidence: v })} multiline/>
           </div>}
 
