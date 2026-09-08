@@ -32,7 +32,7 @@ export function daysUntil(value, base = new Date()) {
 
 export function createDefaultPartnerState() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     profile: {
       grade: "",
       major: "",
@@ -43,8 +43,10 @@ export function createDefaultPartnerState() {
     },
     academics: [],
     certificateGoal: null,
+    certificateGoals: [],
     careerGoal: { industry: "", company: "", role: "", targetDate: "", skills: [] },
     activities: [],
+    goals: [],
     calendarExtras: [],
     planVersions: [],
     activePlanVersionId: "",
@@ -65,12 +67,43 @@ export function normalizePartnerState(input = {}) {
   };
   state.profile.fixedSchedules = Array.isArray(input?.profile?.fixedSchedules) ? input.profile.fixedSchedules : [];
   state.academics = Array.isArray(input?.academics) ? input.academics : [];
-  state.activities = Array.isArray(input?.activities) ? input.activities.slice(0, 2) : [];
+  state.activities = Array.isArray(input?.activities) ? input.activities : [];
   state.calendarExtras = Array.isArray(input?.calendarExtras) ? input.calendarExtras : [];
   state.planVersions = Array.isArray(input?.planVersions) ? input.planVersions : [];
   state.changeEvents = Array.isArray(input?.changeEvents) ? input.changeEvents : [];
   state.studyLinks = Array.isArray(input?.studyLinks) ? input.studyLinks : [];
   state.careerGoal = { ...base.careerGoal, ...(input?.careerGoal || {}) };
+  state.certificateGoals = Array.isArray(input?.certificateGoals)
+    ? input.certificateGoals
+    : input?.certificateGoal?.name
+      ? [input.certificateGoal]
+      : [];
+  const primaryCertificateId = String(input?.primaryCertificateGoalId || input?.certificateGoal?.id || "");
+  state.certificateGoal = state.certificateGoals.find((item) => String(item.id) === primaryCertificateId) || state.certificateGoals[0] || null;
+  state.primaryCertificateGoalId = state.certificateGoal?.id || "";
+  state.goals = Array.isArray(input?.goals) ? input.goals : [
+    ...state.academics.filter((item) => item?.subject).map((item) => ({
+      id: item.id || partnerId("goal"),
+      type: "academic",
+      title: `${item.subject} 내신 준비`,
+      deadline: item.examDate || "",
+      details: [item.targetScore ? `목표 ${item.targetScore}점` : "", ...(item.weakUnits || [])].filter(Boolean).join(", "),
+    })),
+    ...(state.careerGoal?.company || state.careerGoal?.role ? [{
+      id: "career:primary",
+      type: "career",
+      title: `${state.careerGoal.company || ""} ${state.careerGoal.role || "취업 준비"}`.trim(),
+      deadline: state.careerGoal.targetDate || "",
+      details: (state.careerGoal.skills || []).join(", "),
+    }] : []),
+    ...state.activities.filter((item) => item?.title).map((item) => ({
+      id: item.id || partnerId("goal"),
+      type: "activity",
+      title: item.title,
+      deadline: item.deadline || "",
+      details: item.role || "",
+    })),
+  ];
   return state;
 }
 
@@ -81,8 +114,10 @@ export function profileSnapshot(state) {
     profile: normalized.profile,
     academics: normalized.academics,
     certificateGoal: normalized.certificateGoal,
+    certificateGoals: normalized.certificateGoals,
     careerGoal: normalized.careerGoal,
     activities: normalized.activities,
+    goals: normalized.goals,
     calendarExtras: normalized.calendarExtras,
   };
 }
@@ -144,13 +179,33 @@ function activityGoal(item, index) {
   };
 }
 
+function inferGoalType(item = {}) {
+  if (["academic", "career", "activity", "custom"].includes(item.type)) return item.type;
+  const text = `${item.title || ""} ${item.details || ""}`;
+  if (/내신|과목|중간고사|기말고사|수행평가/.test(text)) return "academic";
+  if (/취업|입사|지원|면접|자소서|기업|직무/.test(text)) return "career";
+  if (/대회|공모전|프로젝트|해커톤|발표|제출|포트폴리오/.test(text)) return "activity";
+  return "custom";
+}
+
+function simpleGoal(item, index) {
+  if (!item?.title) return null;
+  const type = inferGoalType(item);
+  return {
+    goalId: item.id || `goal:${index}`,
+    type,
+    title: item.title,
+    deadline: item.deadline || "",
+    importance: 0.76,
+    meta: { ...item, details: item.details || "" },
+  };
+}
+
 export function collectGoals(state) {
   const normalized = normalizePartnerState(state);
   return [
-    ...normalized.academics.filter((item) => item?.subject).map(academicGoal),
-    certificateGoal(normalized.certificateGoal),
-    careerGoal(normalized.careerGoal),
-    ...normalized.activities.map(activityGoal),
+    ...normalized.goals.map(simpleGoal),
+    ...normalized.certificateGoals.map(certificateGoal),
   ].filter(Boolean);
 }
 
@@ -519,10 +574,8 @@ export function mergeAiPlan(aiPlan, fallbackPlan, state) {
 export function partnerCalendarItems(state) {
   const normalized = normalizePartnerState(state);
   const items = [];
-  normalized.academics.forEach((item) => item?.examDate && items.push({ id: item.id || partnerId("cal"), type: "academic", title: `${item.subject} 시험`, date: item.examDate, locked: true }));
-  if (normalized.certificateGoal?.examDate) items.push({ id: "certificate-exam", type: "certificate", title: `${normalized.certificateGoal.name} 시험`, date: normalized.certificateGoal.examDate, locked: true });
-  if (normalized.careerGoal?.targetDate) items.push({ id: "career-target", type: "career", title: `${normalized.careerGoal.company || normalized.careerGoal.role || "취업"} 지원 목표`, date: normalized.careerGoal.targetDate, locked: false });
-  normalized.activities.forEach((item) => item?.deadline && items.push({ id: item.id || partnerId("cal"), type: "activity", title: item.title, date: item.deadline, locked: false }));
+  normalized.goals.forEach((item) => item?.deadline && items.push({ id: item.id || partnerId("cal"), type: inferGoalType(item), title: item.title, date: item.deadline, locked: false }));
+  normalized.certificateGoals.forEach((item) => item?.examDate && items.push({ id: `certificate-exam:${item.id || item.name}`, type: "certificate", title: `${item.name} 시험`, date: item.examDate, locked: true }));
   normalized.calendarExtras.forEach((item) => item?.date && items.push(item));
   return items.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
