@@ -1,29 +1,27 @@
 import React, { useMemo, useState } from "react";
 import { normalizePartnerState, partnerId } from "../utils/aiPartner";
 
+const dayOptions = [['mon','월'],['tue','화'],['wed','수'],['thu','목'],['fri','금'],['sat','토'],['sun','일']];
+
 function Field({ label, children, hint }) {
   return <label className="partner-field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
 }
 
-const dayOptions = [['mon','월'],['tue','화'],['wed','수'],['thu','목'],['fri','금'],['sat','토'],['sun','일']];
-
 export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy = false }) {
   const state = useMemo(() => normalizePartnerState(value), [value]);
   const [saved, setSaved] = useState(false);
+  const [certificateDraft, setCertificateDraft] = useState({ name: "", examDate: "" });
+  const [goalDraft, setGoalDraft] = useState({ title: "", deadline: "", details: "" });
+  const [formMessage, setFormMessage] = useState("");
+
+  function commit(patch) {
+    onChange({ ...state, ...patch, schemaVersion: 2, lastUpdatedAt: Date.now() });
+    setSaved(true);
+    setFormMessage("");
+  }
 
   function patchProfile(patch) {
-    onChange({ ...state, profile: { ...state.profile, ...patch }, lastUpdatedAt: Date.now() });
-    setSaved(true);
-  }
-
-  function updateAcademic(id, patch) {
-    onChange({ ...state, academics: state.academics.map((item) => item.id === id ? { ...item, ...patch } : item), lastUpdatedAt: Date.now() });
-    setSaved(true);
-  }
-
-  function updateActivity(id, patch) {
-    onChange({ ...state, activities: state.activities.map((item) => item.id === id ? { ...item, ...patch } : item), lastUpdatedAt: Date.now() });
-    setSaved(true);
+    commit({ profile: { ...state.profile, ...patch } });
   }
 
   function setDailyMinutes(nextDaily) {
@@ -50,109 +48,157 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
     }] });
   }
 
-  return <main className="partner-page">
+  function addCertificate() {
+    const name = certificateDraft.name.trim();
+    if (!name) {
+      setFormMessage("준비할 자격증 이름을 입력해 주세요.");
+      return;
+    }
+    const next = {
+      id: partnerId('certificate'),
+      name,
+      examDate: certificateDraft.examDate,
+      status: 'preparing',
+      cbtAccuracy: 0,
+      weakSubjects: [],
+    };
+    commit({
+      certificateGoals: [...state.certificateGoals, next],
+      primaryCertificateGoalId: state.primaryCertificateGoalId || next.id,
+      certificateGoal: state.certificateGoal || next,
+    });
+    setCertificateDraft({ name: "", examDate: "" });
+  }
+
+  function updateCertificate(id, patch) {
+    const certificateGoals = state.certificateGoals.map((item) => item.id === id ? { ...item, ...patch } : item);
+    commit({
+      certificateGoals,
+      certificateGoal: certificateGoals.find((item) => item.id === state.primaryCertificateGoalId) || certificateGoals[0] || null,
+    });
+  }
+
+  function removeCertificate(id) {
+    const certificateGoals = state.certificateGoals.filter((item) => item.id !== id);
+    const primary = certificateGoals.find((item) => item.id === state.primaryCertificateGoalId) || certificateGoals[0] || null;
+    commit({ certificateGoals, certificateGoal: primary, primaryCertificateGoalId: primary?.id || "" });
+  }
+
+  function addGoal() {
+    const title = goalDraft.title.trim();
+    if (!title) {
+      setFormMessage("AI가 계획할 해야 할 일을 입력해 주세요.");
+      return;
+    }
+    commit({ goals: [...state.goals, {
+      id: partnerId('goal'),
+      type: 'auto',
+      title,
+      deadline: goalDraft.deadline,
+      details: goalDraft.details,
+    }] });
+    setGoalDraft({ title: "", deadline: "", details: "" });
+  }
+
+  function updateGoal(id, patch) {
+    commit({ goals: state.goals.map((item) => item.id === id ? { ...item, ...patch } : item) });
+  }
+
+  return <main className="partner-page partner-simple-goals">
     <section className="partner-page-head">
-      <div><span className="partner-kicker">MY CONTEXT</span><h1>목표와 현재 상태</h1><p>내신·자격증·취업·활동과 가능한 시간을 업데이트하면 다음 계획에 반영됩니다.</p></div>
-      <button className="partner-primary" disabled={busy} onClick={onGeneratePlan}>{busy ? "계획 계산 중…" : "이 정보로 계획 만들기"}</button>
+      <div><span className="partner-kicker">SIMPLE SETUP</span><h1>할 일만 알려주세요</h1><p>마감과 가능한 시간만 입력하면 AI가 공부 순서와 하루 분량을 자동으로 나눕니다.</p></div>
+      <button className="partner-primary partner-plan-cta" disabled={busy} onClick={onGeneratePlan}>{busy ? "시간에 맞춰 배분 중…" : "AI에게 계획 맡기기"}</button>
     </section>
 
-    {saved && <div className="partner-inline-notice">변경 내용이 저장되었습니다. 새 계획을 만들기 전까지 현재 확정 계획은 유지됩니다.</div>}
+    {saved && <div className="partner-inline-notice">입력 내용이 저장되었습니다. 계획 만들기를 누르면 AI가 가능한 시간에 맞춰 바로 적용합니다.</div>}
+    {formMessage && <div className="partner-form-message" role="alert">{formMessage}</div>}
 
-    <section className="partner-panel">
-      <div className="partner-section-title"><div><span>기본 정보</span><h2>내가 실제로 사용할 수 있는 시간을 먼저 고정해요</h2></div></div>
-      <div className="partner-form-grid three">
-        <Field label="학년"><select value={state.profile.grade || ""} onChange={(e) => patchProfile({ grade: e.target.value })}><option value="">선택</option><option>1학년</option><option>2학년</option><option>3학년</option></select></Field>
-        <Field label="전공"><input value={state.profile.major || ""} onChange={(e) => patchProfile({ major: e.target.value })} placeholder="예: 전기전자과" /></Field>
-        <div className="partner-weekly-total"><span>주간 학습 가능 시간</span><strong>{state.profile.weeklyAvailableHours || 0}시간</strong><small>아래 요일별 시간을 합산해 자동 계산</small></div>
-      </div>
-      <div className="partner-time-presets" aria-label="학습 가능 시간 빠른 설정">
-        <span>빠른 설정</span>
-        <button type="button" onClick={() => applyTimePreset(30, 60)}>가볍게 · 주 4.5시간</button>
-        <button type="button" onClick={() => applyTimePreset(60, 120)}>기본 · 주 9시간</button>
-        <button type="button" onClick={() => applyTimePreset(90, 180)}>집중 · 주 13.5시간</button>
-      </div>
-      <div className="partner-day-grid">
-        {dayOptions.map(([key,label]) => {
-          const minutes = state.profile.dailyAvailableMinutes?.[key] ?? 0;
-          return <div className={`partner-day-control ${minutes ? 'active' : ''}`} key={key}>
-            <span>{label}</span>
-            <div><button type="button" aria-label={`${label}요일 10분 줄이기`} onClick={() => updateDay(key, minutes - 10)}>−</button><strong>{minutes}<small>분</small></strong><button type="button" aria-label={`${label}요일 10분 늘리기`} onClick={() => updateDay(key, minutes + 10)}>＋</button></div>
-            <input aria-label={`${label}요일 학습 가능 시간`} type="range" min="0" max="240" step="10" value={Math.min(240, minutes)} onChange={(e) => updateDay(key, Number(e.target.value))}/>
-          </div>;
-        })}
-      </div>
-      <div className="partner-subsection-head">
-        <div><strong>고정 일정</strong><small>수업·방과후·기숙사 일정처럼 AI가 옮기면 안 되는 시간을 등록합니다.</small></div>
-        <button className="partner-secondary small" onClick={() => addFixedSchedule()}>＋ 직접 추가</button>
-      </div>
-      <div className="partner-schedule-presets">
-        <span>자주 쓰는 일정</span>
-        <button type="button" onClick={() => addFixedSchedule({ title: '방과후 수업', start: '16:30', end: '18:00' })}>＋ 방과후 수업</button>
-        <button type="button" onClick={() => addFixedSchedule({ title: '기숙사 자습', start: '19:30', end: '21:00' })}>＋ 기숙사 자습</button>
-      </div>
-      <div className="partner-fixed-list">
-        {state.profile.fixedSchedules.map((item) => <div key={item.id} className="partner-fixed-row">
-          <input value={item.title || ''} placeholder="예: 방과후 수업" onChange={(e) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((x) => x.id === item.id ? { ...x, title: e.target.value } : x) })}/>
-          <select value={item.day || 'mon'} onChange={(e) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((x) => x.id === item.id ? { ...x, day: e.target.value } : x) })}>{dayOptions.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select>
-          <input type="time" value={item.start || '18:00'} onChange={(e) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((x) => x.id === item.id ? { ...x, start: e.target.value } : x) })}/>
-          <input type="time" value={item.end || '19:00'} onChange={(e) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((x) => x.id === item.id ? { ...x, end: e.target.value } : x) })}/>
-          <div className="partner-fixed-actions"><button type="button" className="partner-copy-button" onClick={() => addFixedSchedule({ ...item, day: dayOptions[(dayOptions.findIndex(([key]) => key === item.day) + 1) % 7][0] })}>다음 날 복사</button><button className="partner-text-danger" onClick={() => patchProfile({ fixedSchedules: state.profile.fixedSchedules.filter((x) => x.id !== item.id) })}>삭제</button></div>
-        </div>)}
+    <section className="partner-panel partner-simple-section">
+      <div className="partner-simple-heading"><span>1</span><div><h2>기본 정보</h2><p>학년과 전공만 알려주세요.</p></div></div>
+      <div className="partner-form-grid two">
+        <Field label="학년"><select value={state.profile.grade || ""} onChange={(event) => patchProfile({ grade: event.target.value })}><option value="">선택</option><option>1학년</option><option>2학년</option><option>3학년</option></select></Field>
+        <Field label="전공"><input value={state.profile.major || ""} onChange={(event) => patchProfile({ major: event.target.value })} placeholder="예: 전기전자과, 스마트팩토리과" /></Field>
       </div>
     </section>
 
-    <section className="partner-panel">
-      <div className="partner-section-title"><div><span>내신</span><h2>시험일까지 어떤 과목을 얼마나 끌어올릴지</h2></div><button className="partner-secondary" onClick={() => onChange({ ...state, academics: [...state.academics, { id: partnerId('academic'), subject: '', currentScore: '', targetScore: '', examDate: '', weakUnits: [] }] })}>과목 추가</button></div>
-      {!state.academics.length && <div className="partner-empty compact">아직 등록된 내신 과목이 없습니다.</div>}
-      <div className="partner-stack">
-        {state.academics.map((item) => <article className="partner-edit-card" key={item.id}>
-          <div className="partner-form-grid four">
-            <Field label="과목"><input value={item.subject || ""} onChange={(e) => updateAcademic(item.id, { subject: e.target.value })} placeholder="예: 전기기기"/></Field>
-            <Field label="현재 점수"><input type="number" min="0" max="100" value={item.currentScore ?? ""} onChange={(e) => updateAcademic(item.id, { currentScore: e.target.value })}/></Field>
-            <Field label="목표 점수"><input type="number" min="0" max="100" value={item.targetScore ?? ""} onChange={(e) => updateAcademic(item.id, { targetScore: e.target.value })}/></Field>
-            <Field label="시험일"><input type="date" value={item.examDate || ""} onChange={(e) => updateAcademic(item.id, { examDate: e.target.value })}/></Field>
-          </div>
-          <Field label="취약 단원" hint="쉼표로 구분"><input value={(item.weakUnits || []).join(', ')} onChange={(e) => updateAcademic(item.id, { weakUnits: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })} placeholder="예: 변압기, 유도전동기"/></Field>
-          <button className="partner-text-danger" onClick={() => onChange({ ...state, academics: state.academics.filter((x) => x.id !== item.id) })}>과목 삭제</button>
+    <section className="partner-panel partner-simple-section">
+      <div className="partner-simple-heading"><span>2</span><div><h2>공부할 수 있는 시간</h2><p>평소와 가장 가까운 것 하나만 고르세요.</p></div><strong>{state.profile.weeklyAvailableHours || 0}시간/주</strong></div>
+      <div className="partner-simple-presets">
+        <button type="button" onClick={() => applyTimePreset(30, 60)}>여유롭게<small>평일 30분 · 주말 1시간</small></button>
+        <button type="button" className={(state.profile.weeklyAvailableHours || 0) >= 8 && (state.profile.weeklyAvailableHours || 0) <= 10 ? "active" : ""} onClick={() => applyTimePreset(60, 120)}>보통<small>평일 1시간 · 주말 2시간</small></button>
+        <button type="button" onClick={() => applyTimePreset(90, 180)}>집중해서<small>평일 1시간 30분 · 주말 3시간</small></button>
+      </div>
+
+      <details className="partner-advanced-settings">
+        <summary>요일별 시간이나 고정 일정 직접 조정</summary>
+        <div className="partner-day-grid">
+          {dayOptions.map(([key,label]) => {
+            const minutes = state.profile.dailyAvailableMinutes?.[key] ?? 0;
+            return <div className={`partner-day-control ${minutes ? 'active' : ''}`} key={key}>
+              <span>{label}</span>
+              <div><button type="button" aria-label={`${label}요일 10분 줄이기`} onClick={() => updateDay(key, minutes - 10)}>−</button><strong><b>{minutes}</b><small>분</small></strong><button type="button" aria-label={`${label}요일 10분 늘리기`} onClick={() => updateDay(key, minutes + 10)}>＋</button></div>
+              <input aria-label={`${label}요일 학습 가능 시간`} type="range" min="0" max="240" step="10" value={Math.min(240, minutes)} onChange={(event) => updateDay(key, Number(event.target.value))}/>
+            </div>;
+          })}
+        </div>
+
+        <div className="partner-subsection-head">
+          <div><strong>AI가 피해야 할 고정 일정</strong><small>수업이나 방과후처럼 공부를 배치하면 안 되는 시간만 등록하세요.</small></div>
+          <button className="partner-secondary small" type="button" onClick={() => addFixedSchedule()}>＋ 일정 추가</button>
+        </div>
+        <div className="partner-fixed-list">
+          {state.profile.fixedSchedules.map((item) => <div key={item.id} className="partner-fixed-row">
+            <input value={item.title || ''} placeholder="예: 방과후 수업" onChange={(event) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((row) => row.id === item.id ? { ...row, title: event.target.value } : row) })}/>
+            <select value={item.day || 'mon'} onChange={(event) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((row) => row.id === item.id ? { ...row, day: event.target.value } : row) })}>{dayOptions.map(([day,label]) => <option key={day} value={day}>{label}</option>)}</select>
+            <input type="time" value={item.start || '18:00'} onChange={(event) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((row) => row.id === item.id ? { ...row, start: event.target.value } : row) })}/>
+            <input type="time" value={item.end || '19:00'} onChange={(event) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((row) => row.id === item.id ? { ...row, end: event.target.value } : row) })}/>
+            <button className="partner-text-danger" type="button" onClick={() => patchProfile({ fixedSchedules: state.profile.fixedSchedules.filter((row) => row.id !== item.id) })}>삭제</button>
+          </div>)}
+        </div>
+      </details>
+    </section>
+
+    <section className="partner-panel partner-simple-section">
+      <div className="partner-simple-heading"><span>3</span><div><h2>준비할 자격증</h2><p>여러 개를 등록하면 시험일과 현재 CBT 기록을 보고 우선순위를 정합니다.</p></div></div>
+      <div className="partner-add-row certificate">
+        <input value={certificateDraft.name} onChange={(event) => setCertificateDraft({ ...certificateDraft, name: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") addCertificate(); }} placeholder="예: 산업안전산업기사" />
+        <input type="date" aria-label="자격증 시험일" value={certificateDraft.examDate} onChange={(event) => setCertificateDraft({ ...certificateDraft, examDate: event.target.value })}/>
+        <button type="button" onClick={addCertificate}>추가</button>
+      </div>
+      <div className="partner-simple-list">
+        {state.certificateGoals.map((item) => <article key={item.id}>
+          <span className="partner-goal-icon certificate">자격</span>
+          <input value={item.name || ""} aria-label="자격증명" onChange={(event) => updateCertificate(item.id, { name: event.target.value })}/>
+          <input type="date" aria-label="시험일" value={item.examDate || ""} onChange={(event) => updateCertificate(item.id, { examDate: event.target.value })}/>
+          <small>{item.lastCbtAt ? `최근 CBT ${item.cbtAccuracy || 0}점` : "CBT 기록 없음"}</small>
+          <button type="button" onClick={() => removeCertificate(item.id)}>삭제</button>
         </article>)}
+        {!state.certificateGoals.length && <div className="partner-simple-empty">등록된 자격증이 없습니다. 필요 없으면 비워 두어도 됩니다.</div>}
       </div>
     </section>
 
-    <section className="partner-panel">
-      <div className="partner-section-title"><div><span>자격증</span><h2>목표 종목과 CBT 결과를 같은 계획에 연결해요</h2></div></div>
-      <div className="partner-form-grid four">
-        <Field label="목표 자격증"><input value={state.certificateGoal?.name || ""} onChange={(e) => onChange({ ...state, certificateGoal: { ...(state.certificateGoal || { id: partnerId('certificate') }), name: e.target.value } })} placeholder="예: 산업안전산업기사"/></Field>
-        <Field label="상태"><select value={state.certificateGoal?.status || "preparing"} onChange={(e) => onChange({ ...state, certificateGoal: { ...(state.certificateGoal || { id: partnerId('certificate') }), status: e.target.value } })}><option value="preparing">준비 중</option><option value="registered">접수 완료</option><option value="passed">취득 완료</option><option value="failed">재도전</option></select></Field>
-        <Field label="시험일"><input type="date" value={state.certificateGoal?.examDate || ""} onChange={(e) => onChange({ ...state, certificateGoal: { ...(state.certificateGoal || { id: partnerId('certificate') }), examDate: e.target.value } })}/></Field>
-        <Field label="최근 CBT 정답률"><input type="number" min="0" max="100" value={state.certificateGoal?.cbtAccuracy ?? ""} onChange={(e) => onChange({ ...state, certificateGoal: { ...(state.certificateGoal || { id: partnerId('certificate') }), cbtAccuracy: Number(e.target.value) || 0 } })}/></Field>
+    <section className="partner-panel partner-simple-section">
+      <div className="partner-simple-heading"><span>4</span><div><h2>그 밖에 해야 할 일</h2><p>내신, 취업 준비, 대회, 프로젝트를 구분하지 말고 문장으로 적으세요. AI가 자동으로 분류합니다.</p></div></div>
+      <div className="partner-add-row goal">
+        <input value={goalDraft.title} onChange={(event) => setGoalDraft({ ...goalDraft, title: event.target.value })} placeholder="예: 전기기기 내신 80점 만들기" />
+        <input type="date" aria-label="목표 마감일" value={goalDraft.deadline} onChange={(event) => setGoalDraft({ ...goalDraft, deadline: event.target.value })}/>
+        <textarea value={goalDraft.details} onChange={(event) => setGoalDraft({ ...goalDraft, details: event.target.value })} placeholder="추가로 알려줄 내용이 있다면 자유롭게 입력하세요. 띄어쓰기와 쉼표를 그대로 사용할 수 있어요." />
+        <button type="button" onClick={addGoal}>AI에게 맡길 일 추가</button>
       </div>
-    </section>
-
-    <section className="partner-panel">
-      <div className="partner-section-title"><div><span>취업 목표</span><h2>장기 목표에서 지금 준비할 역량을 역산해요</h2></div></div>
-      <div className="partner-form-grid four">
-        <Field label="산업"><input value={state.careerGoal.industry || ""} onChange={(e) => onChange({ ...state, careerGoal: { ...state.careerGoal, industry: e.target.value } })} placeholder="예: 건설·플랜트"/></Field>
-        <Field label="희망 기업"><input value={state.careerGoal.company || ""} onChange={(e) => onChange({ ...state, careerGoal: { ...state.careerGoal, company: e.target.value } })} placeholder="예: 삼성물산"/></Field>
-        <Field label="희망 직무"><input value={state.careerGoal.role || ""} onChange={(e) => onChange({ ...state, careerGoal: { ...state.careerGoal, role: e.target.value } })} placeholder="예: 전기직"/></Field>
-        <Field label="지원 목표 시기"><input type="date" value={state.careerGoal.targetDate || ""} onChange={(e) => onChange({ ...state, careerGoal: { ...state.careerGoal, targetDate: e.target.value } })}/></Field>
-      </div>
-      <Field label="필요하다고 생각하는 역량·준비" hint="쉼표로 구분"><input value={(state.careerGoal.skills || []).join(', ')} onChange={(e) => onChange({ ...state, careerGoal: { ...state.careerGoal, skills: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) } })} placeholder="예: 전기설비, 산업안전, 현장 커뮤니케이션"/></Field>
-    </section>
-
-    <section className="partner-panel">
-      <div className="partner-section-title"><div><span>교내외 활동</span><h2>대회·프로젝트 마감도 같은 시간축에서 관리해요</h2></div><button className="partner-secondary" disabled={state.activities.length >= 2} onClick={() => onChange({ ...state, activities: [...state.activities, { id: partnerId('activity'), type: 'competition', title: '', deadline: '', stage: 'preparing', role: '' }].slice(0, 2) })}>활동 추가</button></div>
-      {!state.activities.length && <div className="partner-empty compact">MVP에서는 활동을 최대 2개까지 등록할 수 있습니다.</div>}
-      <div className="partner-stack">
-        {state.activities.map((item) => <article className="partner-edit-card" key={item.id}>
-          <div className="partner-form-grid four">
-            <Field label="활동명"><input value={item.title || ""} onChange={(e) => updateActivity(item.id, { title: e.target.value })} placeholder="예: AI Competition"/></Field>
-            <Field label="종류"><select value={item.type || "competition"} onChange={(e) => updateActivity(item.id, { type: e.target.value })}><option value="competition">대회</option><option value="project">프로젝트</option><option value="school">교내 활동</option></select></Field>
-            <Field label="마감"><input type="date" value={item.deadline || ""} onChange={(e) => updateActivity(item.id, { deadline: e.target.value })}/></Field>
-            <Field label="현재 단계"><select value={item.stage || "preparing"} onChange={(e) => updateActivity(item.id, { stage: e.target.value })}><option value="preparing">준비</option><option value="submitted">제출</option><option value="final">본선·최종</option><option value="completed">완료</option></select></Field>
+      <div className="partner-simple-list">
+        {state.goals.map((item) => <article className="general" key={item.id}>
+          <span className="partner-goal-icon auto">AI</span>
+          <div>
+            <input value={item.title || ""} aria-label="해야 할 일" onChange={(event) => updateGoal(item.id, { title: event.target.value })}/>
+            <textarea value={item.details || ""} aria-label="추가 설명" onChange={(event) => updateGoal(item.id, { details: event.target.value })} placeholder="추가 설명"/>
           </div>
-          <button className="partner-text-danger" onClick={() => onChange({ ...state, activities: state.activities.filter((x) => x.id !== item.id) })}>활동 삭제</button>
+          <input type="date" aria-label="마감일" value={item.deadline || ""} onChange={(event) => updateGoal(item.id, { deadline: event.target.value })}/>
+          <button type="button" onClick={() => commit({ goals: state.goals.filter((row) => row.id !== item.id) })}>삭제</button>
         </article>)}
+        {!state.goals.length && <div className="partner-simple-empty">아직 맡긴 일이 없습니다. 해야 할 일과 마감만 입력해 보세요.</div>}
       </div>
     </section>
+
+    <section className="partner-submit-bar"><div><strong>입력이 끝났나요?</strong><span>AI가 모든 목표를 가능한 시간 안에 자동으로 나눕니다.</span></div><button className="partner-primary" disabled={busy} onClick={onGeneratePlan}>{busy ? "계획 만드는 중…" : "내 계획 자동으로 만들기"}</button></section>
   </main>;
 }
