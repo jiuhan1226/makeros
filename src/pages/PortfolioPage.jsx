@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import BufferedListInput from "../components/BufferedListInput";
 
 const emptyAward = { id: "", title: "", organization: "", result: "", date: "", description: "" };
 const emptyCertification = { id: "", name: "", issuer: "", acquiredDate: "", credentialId: "", description: "" };
@@ -143,7 +144,7 @@ export default function PortfolioPage({
       <label className="invent-field"><span>이메일</span><input type="email" value={resumeProfile.email || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, email: e.target.value })}/></label>
       <label className="invent-field"><span>연락처</span><input value={resumeProfile.phone || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, phone: e.target.value })}/></label>
       <label className="invent-field span-all"><span>한 줄 소개</span><textarea rows="5" value={resumeProfile.introduction || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, introduction: e.target.value })} placeholder="관심 분야, 강점, 경험을 2~4문장으로 정리하세요."/></label>
-      <label className="invent-field span-all"><span>보유 기술</span><small>쉼표로 구분해 입력하세요.</small><input value={skills.join(", ")} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, skills: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="Python, Kotlin, PLC, Raspberry Pi, React"/></label>
+      <label className="invent-field span-all"><span>보유 기술</span><small>쉼표로 구분해 입력하세요.</small><BufferedListInput value={skills} onCommit={(items) => onChangeResumeProfile({ ...resumeProfile, skills: items })} placeholder="Python, Kotlin, PLC, Raspberry Pi, React"/></label>
     </div></section>}
 
     {tab === "projects" && <section className="portfolio-projects-grid">{buildProjects.length ? buildProjects.map((project) => <article className="maker-card portfolio-project-card" key={project.id}><header><div><span>{project.status === "done" ? "완료" : project.status === "paused" ? "보류" : "진행 중"}</span><h2>{project.title}</h2><p>{dateText(project.startDate, project.endDate)}</p></div><b>{project.journals?.length || 0}<small>일지</small></b></header><div className="portfolio-project-meta"><span>{project.role || "역할 미입력"}</span><span>{project.teamSize || "팀 규모 미입력"}</span></div><p>{project.resumeSummary || project.solution || "Build의 개요 탭에서 이력서용 프로젝트 요약을 입력하세요."}</p>{project.outcome && <aside><strong>성과</strong><p>{project.outcome}</p></aside>}<footer>{(project.techStack || []).map((tech) => <span key={tech}>{tech}</span>)}</footer></article>) : <div className="maker-card maker-inline-empty"><h3>등록된 프로젝트가 없어요</h3><p>Build에서 프로젝트를 만들면 자동으로 표시됩니다.</p></div>}</section>}
