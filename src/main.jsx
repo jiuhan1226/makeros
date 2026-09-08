@@ -25,7 +25,6 @@ import ExamPage from "./pages/ExamPage";
 import MockExamPage from "./pages/MockExamPage";
 import BookmarkPage from "./pages/BookmarkPage";
 import AdminPage from "./pages/AdminPage";
-import StudyStatsPage from "./pages/StudyStatsPage";
 import SearchPage from "./pages/SearchPage";
 import PlannerPage from "./pages/PlannerPage";
 import LearningCenterPage from "./pages/LearningCenterPage";
@@ -1010,7 +1009,7 @@ function App() {
       {page === "portfolio" && <PortfolioPage inventorProjects={inventorProjects} buildProjects={buildProjects} history={history} assets={assets} resumeProfile={resumeProfile} onChangeResumeProfile={setResumeProfile} awards={awards} onChangeAwards={setAwards} certifications={certifications} onChangeCertifications={setCertifications} portfolioItems={portfolioItems} onChangePortfolioItems={setPortfolioItems} />}
       {page === "career" && <CareerPage assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} pdfLibrary={pdfLibrary} history={history} awards={awards} certifications={certifications} onNavigate={navigate} />}
       {page === "catalog" && <CatalogPage certificates={certificates} onSelect={selectCertificate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} onNavigate={navigate} />}
-      {page === "certificate" && <CertificateHomePage certificate={certificate} exams={exams} history={certificateHistory} practiceHistory={certificatePracticeHistory} wrongNotes={certificateWrongNotes} learningProgress={certificateLearningProgress} plan={plan} pdfLibrary={pdfLibrary} onNavigate={navigate} onOpenExam={openExam} loadQuestions={getExamQuestions} />}
+      {page === "certificate" && <CertificateHomePage certificate={certificate} exams={exams} history={certificateHistory} practiceHistory={certificatePracticeHistory} wrongNotes={certificateWrongNotes} learningProgress={certificateLearningProgress} plan={plan} pdfLibrary={pdfLibrary} onNavigate={navigate} onOpenExam={openExam} onStartRecommended={startRecommended} />}
       {page === "learning" && <LearningCenterPage certificate={certificate} history={certificateHistory} practiceHistory={certificatePracticeHistory} wrongNotes={certificateWrongNotes} learningProgress={certificateLearningProgress} plan={plan} pdfLibrary={pdfLibrary} exams={exams} loadQuestions={getExamQuestions} onStartRecommended={startRecommended} onStartDueReview={startDueReview} onStartRepeatedWrong={startWrongReview} onNavigate={navigate} />}
       {page === "knowledge" && <UnifiedSearchPage searchCbt={searchQuestions} pdfLibrary={pdfLibrary} wrongNotes={[...wrongNotes, ...pdfWrongNotes]} bookmarks={savedBookmarks} notes={assets.notes} cards={assets.cards} onOpenCbt={openSearchResult} onOpenPdf={openPdf} />}
       {page === "library" && <PdfLibraryPage library={pdfLibrary} onRefresh={() => setPdfLibrary(readPdfLibrary())} onOpen={openPdf} onCreateAssets={createAssetsFromPdf} />}
@@ -1027,7 +1026,6 @@ function App() {
       {page === "mock" && <MockExamPage exams={exams} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "exam", studyScope: "mock", learningType: "mock", returnPage: "mock", certificateId: certificate?.id || "", certificateName: certificate?.name || "" }, questions, "실전모드"); setPage("exam"); }} />}
       {page === "bookmark" && <BookmarkPage wrongNotes={certificateWrongNotes} certificateName={certificate?.name} history={certificateHistory} onStartRecommended={startRecommended} onStartWrongReview={startWrongReview} repeatedWrong={repeatedWrong} dueReviews={dueReviews} onStartDueReview={startDueReview} />}
       {page === "search" && <SearchPage exams={exams} searchQuestions={async (term) => (await searchQuestions(term)).map((item) => item.q)} onOpenResult={(exam, question) => openSearchResult(exam, question)} />}
-      {page === "stats" && <StudyStatsPage examHistory={history} practiceHistory={practiceHistory} studyEvents={studyEvents} attemptEvents={attemptEvents} learningProgress={learningProgress} certificates={certificates} selectedCertificateId={certificate?.id || ""} onRecalculate={recalculateLearningData} onReset={resetLearningData} />}
       {page === "planner" && <PlannerPage certificate={certificate} wrongNotes={certificateWrongNotes} history={certificateHistory} practiceHistory={certificatePracticeHistory} learningProgress={certificateLearningProgress} exams={exams} plan={plan} onSavePlan={setPlan} onStartRecommended={startRecommended} onStartDueReview={startDueReview} onStartRepeatedWrong={startWrongReview} pdfLibrary={pdfLibrary} />}
       {page === "admin" && isAdminUser(user) && <AdminPage />}
       {showAuth && <AuthModal user={user} onClose={() => setShowAuth(false)} />}
