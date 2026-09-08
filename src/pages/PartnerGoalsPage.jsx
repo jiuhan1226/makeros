@@ -5,6 +5,8 @@ function Field({ label, children, hint }) {
   return <label className="partner-field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
 }
 
+const dayOptions = [['mon','월'],['tue','화'],['wed','수'],['thu','목'],['fri','금'],['sat','토'],['sun','일']];
+
 export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy = false }) {
   const state = useMemo(() => normalizePartnerState(value), [value]);
   const [saved, setSaved] = useState(false);
@@ -24,6 +26,30 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
     setSaved(true);
   }
 
+  function setDailyMinutes(nextDaily) {
+    const totalMinutes = Object.values(nextDaily).reduce((sum, minutes) => sum + Math.max(0, Number(minutes) || 0), 0);
+    patchProfile({ dailyAvailableMinutes: nextDaily, weeklyAvailableHours: Number((totalMinutes / 60).toFixed(1)) });
+  }
+
+  function updateDay(key, amount) {
+    setDailyMinutes({ ...state.profile.dailyAvailableMinutes, [key]: Math.max(0, Math.min(480, amount)) });
+  }
+
+  function applyTimePreset(weekdayMinutes, weekendMinutes) {
+    setDailyMinutes(Object.fromEntries(dayOptions.map(([key]) => [key, ['sat', 'sun'].includes(key) ? weekendMinutes : weekdayMinutes])));
+  }
+
+  function addFixedSchedule(template = {}) {
+    patchProfile({ fixedSchedules: [...state.profile.fixedSchedules, {
+      id: partnerId('fixed'),
+      title: template.title || '',
+      day: template.day || 'mon',
+      start: template.start || '18:00',
+      end: template.end || '19:00',
+      locked: true,
+    }] });
+  }
+
   return <main className="partner-page">
     <section className="partner-page-head">
       <div><span className="partner-kicker">MY CONTEXT</span><h1>목표와 현재 상태</h1><p>내신·자격증·취업·활동과 가능한 시간을 업데이트하면 다음 계획에 반영됩니다.</p></div>
@@ -37,22 +63,40 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
       <div className="partner-form-grid three">
         <Field label="학년"><select value={state.profile.grade || ""} onChange={(e) => patchProfile({ grade: e.target.value })}><option value="">선택</option><option>1학년</option><option>2학년</option><option>3학년</option></select></Field>
         <Field label="전공"><input value={state.profile.major || ""} onChange={(e) => patchProfile({ major: e.target.value })} placeholder="예: 전기전자과" /></Field>
-        <Field label="주간 학습 가능 시간" hint="수업·방과후·휴식 시간을 제외한 현실적인 시간"><input type="number" min="1" max="40" value={state.profile.weeklyAvailableHours || 8} onChange={(e) => patchProfile({ weeklyAvailableHours: Number(e.target.value) || 1 })} /></Field>
+        <div className="partner-weekly-total"><span>주간 학습 가능 시간</span><strong>{state.profile.weeklyAvailableHours || 0}시간</strong><small>아래 요일별 시간을 합산해 자동 계산</small></div>
+      </div>
+      <div className="partner-time-presets" aria-label="학습 가능 시간 빠른 설정">
+        <span>빠른 설정</span>
+        <button type="button" onClick={() => applyTimePreset(30, 60)}>가볍게 · 주 4.5시간</button>
+        <button type="button" onClick={() => applyTimePreset(60, 120)}>기본 · 주 9시간</button>
+        <button type="button" onClick={() => applyTimePreset(90, 180)}>집중 · 주 13.5시간</button>
       </div>
       <div className="partner-day-grid">
-        {[['mon','월'],['tue','화'],['wed','수'],['thu','목'],['fri','금'],['sat','토'],['sun','일']].map(([key,label]) => <label key={key}><span>{label}</span><input type="number" min="0" max="480" step="10" value={state.profile.dailyAvailableMinutes?.[key] ?? 0} onChange={(e) => patchProfile({ dailyAvailableMinutes: { ...state.profile.dailyAvailableMinutes, [key]: Math.max(0, Number(e.target.value) || 0) } })}/><small>분</small></label>)}
+        {dayOptions.map(([key,label]) => {
+          const minutes = state.profile.dailyAvailableMinutes?.[key] ?? 0;
+          return <div className={`partner-day-control ${minutes ? 'active' : ''}`} key={key}>
+            <span>{label}</span>
+            <div><button type="button" aria-label={`${label}요일 10분 줄이기`} onClick={() => updateDay(key, minutes - 10)}>−</button><strong>{minutes}<small>분</small></strong><button type="button" aria-label={`${label}요일 10분 늘리기`} onClick={() => updateDay(key, minutes + 10)}>＋</button></div>
+            <input aria-label={`${label}요일 학습 가능 시간`} type="range" min="0" max="240" step="10" value={Math.min(240, minutes)} onChange={(e) => updateDay(key, Number(e.target.value))}/>
+          </div>;
+        })}
       </div>
       <div className="partner-subsection-head">
         <div><strong>고정 일정</strong><small>수업·방과후·기숙사 일정처럼 AI가 옮기면 안 되는 시간을 등록합니다.</small></div>
-        <button className="partner-secondary small" onClick={() => patchProfile({ fixedSchedules: [...state.profile.fixedSchedules, { id: partnerId('fixed'), title: '', day: 'mon', start: '18:00', end: '19:00', locked: true }] })}>고정 일정 추가</button>
+        <button className="partner-secondary small" onClick={() => addFixedSchedule()}>＋ 직접 추가</button>
+      </div>
+      <div className="partner-schedule-presets">
+        <span>자주 쓰는 일정</span>
+        <button type="button" onClick={() => addFixedSchedule({ title: '방과후 수업', start: '16:30', end: '18:00' })}>＋ 방과후 수업</button>
+        <button type="button" onClick={() => addFixedSchedule({ title: '기숙사 자습', start: '19:30', end: '21:00' })}>＋ 기숙사 자습</button>
       </div>
       <div className="partner-fixed-list">
         {state.profile.fixedSchedules.map((item) => <div key={item.id} className="partner-fixed-row">
           <input value={item.title || ''} placeholder="예: 방과후 수업" onChange={(e) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((x) => x.id === item.id ? { ...x, title: e.target.value } : x) })}/>
-          <select value={item.day || 'mon'} onChange={(e) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((x) => x.id === item.id ? { ...x, day: e.target.value } : x) })}>{[['mon','월'],['tue','화'],['wed','수'],['thu','목'],['fri','금'],['sat','토'],['sun','일']].map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select>
+          <select value={item.day || 'mon'} onChange={(e) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((x) => x.id === item.id ? { ...x, day: e.target.value } : x) })}>{dayOptions.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select>
           <input type="time" value={item.start || '18:00'} onChange={(e) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((x) => x.id === item.id ? { ...x, start: e.target.value } : x) })}/>
           <input type="time" value={item.end || '19:00'} onChange={(e) => patchProfile({ fixedSchedules: state.profile.fixedSchedules.map((x) => x.id === item.id ? { ...x, end: e.target.value } : x) })}/>
-          <button className="partner-text-danger" onClick={() => patchProfile({ fixedSchedules: state.profile.fixedSchedules.filter((x) => x.id !== item.id) })}>삭제</button>
+          <div className="partner-fixed-actions"><button type="button" className="partner-copy-button" onClick={() => addFixedSchedule({ ...item, day: dayOptions[(dayOptions.findIndex(([key]) => key === item.day) + 1) % 7][0] })}>다음 날 복사</button><button className="partner-text-danger" onClick={() => patchProfile({ fixedSchedules: state.profile.fixedSchedules.filter((x) => x.id !== item.id) })}>삭제</button></div>
         </div>)}
       </div>
     </section>
