@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { daysUntil, normalizePartnerState, partnerCalendarItems, partnerId } from "../utils/aiPartner";
+import { buildCalendarLaneMap } from "../utils/calendarLayout";
 
 const labels = { academic: "내신", certificate: "자격증", career: "취업", activity: "대회·활동", custom: "개인 일정" };
 const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
@@ -43,6 +44,7 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
   const [editor, setEditor] = useState(null);
   const [editorError, setEditorError] = useState("");
   const cells = useMemo(() => calendarCells(cursor), [cursor]);
+  const laneMap = useMemo(() => buildCalendarLaneMap(items), [items]);
   const itemMap = useMemo(() => items.reduce((map, item) => {
     (map[item.date] ||= []).push(item);
     return map;
@@ -113,17 +115,21 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
           {cells.map((date, index) => {
             if (!date) return <div className="partner-calendar-cell empty" key={`empty-${index}`} />;
             const key = `${monthKey(date)}-${String(date.getDate()).padStart(2, "0")}`;
-            const dayItems = [...(itemMap[key] || [])].sort((a, b) => String(a.rangeKey || a.title).localeCompare(String(b.rangeKey || b.title)));
+            const dayItems = [...(itemMap[key] || [])].sort((a, b) => (laneMap.get(String(a.rangeKey || a.id)) ?? 99) - (laneMap.get(String(b.rangeKey || b.id)) ?? 99));
+            const visibleItems = dayItems.filter((item) => (laneMap.get(String(item.rangeKey || item.id)) ?? 99) < 3);
+            const highestLane = visibleItems.reduce((highest, item) => Math.max(highest, laneMap.get(String(item.rangeKey || item.id)) ?? 0), -1);
+            const daySlots = Array.from({ length: highestLane + 1 }, (_, lane) => visibleItems.find((item) => laneMap.get(String(item.rangeKey || item.id)) === lane) || null);
             return <div className={`partner-calendar-cell ${key === todayKey ? "today" : ""}`} key={key} role="button" tabIndex="0" aria-label={`${key} 일정 추가`} onClick={() => openEditor(date)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openEditor(date); } }}>
               <span className="partner-calendar-day">{date.getDate()}</span>
               <div className="partner-calendar-events">
-                {dayItems.slice(0, 3).map((item) => {
+                {daySlots.map((item, lane) => {
+                  if (!item) return <span className="partner-calendar-event-slot" aria-hidden="true" key={`slot-${key}-${lane}`} />;
                   const segment = rangeSegment(item, date);
                   return <button type="button" key={item.id} className={`${item.type} ${item.isRange ? "range-event" : ""} ${segment.className}`} title={item.title} aria-label={`${item.title} ${item.rangeStart}${item.isRange ? `부터 ${item.rangeEnd}까지` : ""}`} onClick={(event) => { event.stopPropagation(); item.sourceId ? openEditor(item.date, item) : onNavigate("partnerGoals"); }}>
                     {segment.showTitle && <i />}<span>{segment.showTitle ? item.title : "\u00a0"}</span>
                   </button>;
                 })}
-                {dayItems.length > 3 && <small>+{dayItems.length - 3}개 더보기</small>}
+                {dayItems.length > visibleItems.length && <small>+{dayItems.length - visibleItems.length}개 더보기</small>}
               </div>
             </div>;
           })}
