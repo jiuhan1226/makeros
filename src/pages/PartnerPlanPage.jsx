@@ -1,18 +1,33 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { getActivePartnerPlan, getPendingPartnerPlan, normalizePartnerState, planDiff } from "../utils/aiPartner";
 
 export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPending, onDiscardPending, onRollback, focusGoalId = "", busy = false }) {
+  const [planView, setPlanView] = useState("all");
   const normalized = useMemo(() => normalizePartnerState(state), [state]);
   const active = getActivePartnerPlan(normalized);
   const pending = getPendingPartnerPlan(normalized);
   const shown = pending || active;
   const diff = pending && active ? planDiff(active, pending) : null;
   const history = normalized.planVersions.filter((item) => item.status === "superseded").slice(0, 5);
-  const visibleWeeks = (shown?.weeks || []).filter((week) => (week.items || []).length > 0);
+  const matchesPlanView = (type) => planView === "all" || (planView === "other" ? !["certificate", "academic"].includes(type) : type === planView);
+  const visibleRoadmap = (shown?.roadmap || []).filter((goal) => matchesPlanView(goal.type));
+  const visibleWeeks = (shown?.weeks || []).map((week) => {
+    const items = (week.items || []).filter((item) => matchesPlanView(item.goalType));
+    return { ...week, items, totalMinutes: items.reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0) };
+  }).filter((week) => week.items.length > 0);
+  const planCounts = useMemo(() => (shown?.roadmap || []).reduce((counts, goal) => {
+    const key = ["certificate", "academic"].includes(goal.type) ? goal.type : "other";
+    counts[key] += 1;
+    counts.all += 1;
+    return counts;
+  }, { all: 0, certificate: 0, academic: 0, other: 0 }), [shown]);
+  const planViewLabels = { all: "전체 계획", certificate: "자격증", academic: "내신", other: "그 외 일정" };
   const displaySummary = String(shown?.summary || "").replace(/\s+\d+주 계획을/, " 계획을");
 
   useEffect(() => {
     if (!focusGoalId || !shown) return;
+    const focusedGoal = (shown.roadmap || []).find((goal) => String(goal.goalId) === String(focusGoalId));
+    if (focusedGoal) setPlanView(["certificate", "academic"].includes(focusedGoal.type) ? focusedGoal.type : "other");
     const timer = setTimeout(() => document.getElementById(`plan-goal-${focusGoalId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
     return () => clearTimeout(timer);
   }, [focusGoalId, shown?.versionId]);
@@ -32,14 +47,18 @@ export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPendin
     {!shown && <section className="partner-panel partner-empty"><strong>아직 계획 버전이 없습니다.</strong><p>목표와 가능한 시간을 입력한 뒤 첫 계획을 생성해 주세요.</p></section>}
 
     {shown && <>
+      <nav className="partner-plan-tabs" aria-label="계획 종류 선택">
+        {["all", "certificate", "academic", ...(planCounts.other ? ["other"] : [])].map((key) => <button type="button" key={key} className={planView === key ? "active" : ""} aria-pressed={planView === key} onClick={() => setPlanView(key)}><span>{planViewLabels[key]}</span><small>{planCounts[key]}</small></button>)}
+      </nav>
       <section className="partner-panel">
-        <div className="partner-section-title"><div><span>{pending ? "검토 중인 계획" : "현재 확정 계획"}</span><h2>{displaySummary}</h2></div><span className={`partner-status-chip ${pending ? "draft" : "active"}`}>{pending ? "확정 전" : "적용 중"}</span></div>
+        <div className="partner-section-title"><div><span>{pending ? "검토 중인 계획" : "현재 확정 계획"}</span><h2>{planView === "all" ? displaySummary : `${planViewLabels[planView]} 계획`}</h2></div><span className={`partner-status-chip ${pending ? "draft" : "active"}`}>{pending ? "확정 전" : "적용 중"}</span></div>
         <div className="partner-roadmap-grid">
-          {(shown.roadmap || []).map((goal) => <article id={`plan-goal-${goal.goalId}`} className={`partner-roadmap-goal ${String(focusGoalId) === String(goal.goalId) ? "focus" : ""}`} key={goal.goalId}>
+          {visibleRoadmap.map((goal) => <article id={`plan-goal-${goal.goalId}`} className={`partner-roadmap-goal ${String(focusGoalId) === String(goal.goalId) ? "focus" : ""}`} key={goal.goalId}>
             <header><span>{goal.type === "academic" ? "내신" : goal.type === "certificate" ? "자격증" : goal.type === "career" ? "취업" : "대회·활동"}</span><strong>{goal.title}</strong><small>{goal.startDate && goal.deadline && goal.startDate !== goal.deadline ? `${goal.startDate} ~ ${goal.deadline}` : goal.deadline ? `목표일 ${goal.deadline}` : goal.startDate ? `시작일 ${goal.startDate}` : "장기 목표"}</small></header>
             <div>{(goal.milestones || []).map((item, index) => <div className="partner-milestone" key={item.id || index}><i>{index + 1}</i><span><strong>{item.title}</strong><small>{item.reason}</small></span></div>)}</div>
           </article>)}
         </div>
+        {!visibleRoadmap.length && <div className="partner-simple-empty">등록된 {planViewLabels[planView]} 목표가 없습니다.</div>}
       </section>
 
       <section className="partner-panel">
