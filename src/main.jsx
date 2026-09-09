@@ -1130,7 +1130,7 @@ function App() {
       {page === "planner" && <PlannerPage certificate={certificate} wrongNotes={certificateWrongNotes} history={certificateHistory} practiceHistory={certificatePracticeHistory} learningProgress={certificateLearningProgress} exams={exams} plan={plan} onSavePlan={setPlan} onStartRecommended={startRecommended} onStartDueReview={startDueReview} onStartRepeatedWrong={startWrongReview} pdfLibrary={pdfLibrary} />}
       {page === "admin" && isAdminUser(user) && <AdminPage />}
       {showAuth && <AuthModal user={user} onClose={() => setShowAuth(false)} />}
-      <TutorialModal open={showTutorial} onClose={() => setShowTutorial(false)} onNavigate={navigate}/>
+      <TutorialModal open={showTutorial} onClose={() => setShowTutorial(false)}/>
       <div className="sync-indicator">{assetBusy ? "AI 자료 생성 중…" : user ? (cloudReady ? "클라우드 동기화" : "동기화 중…") : "이 기기에 자동 저장"}</div>
     </div>
   );
