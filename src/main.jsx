@@ -91,6 +91,11 @@ import {
   normalizeGeneratedDiagnostic,
   selectDiagnosticReferences,
 } from "./utils/partnerDiagnostic";
+import {
+  buildCertificateShortcuts,
+  certificateUnavailableReason,
+  findCertificateForGoal,
+} from "./utils/certificateRouting";
 import "./styles.css";
 
 const LOCAL_KEY = "studylock-v3-state";
@@ -139,6 +144,7 @@ function App() {
   const makerInitial = useRef(readMakerState()).current;
   const [page, setPage] = useState("partnerToday");
   const [certificates, setCertificates] = useState([]);
+  const [certificatesLoaded, setCertificatesLoaded] = useState(false);
   const [certificate, setCertificate] = useState(null);
   const [exams, setExams] = useState([]);
   const [selectedExam, setSelectedExam] = useState(null);
@@ -175,7 +181,13 @@ function App() {
   const [partnerBusy, setPartnerBusy] = useState(false);
   const [partnerLearningAction, setPartnerLearningAction] = useState({ itemId: "", status: "idle", message: "" });
   const [planFocusGoalId, setPlanFocusGoalId] = useState("");
+  const knownPartnerCertificateGoalIds = useRef(null);
   const session = useExamSession();
+  const partnerCertificateGoals = useMemo(() => normalizePartnerState(partnerState).certificateGoals, [partnerState]);
+  const certificateShortcuts = useMemo(
+    () => buildCertificateShortcuts(partnerCertificateGoals, certificates),
+    [certificates, partnerCertificateGoals],
+  );
 
   useEffect(() => (firebaseConfigured ? onAuthStateChanged(auth, setUser) : undefined), []);
   useEffect(() => {
@@ -183,8 +195,32 @@ function App() {
     window.addEventListener("makeros:login-required", showLogin);
     return () => window.removeEventListener("makeros:login-required", showLogin);
   }, []);
-  useEffect(() => { listCertificates().then(setCertificates).catch(console.error); }, []);
+  useEffect(() => {
+    let alive = true;
+    listCertificates()
+      .then((items) => { if (alive) setCertificates(items); })
+      .catch(console.error)
+      .finally(() => { if (alive) setCertificatesLoaded(true); });
+    return () => { alive = false; };
+  }, []);
   useEffect(() => { if (certificate) listExams(certificate.id).then(setExams).catch(console.error); }, [certificate]);
+  useEffect(() => {
+    if (!certificatesLoaded) return;
+    const currentIds = new Set(partnerCertificateGoals.map((goal) => String(goal.id || "")));
+    const previousIds = knownPartnerCertificateGoalIds.current;
+    const added = previousIds
+      ? partnerCertificateGoals.filter((goal) => !previousIds.has(String(goal.id || "")))
+      : [...partnerCertificateGoals].sort((a, b) => String(a.examDate || "9999-12-31").localeCompare(String(b.examDate || "9999-12-31")));
+    knownPartnerCertificateGoalIds.current = currentIds;
+    const targetGoal = previousIds
+      ? [...added].reverse().find((goal) => findCertificateForGoal(goal, certificates))
+      : added.find((goal) => findCertificateForGoal(goal, certificates));
+    const matched = findCertificateForGoal(targetGoal, certificates);
+    if (matched && certificate?.id !== matched.id) {
+      setCertificate(matched);
+      setActiveCertificateId(matched.id || "");
+    }
+  }, [certificate?.id, certificates, certificatesLoaded, partnerCertificateGoals]);
   useEffect(() => {
     const sync = () => { setPdfLibrary(readPdfLibrary()); setAssets(readStudyAssets()); };
     window.addEventListener("studylock:pdf-library", sync);
@@ -614,22 +650,44 @@ function App() {
     setPage("partnerPlan");
   }
 
-  function partnerTargetCertificate(item) {
+  function partnerCertificateGoal(item) {
     const normalized = normalizePartnerState(partnerState);
-    const linkedGoal = normalized.certificateGoals.find((goal) => String(goal.id) === String(item?.goalId))
-      || normalized.certificateGoal;
-    const goalName = String(linkedGoal?.name || "").replace(/\s+/g, "").toLowerCase();
-    return certificates.find((candidate) => {
-      const candidateName = String(candidate?.name || "").replace(/\s+/g, "").toLowerCase();
-      return goalName && (candidateName === goalName || candidateName.includes(goalName) || goalName.includes(candidateName));
-    }) || certificate;
+    return normalized.certificateGoals.find((goal) => String(goal.id) === String(item?.goalId)) || null;
+  }
+
+  function partnerTargetCertificate(item) {
+    return findCertificateForGoal(partnerCertificateGoal(item), certificates);
+  }
+
+  function showPartnerCbtError(item, message, actionPage = "catalog", actionLabel = "지원 자격증 보기") {
+    setPartnerLearningAction({ itemId: item?.id || "", status: "error", message, actionPage, actionLabel });
+  }
+
+  function openPartnerCertificateGoal(goalId) {
+    const item = { id: `certificate-home:${goalId}`, goalId };
+    const goal = partnerCertificateGoal(item);
+    const target = findCertificateForGoal(goal, certificates);
+    if (!target) {
+      showPartnerCbtError(item, certificateUnavailableReason(goal, certificates, { databaseConfigured: firebaseConfigured, catalogLoaded: certificatesLoaded }));
+      setPage("partnerToday");
+      return;
+    }
+    selectCertificate(target);
+  }
+
+  function startPartnerCertificateGoal(goalId) {
+    startPartnerCbtAction({ id: `certificate-shortcut:${goalId}`, goalId, action: "cbt", title: "기출 범위 진단", durationMinutes: 40 });
   }
 
   async function startPartnerCbtAction(item) {
+    const linkedGoal = partnerCertificateGoal(item);
     const target = partnerTargetCertificate(item);
     if (!target) {
-      setPartnerLearningAction({ itemId: item?.id || "", status: "error", message: "먼저 목표 자격증과 학습할 CBT 종목을 연결해 주세요." });
-      setPage("catalog");
+      if (!linkedGoal) {
+        showPartnerCbtError(item, "이 학습 일정에 연결된 자격증 정보를 찾을 수 없습니다. 목표 정보를 확인한 뒤 계획을 다시 계산해 주세요.", "partnerGoals", "목표 일정 확인");
+      } else {
+        showPartnerCbtError(item, certificateUnavailableReason(linkedGoal, certificates, { databaseConfigured: firebaseConfigured, catalogLoaded: certificatesLoaded }));
+      }
       return;
     }
     const focusWeak = /취약|복습/.test(String(item?.title || ""));
@@ -638,6 +696,12 @@ function App() {
       setCertificate(target);
       setActiveCertificateId(target.id || "");
       const targetExams = certificate?.id === target.id && exams.length ? exams : await listExams(target.id);
+      if (!targetExams.length) {
+        const error = new Error(`${target.name}는 자격증 DB에 등록되어 있지만 공개된 CBT 기출 회차가 없습니다. 관리자가 시험과 문제를 공개한 뒤 이용할 수 있습니다.`);
+        error.actionPage = "catalog";
+        error.actionLabel = "지원 자격증 보기";
+        throw error;
+      }
       const batches = await Promise.all(targetExams.map(async (exam) => ({
         exam,
         questions: await getExamQuestions(exam.id),
@@ -648,7 +712,12 @@ function App() {
         certificateId: target.id || "",
         certificateName: target.name || "",
       })));
-      if (questionPool.length < 4) throw new Error("진단에 사용할 등록 기출문제가 부족합니다. 관리자에서 기출문제를 먼저 등록해 주세요.");
+      if (questionPool.length < 4) {
+        const error = new Error(`${target.name}의 공개 문제는 ${questionPool.length}개뿐이라 맞춤 CBT를 만들 수 없습니다. 최소 4문제가 DB에 등록되어야 합니다.`);
+        error.actionPage = "catalog";
+        error.actionLabel = "지원 자격증 보기";
+        throw error;
+      }
       const profile = buildDiagnosticProfile({
         questions: questionPool,
         progress: certificate?.id === target.id ? certificateLearningProgress : learningProgress.filter((row) => row.certificateId === target.id),
@@ -718,7 +787,7 @@ function App() {
       setPage("exam");
     } catch (error) {
       console.error("파트너 CBT 실행 실패:", error);
-      setPartnerLearningAction({ itemId: item?.id || "", status: "error", message: error?.message || "맞춤 학습을 시작하지 못했습니다." });
+      showPartnerCbtError(item, error?.message || "맞춤 학습을 시작하지 못했습니다.", error?.actionPage, error?.actionLabel);
     }
   }
 
@@ -1030,7 +1099,7 @@ function App() {
 
   return (
     <div className="app">
-      <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} user={user} onLogin={() => setShowAuth(true)} onTutorial={() => setShowTutorial(true)} isAdmin={isAdminUser(user)} />
+      <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} certificateShortcuts={certificateShortcuts} onOpenCertificateGoal={openPartnerCertificateGoal} onStartCertificateGoal={startPartnerCertificateGoal} user={user} onLogin={() => setShowAuth(true)} onTutorial={() => setShowTutorial(true)} isAdmin={isAdminUser(user)} />
       {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} onOpenPlanItem={openPartnerPlan} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
       {page === "partnerPlan" && <PartnerPlanPage state={partnerState} focusGoalId={planFocusGoalId} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
       {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
