@@ -50,7 +50,7 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onO
     {["analyzing", "generating", "error"].includes(learningAction?.status) && <section className={`partner-learning-action ${learningAction.status}`} role={learningAction.status === "error" ? "alert" : "status"}>
       <span>{learningAction.status === "error" ? "!" : <i />}</span>
       <div><strong>{learningAction.status === "analyzing" ? "현재 기출 풀이 수준 확인 중" : learningAction.status === "generating" ? "맞춤 테스트 문제 생성 중" : "맞춤 학습을 시작하지 못했어요"}</strong><p>{learningAction.message}</p></div>
-      {learningAction.status === "error" && <button type="button" onClick={() => onNavigate("partnerGoals")}>목표 확인</button>}
+      {learningAction.status === "error" && <button type="button" onClick={() => onNavigate(learningAction.actionPage || "partnerGoals")}>{learningAction.actionLabel || "목표 확인"}</button>}
     </section>}
 
     <section className="partner-two-column">
