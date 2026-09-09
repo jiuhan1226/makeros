@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const CERTIFICATE_PAGES = new Set(["catalog", "certificate", "past", "subject", "topic", "mock", "bookmark", "learning", "report", "planner", "search"]);
 const SCHOOL_PAGES = new Set(["library", "pdfstudy", "notes", "graph", "tutor"]);
@@ -15,8 +15,9 @@ function activeModule(active) {
   return "partner";
 }
 
-export default function AppHeader({ active, onNavigate, certificateName, user, onLogin, onTutorial, isAdmin }) {
+export default function AppHeader({ active, onNavigate, certificateName, certificateShortcuts = [], onOpenCertificateGoal, onStartCertificateGoal, user, onLogin, onTutorial, isAdmin }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const moreMenuRef = useRef(null);
   const module = activeModule(active);
   const certificateHome = certificateName ? "certificate" : "catalog";
   const mainItems = [
@@ -51,7 +52,15 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
 
   function navigate(key) {
     setMobileMenuOpen(false);
+    if (moreMenuRef.current) moreMenuRef.current.open = false;
     onNavigate(key);
+  }
+
+  function openCertificateGoal(goalId, startCbt = false) {
+    setMobileMenuOpen(false);
+    if (moreMenuRef.current) moreMenuRef.current.open = false;
+    if (startCbt) onStartCertificateGoal?.(goalId);
+    else onOpenCertificateGoal?.(goalId);
   }
 
   function handleAccount() {
@@ -62,7 +71,11 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
   useEffect(() => { setMobileMenuOpen(false); }, [active]);
   useEffect(() => {
     document.body.classList.toggle("mobile-menu-open", mobileMenuOpen);
-    const handleKeydown = (event) => event.key === "Escape" && setMobileMenuOpen(false);
+    const handleKeydown = (event) => {
+      if (event.key !== "Escape") return;
+      setMobileMenuOpen(false);
+      if (moreMenuRef.current) moreMenuRef.current.open = false;
+    };
     const handleResize = () => window.innerWidth > 1080 && setMobileMenuOpen(false);
     window.addEventListener("keydown", handleKeydown);
     window.addEventListener("resize", handleResize);
@@ -72,6 +85,13 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
       window.removeEventListener("resize", handleResize);
     };
   }, [mobileMenuOpen]);
+  useEffect(() => {
+    const closeOutside = (event) => {
+      if (moreMenuRef.current?.open && !moreMenuRef.current.contains(event.target)) moreMenuRef.current.open = false;
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, []);
 
   return <>
     <header className="maker-header partner-header">
@@ -86,6 +106,30 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
         <div className="maker-header-actions">
           <button className="maker-help-button" onClick={onTutorial}>사용법</button>
           <button className="maker-search-button" onClick={() => navigate("knowledge")}>검색</button>
+          <details className="maker-more-menu" ref={moreMenuRef}>
+            <summary>더보기</summary>
+            <div className="maker-more-popover">
+              {!!certificateShortcuts.length && <>
+                <span>내 자격증 바로가기</span>
+                <div className="maker-more-certificates">
+                  {certificateShortcuts.map((item) => <div key={item.goalId}>
+                    <button type="button" onClick={() => openCertificateGoal(item.goalId)}><strong>{item.name}</strong><small>{item.supported ? "학습 홈" : "DB 없음"}</small></button>
+                    <button type="button" className={item.supported ? "quick" : "unsupported"} onClick={() => openCertificateGoal(item.goalId, true)}>CBT</button>
+                  </div>)}
+                </div>
+              </>}
+              <span>다른 기능</span>
+              <nav>
+                <button type="button" onClick={() => navigate("catalog")}>전체 자격증</button>
+                <button type="button" onClick={() => navigate("tutor")}>AI 튜터</button>
+                <button type="button" onClick={() => navigate("makerHome")}>MakerOS 홈</button>
+                <button type="button" onClick={() => navigate("invent")}>발명</button>
+                <button type="button" onClick={() => navigate("projects")}>프로젝트</button>
+                <button type="button" onClick={() => navigate("portfolio")}>포트폴리오</button>
+                <button type="button" onClick={() => navigate("career")}>진로</button>
+              </nav>
+            </div>
+          </details>
           {isAdmin && <button className="maker-admin-button" onClick={() => navigate("admin")}>관리자</button>}
           <button className="maker-account" onClick={handleAccount}>{user ? (user.displayName || user.email || "계정") : "로그인"}</button>
           <button type="button" className="maker-menu-button" aria-label="전체 메뉴 열기" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(true)}><span/><span/><span/></button>
@@ -105,7 +149,8 @@ export default function AppHeader({ active, onNavigate, certificateName, user, o
       <header><div className="maker-mobile-drawer-brand"><span className="maker-brand-mark">M</span><div><strong>MakerOS</strong><small>목표와 학습을 한 번에 관리</small></div></div><button type="button" className="maker-drawer-close" onClick={() => setMobileMenuOpen(false)} aria-label="전체 메뉴 닫기">×</button></header>
       <div className="maker-mobile-drawer-scroll">
         <section><span>일정</span><nav>{mainItems.filter((item) => !item.module).map((item) => <button key={item.key} className={isMainActive(item) ? "active" : ""} onClick={() => navigate(item.key)}>{item.label}</button>)}</nav></section>
-        <section><span>자격증</span><nav>{certificateItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
+        <section><span>내 자격증 바로가기</span><nav>{certificateShortcuts.length ? certificateShortcuts.map((item) => <button key={item.goalId} onClick={() => openCertificateGoal(item.goalId, true)}>{item.name} CBT{item.supported ? "" : " · DB 없음"}</button>) : <button onClick={() => navigate("partnerGoals")}>자격증 일정 추가</button>}</nav></section>
+        <section><span>자격증</span><nav><button className={active === "catalog" ? "active" : ""} onClick={() => navigate("catalog")}>전체 자격증</button>{certificateItems.filter(([key]) => key !== "catalog").map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
         <section><span>내신</span><nav>{schoolItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
         <section><span>만들기·진로</span><nav>{legacyItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
       </div>
