@@ -50,12 +50,16 @@ export function createDefaultPartnerState() {
     calendarExtras: [],
     calendarColors: {},
     timetable: {
-      schoolCode: "85318",
+      officeCode: "N10",
+      officeName: "충청남도교육청",
+      schoolCode: "8140347",
       schoolName: "공주마이스터고등학교",
+      schoolKind: "고등학교",
       grade: "1",
       classNo: "1",
       weekLabel: "",
       schedules: {},
+      teacherAssignments: {},
       updatedAt: 0,
     },
     planVersions: [],
@@ -82,6 +86,13 @@ export function normalizePartnerState(input = {}) {
   state.calendarColors = input?.calendarColors && typeof input.calendarColors === "object" ? input.calendarColors : {};
   state.timetable = { ...base.timetable, ...(input?.timetable || {}) };
   state.timetable.schedules = input?.timetable?.schedules && typeof input.timetable.schedules === "object" ? input.timetable.schedules : {};
+  state.timetable.teacherAssignments = input?.timetable?.teacherAssignments && typeof input.timetable.teacherAssignments === "object" ? input.timetable.teacherAssignments : {};
+  if (state.timetable.schoolCode === "85318" && state.timetable.schoolName === "공주마이스터고등학교") {
+    state.timetable.officeCode = "N10";
+    state.timetable.officeName = "충청남도교육청";
+    state.timetable.schoolCode = "8140347";
+    state.timetable.schoolKind = "고등학교";
+  }
   state.planVersions = Array.isArray(input?.planVersions) ? input.planVersions : [];
   state.changeEvents = Array.isArray(input?.changeEvents) ? input.changeEvents : [];
   state.studyLinks = Array.isArray(input?.studyLinks) ? input.studyLinks : [];
