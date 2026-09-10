@@ -4,6 +4,28 @@ import { buildCalendarLaneMap } from "../utils/calendarLayout";
 
 const labels = { academic: "내신", certificate: "자격증", career: "취업", activity: "대회·활동", custom: "개인 일정" };
 const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+const scheduleColors = [
+  { value: "#0d9fe8", label: "하늘" },
+  { value: "#7e64e5", label: "보라" },
+  { value: "#e05a67", label: "분홍" },
+  { value: "#ea8a3b", label: "주황" },
+  { value: "#43a56e", label: "초록" },
+  { value: "#3976d4", label: "파랑" },
+  { value: "#6f7f8e", label: "회색" },
+];
+const defaultColors = { academic: "#0d9fe8", certificate: "#7e64e5", career: "#43a56e", activity: "#ea8a3b", custom: "#3976d4" };
+
+function hexToRgba(hex, alpha) {
+  const normalized = String(hex || "").replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) return `rgba(13,159,232,${alpha})`;
+  const value = Number.parseInt(normalized, 16);
+  return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
+}
+
+function scheduleStyle(item) {
+  const color = item.color || defaultColors[item.type] || defaultColors.custom;
+  return { "--event-color": color, color, backgroundColor: hexToRgba(color, 0.12) };
+}
 
 function parseDate(value) {
   const [year, month, day] = String(value || "").split("-").map(Number);
@@ -71,23 +93,40 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
   function openEditor(date, item = null) {
     const original = item?.sourceId ? normalized.calendarExtras.find((row) => row.id === item.sourceId) : null;
     const dateKey = typeof date === "string" ? date : `${monthKey(date)}-${String(date.getDate()).padStart(2, "0")}`;
+    const generated = Boolean(item && !item.sourceId);
     setEditor({
       id: original?.id || "",
+      generated,
+      rangeKey: String(item?.rangeKey || ""),
+      type: item?.type || original?.type || "custom",
       title: original?.title || "",
       startDate: original?.startDate || original?.date || dateKey,
       endDate: original?.endDate || original?.date || dateKey,
       isSingleDay: Boolean(original?.isSingleDay),
       details: original?.details || "",
+      color: original?.color || item?.color || defaultColors[item?.type || "custom"],
+      ...(generated ? {
+        title: item?.title || "일정",
+        startDate: item?.rangeStart || item?.date || dateKey,
+        endDate: item?.rangeEnd || item?.date || dateKey,
+        isSingleDay: !item?.isRange,
+      } : {}),
     });
     setEditorError("");
   }
 
   function saveSchedule() {
+    if (editor?.generated) {
+      const calendarColors = { ...normalized.calendarColors, [editor.rangeKey]: editor.color };
+      onChange?.({ ...normalized, calendarColors, lastUpdatedAt: Date.now() });
+      setEditor(null);
+      return;
+    }
     const title = String(editor?.title || "").trim();
     if (!title || !editor?.startDate) return setEditorError("일정 이름과 시작일을 입력해 주세요.");
     const endDate = editor.isSingleDay ? editor.startDate : editor.endDate;
     if (!endDate || endDate < editor.startDate) return setEditorError("종료일은 시작일과 같거나 이후여야 합니다.");
-    const saved = { ...editor, id: editor.id || partnerId("calendar"), title, date: editor.startDate, endDate };
+    const saved = { ...editor, generated: undefined, rangeKey: undefined, id: editor.id || partnerId("calendar"), title, date: editor.startDate, endDate };
     const calendarExtras = editor.id
       ? normalized.calendarExtras.map((item) => item.id === editor.id ? saved : item)
       : [...normalized.calendarExtras, saved];
@@ -102,7 +141,7 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
   }
 
   return <main className="partner-page">
-    <section className="partner-page-head"><div><span className="partner-kicker">ONE CALENDAR</span><h1>통합 일정</h1><p>내신 시험, 자격증, 취업, 대회 마감을 월간 달력에서 한눈에 확인합니다.</p></div><button className="partner-secondary" onClick={() => onNavigate("partnerGoals")}>일정 정보 수정</button></section>
+    <section className="partner-page-head"><div><span className="partner-kicker">ONE CALENDAR</span><h1>통합 일정</h1><p>일정을 눌러 색을 바꾸고, 빈 날짜를 눌러 새 일정을 추가하세요.</p></div><div className="partner-calendar-head-actions"><button className="partner-secondary" onClick={() => onNavigate("timetable")}>학교 시간표</button><button className="partner-secondary" onClick={() => onNavigate("partnerGoals")}>일정 정보 수정</button></div></section>
     <section className="partner-calendar-layout">
       <section className="partner-month-calendar partner-panel">
         <header className="partner-calendar-toolbar">
@@ -125,7 +164,7 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
                 {daySlots.map((item, lane) => {
                   if (!item) return <span className="partner-calendar-event-slot" aria-hidden="true" key={`slot-${key}-${lane}`} />;
                   const segment = rangeSegment(item, date);
-                  return <button type="button" key={item.id} className={`${item.type} ${item.isRange ? "range-event" : ""} ${segment.className}`} title={item.title} aria-label={`${item.title} ${item.rangeStart}${item.isRange ? `부터 ${item.rangeEnd}까지` : ""}`} onClick={(event) => { event.stopPropagation(); item.sourceId ? openEditor(item.date, item) : onNavigate("partnerGoals"); }}>
+                  return <button type="button" key={item.id} className={`${item.type} ${item.isRange ? "range-event" : ""} ${segment.className}`} style={scheduleStyle(item)} title={`${item.title} · 눌러서 색상 변경`} aria-label={`${item.title} ${item.rangeStart}${item.isRange ? `부터 ${item.rangeEnd}까지` : ""}, 색상 변경`} onClick={(event) => { event.stopPropagation(); openEditor(item.date, item); }}>
                     {segment.showTitle && <i />}<span>{segment.showTitle ? item.title : "\u00a0"}</span>
                   </button>;
                 })}
@@ -144,7 +183,7 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
             const dueDate = item.rangeEnd || item.date;
             const d = daysUntil(dueDate);
             return <button type="button" key={item.id} onClick={() => showItemMonth(item)}>
-              <span className={`partner-upcoming-type ${item.type}`}>{labels[item.type] || item.type}</span>
+              <span className={`partner-upcoming-type ${item.type}`} style={scheduleStyle(item)}>{labels[item.type] || item.type}</span>
               <strong>{item.title}</strong>
               <small>{item.isRange ? `${item.rangeStart} ~ ${item.rangeEnd}` : item.date}{item.locked ? " · 고정" : ""}</small>
               <b>{d == null ? "" : d === 0 ? "D-DAY" : d > 0 ? `D-${d}` : `D+${Math.abs(d)}`}</b>
@@ -152,22 +191,25 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
           })}
           {!upcoming.length && <div className="partner-empty compact">등록된 일정이 없습니다.</div>}
         </div>
-        <button className="partner-secondary full" onClick={() => onNavigate("partnerGoals")}>일정 추가·수정</button>
+        <button className="partner-secondary full" onClick={() => onNavigate("timetable")}>학교 시간표 보기</button>
       </aside>
     </section>
     {editor && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditor(null)}>
       <section className="modal partner-calendar-editor" role="dialog" aria-modal="true" aria-labelledby="calendar-editor-title">
         <button className="modal-close" onClick={() => setEditor(null)} aria-label="닫기">×</button>
-        <span className="partner-kicker">SCHEDULE</span><h2 id="calendar-editor-title">{editor.id ? "일정 수정" : "일정 추가"}</h2>
-        <label>일정 이름<input value={editor.title} onChange={(event) => setEditor({ ...editor, title: event.target.value })} placeholder="예: 전기기기 시험 준비" autoFocus /></label>
-        <label className="partner-single-day-check"><input type="checkbox" checked={editor.isSingleDay} onChange={(event) => setEditor({ ...editor, isSingleDay: event.target.checked, endDate: event.target.checked ? editor.startDate : editor.endDate })}/> 하루 일정으로 등록</label>
-        <div className="partner-calendar-date-fields">
-          <label>시작일<input type="date" value={editor.startDate} onChange={(event) => setEditor({ ...editor, startDate: event.target.value, endDate: editor.isSingleDay || editor.endDate < event.target.value ? event.target.value : editor.endDate })}/></label>
-          {!editor.isSingleDay && <label>종료일<input type="date" min={editor.startDate} value={editor.endDate} onChange={(event) => setEditor({ ...editor, endDate: event.target.value })}/></label>}
-        </div>
-        <label>메모<textarea value={editor.details} onChange={(event) => setEditor({ ...editor, details: event.target.value })} placeholder="시간, 준비물 등 필요한 내용을 입력하세요."/></label>
+        <span className="partner-kicker">SCHEDULE</span><h2 id="calendar-editor-title">{editor.generated ? "일정 색상" : editor.id ? "일정 수정" : "일정 추가"}</h2>
+        {editor.generated ? <div className="partner-generated-schedule"><span>{labels[editor.type] || "일정"}</span><strong>{editor.title}</strong><small>{editor.startDate}{editor.endDate !== editor.startDate ? ` ~ ${editor.endDate}` : ""}</small><p>이 일정의 내용과 기간은 목표 탭에서 수정할 수 있습니다.</p></div> : <>
+          <label>일정 이름<input value={editor.title} onChange={(event) => setEditor({ ...editor, title: event.target.value })} placeholder="예: 전기기기 시험 준비" autoFocus /></label>
+          <label className="partner-single-day-check"><input type="checkbox" checked={editor.isSingleDay} onChange={(event) => setEditor({ ...editor, isSingleDay: event.target.checked, endDate: event.target.checked ? editor.startDate : editor.endDate })}/> 하루 일정으로 등록</label>
+          <div className="partner-calendar-date-fields">
+            <label>시작일<input type="date" value={editor.startDate} onChange={(event) => setEditor({ ...editor, startDate: event.target.value, endDate: editor.isSingleDay || editor.endDate < event.target.value ? event.target.value : editor.endDate })}/></label>
+            {!editor.isSingleDay && <label>종료일<input type="date" min={editor.startDate} value={editor.endDate} onChange={(event) => setEditor({ ...editor, endDate: event.target.value })}/></label>}
+          </div>
+          <label>메모<textarea value={editor.details} onChange={(event) => setEditor({ ...editor, details: event.target.value })} placeholder="시간, 준비물 등 필요한 내용을 입력하세요."/></label>
+        </>}
+        <fieldset className="partner-color-picker"><legend>일정 색상</legend><div>{scheduleColors.map((option) => <label key={option.value} title={option.label}><input type="radio" name="schedule-color" value={option.value} checked={editor.color === option.value} onChange={() => setEditor({ ...editor, color: option.value })}/><span style={{ backgroundColor: option.value }}/><small>{option.label}</small></label>)}</div></fieldset>
         {editorError && <p className="error-box" role="alert">{editorError}</p>}
-        <div className="partner-calendar-editor-actions">{editor.id && <button className="danger-text" onClick={deleteSchedule}>삭제</button>}<button className="secondary" onClick={() => setEditor(null)}>취소</button><button className="primary" onClick={saveSchedule}>저장</button></div>
+        <div className="partner-calendar-editor-actions">{editor.id && !editor.generated && <button className="danger-text" onClick={deleteSchedule}>삭제</button>}{editor.generated && <button className="text-button" onClick={() => { setEditor(null); onNavigate("partnerGoals"); }}>목표 수정</button>}<button className="secondary" onClick={() => setEditor(null)}>취소</button><button className="primary" onClick={saveSchedule}>{editor.generated ? "색상 저장" : "저장"}</button></div>
       </section>
     </div>}
   </main>;
