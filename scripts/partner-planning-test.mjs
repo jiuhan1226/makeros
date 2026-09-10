@@ -12,6 +12,8 @@ import {
 } from '../src/utils/aiPartner.js';
 
 const base = createDefaultPartnerState();
+assert.equal(base.timetable.schoolCode, '8140347', '기본 학교는 나이스 학교 코드로 저장되어야 합니다.');
+assert.deepEqual(base.timetable.teacherAssignments, {}, '교사별 시간표 연결 정보를 저장할 공간이 있어야 합니다.');
 base.profile.weeklyAvailableHours = 8;
 base.profile.dailyAvailableMinutes = { mon: 90, tue: 90, wed: 90, thu: 90, fri: 60, sat: 180, sun: 120 };
 base.goals = [
@@ -87,5 +89,8 @@ const legacy = normalizePartnerState({
 });
 assert.equal(legacy.certificateGoals.length, 1, '기존 단일 자격증 데이터가 새 목록으로 이전되어야 합니다.');
 assert.equal(legacy.goals.length, 1, '기존 목표 데이터가 간단 목표 목록으로 이전되어야 합니다.');
+
+const legacyTimetable = normalizePartnerState({ timetable: { schoolCode: '85318', schoolName: '공주마이스터고등학교' } });
+assert.equal(legacyTimetable.timetable.schoolCode, '8140347', '이전 참고 시간표 코드는 공식 나이스 학교 코드로 이전되어야 합니다.');
 
 console.log('[partner-planning-test] OK');
