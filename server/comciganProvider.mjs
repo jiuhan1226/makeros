@@ -1,7 +1,8 @@
-import ComciganTimetable from "comcigan-timetable";
+import ComciganPackage from "comcigan.ts";
+
+const Comcigan = ComciganPackage?.default || ComciganPackage;
 
 const FRESH_CACHE_MS = 3 * 60 * 1000;
-const STALE_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 22 * 1000;
 const searchCache = new Map();
 const timetableCache = new Map();
@@ -26,7 +27,12 @@ function timeout(promise, milliseconds = REQUEST_TIMEOUT_MS) {
 }
 
 function makeClient() {
-  return new ComciganTimetable();
+  return new Comcigan();
+}
+
+function timetableValue(value = "") {
+  const text = clean(value);
+  return text === "없음" || text === "-" ? "" : text;
 }
 
 export function currentSeoulSchoolWeek(now = new Date()) {
@@ -50,45 +56,61 @@ export function isCurrentSeoulSchoolWeek(from, to, now = new Date()) {
   return String(from || "") === current.from && String(to || "") === current.to;
 }
 
-export function flattenComciganTimetable(timetable = {}) {
+export function flattenComciganTimetable(timetable = []) {
   const lessons = [];
   const classCounts = {};
-  for (const [gradeKey, classes] of Object.entries(timetable || {})) {
-    const grade = Number(gradeKey);
-    if (!Number.isInteger(grade) || !classes || typeof classes !== "object") continue;
-    const classNumbers = Object.keys(classes).map(Number).filter((value) => Number.isInteger(value) && value > 0);
-    classCounts[gradeKey] = classNumbers.length ? Math.max(...classNumbers) : 0;
-    for (const [classKey, weekdays] of Object.entries(classes)) {
-      const classNo = Number(classKey);
-      if (!Number.isInteger(classNo) || !Array.isArray(weekdays)) continue;
+  if (!Array.isArray(timetable)) return { lessons, classCounts };
+  timetable.forEach((classes, gradeIndex) => {
+    if (!Array.isArray(classes)) return;
+    const grade = gradeIndex + 1;
+    classCounts[String(grade)] = classes.length;
+    classes.forEach((weekdays, classIndex) => {
+      const classNo = classIndex + 1;
+      if (!Array.isArray(weekdays)) return;
       weekdays.forEach((periods, weekdayIndex) => {
         if (!Array.isArray(periods) || weekdayIndex < 0 || weekdayIndex > 4) return;
         periods.forEach((cell, periodIndex) => {
-          if (!cell?.subject) return;
+          if (!cell) return;
+          const subject = timetableValue(cell.subject);
+          const teacher = timetableValue(cell.teacher);
+          const changed = Boolean(cell.changed);
+          const originalSubject = changed && Object.hasOwn(cell, "originalSubject") ? timetableValue(cell.originalSubject) : subject;
+          const originalTeacher = changed && Object.hasOwn(cell, "originalTeacher") ? timetableValue(cell.originalTeacher) : teacher;
+          if (!subject && !originalSubject) return;
           lessons.push({
-            grade: String(cell.grade || grade),
-            classNo: String(cell.class || classNo),
+            grade: String(grade),
+            classNo: String(classNo),
             weekdayIndex,
-            period: Number(cell.classTime || periodIndex + 1),
-            subject: clean(cell.subject),
-            teacher: clean(cell.teacher),
-            room: clean(cell.classRoom),
-            changed: Boolean(cell.changed),
+            period: periodIndex + 1,
+            subject,
+            teacher,
+            originalSubject,
+            originalTeacher,
+            changed,
           });
         });
       });
-    }
-  }
+    });
+  });
   return { lessons, classCounts };
 }
 
-export function mapComciganLessonsToWeek(lessons = [], weekStart = "") {
+export function mapComciganLessonsToWeek(lessons = [], weekStart = "", { useOriginal = false } = {}) {
   const monday = /^\d{4}-\d{2}-\d{2}$/.test(String(weekStart)) ? new Date(`${weekStart}T12:00:00Z`) : null;
   return lessons.map((lesson) => {
     const date = monday ? new Date(monday) : null;
     if (date) date.setUTCDate(monday.getUTCDate() + Number(lesson.weekdayIndex || 0));
-    return { ...lesson, date: date ? date.toISOString().slice(0, 10).replace(/-/g, "") : "" };
-  });
+    const selectedSubject = useOriginal ? lesson.originalSubject : lesson.subject;
+    const selectedTeacher = useOriginal ? lesson.originalTeacher : lesson.teacher;
+    return {
+      ...lesson,
+      subject: selectedSubject || (!useOriginal && lesson.changed ? "수업 없음" : ""),
+      teacher: selectedTeacher || "",
+      changed: useOriginal ? false : Boolean(lesson.changed),
+      scheduleMode: useOriginal ? "base" : "current",
+      date: date ? date.toISOString().slice(0, 10).replace(/-/g, "") : "",
+    };
+  }).filter((lesson) => lesson.subject);
 }
 
 export async function searchComciganSchools(query) {
@@ -98,12 +120,11 @@ export async function searchComciganSchools(query) {
   const cached = searchCache.get(key);
   if (cached && Date.now() - cached.createdAt < 60 * 60 * 1000) return cached.value;
   const client = makeClient();
-  await timeout(client.init({ maxGrade: 6, cache: FRESH_CACHE_MS }));
-  const rows = await timeout(client.search(keyword));
+  const rows = await timeout(client.searchSchools(keyword));
   const value = (rows || []).map((school) => ({
     comciganCode: String(school.code || ""),
     schoolName: clean(school.name),
-    region: clean(school.region),
+    region: clean(school.region?.name || school.region),
   })).filter((school) => school.comciganCode && school.schoolName);
   searchCache.set(key, { createdAt: Date.now(), value });
   return value;
@@ -131,27 +152,21 @@ export async function loadComciganSnapshot({ schoolName, comciganCode, force = f
   const task = (async () => {
     try {
       const client = makeClient();
-      await timeout(client.init({ maxGrade: 6, cache: FRESH_CACHE_MS }));
-      client.setSchool(Number(key));
-      const rawTimetable = await timeout(client.getTimetable());
-      const classTimes = await timeout(client.getClassTime());
+      const rawTimetable = await timeout(client.getTimetable(Number(key)));
       const flattened = flattenComciganTimetable(rawTimetable);
-      const raw = client.getJsonData?.() || {};
       if (!flattened.lessons.length) throw Object.assign(new Error("컴시간에 등록된 수업이 없습니다."), { code: "comcigan_data_empty" });
       const snapshot = {
         ...school,
-        schoolName: clean(raw["학교명"] || school.schoolName),
         lessons: flattened.lessons,
         classCounts: flattened.classCounts,
-        classTimes: Array.isArray(classTimes) ? classTimes.map(clean).filter(Boolean) : [],
-        sourceUpdatedAt: clean(raw["자료244"] || raw["수정일"] || ""),
+        classTimes: [],
+        sourceUpdatedAt: "",
         loadedAt: Date.now(),
         stale: false,
       };
       timetableCache.set(key, snapshot);
       return snapshot;
     } catch (error) {
-      if (cached && Date.now() - cached.loadedAt < STALE_CACHE_MS) return { ...cached, stale: true, fallbackReason: error?.code || "comcigan_unavailable" };
       throw Object.assign(new Error(error?.message || "컴시간 시간표를 불러오지 못했습니다."), { code: error?.code || "comcigan_unavailable", cause: error });
     } finally {
       timetableInflight.delete(key);
