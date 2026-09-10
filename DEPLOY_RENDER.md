@@ -1,4 +1,4 @@
-# MakerOS v0.12 Render 배포 가이드
+# MakerOS v3.1.15 Render 배포 가이드
 
 이 버전은 Vite 프론트엔드와 Express API를 하나의 Render Web Service에서 제공합니다.
 
@@ -7,7 +7,7 @@
 ```bash
 git init
 git add .
-git commit -m "Deploy MakerOS v0.12"
+git commit -m "Deploy MakerOS v3.1.15"
 git branch -M main
 git remote add origin <GitHub 저장소 주소>
 git push -u origin main
@@ -65,12 +65,21 @@ https://<Render 도메인>/api/health
 ```json
 {
   "ok": true,
-  "version": "0.12.0-launch-copy",
+  "version": "3.1.15",
   "apiKeyConfigured": true,
+  "neisApiKeyConfigured": true,
   "firebaseTokenVerificationConfigured": true,
   "signedExplanationCacheConfigured": true
 }
 ```
+
+학교 데이터 연결도 별도로 확인합니다.
+
+```text
+https://<Render 도메인>/api/neis/status
+```
+
+정상일 때 `configured`와 `connected`가 모두 `true`입니다. `connected`가 `false`라면 응답의 `transports`와 Render 로그의 `[MakerOS NEIS Upstream]` 줄로 전송 방식별 상태를 확인합니다. 이 진단 정보에는 인증키가 포함되지 않습니다.
 
 ## 5. 수동 Web Service 설정값
 
