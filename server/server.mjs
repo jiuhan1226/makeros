@@ -242,9 +242,27 @@ async function fetchNeis(dataset, parameters = {}) {
   const cacheKey = `${dataset}:${query}`;
   const cached = neisCache.get(cacheKey);
   if (cached && Date.now() - cached.createdAt < 5 * 60 * 1000) return cached.value;
-  const response = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(15000) });
+  let response;
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      response = await fetch(url, {
+        headers: { accept: "application/json", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "MakerOS/3.1.13" },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (response.ok || ![429, 500, 502, 503, 504].includes(response.status)) break;
+      lastError = new Error(`나이스 교육정보 API 연결 실패 (HTTP ${response.status})`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+  }
+  if (!response?.ok) {
+    const status = response?.status;
+    const detail = status ? `HTTP ${status}` : lastError?.message || "네트워크 오류";
+    throw Object.assign(new Error(`나이스 교육정보가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요. (${detail})`), { status: 502, code: "neis_unavailable" });
+  }
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(`나이스 교육정보 API 연결 실패 (HTTP ${response.status})`), { status: 502 });
   const serviceResult = payload?.RESULT || payload?.[dataset]?.[0]?.head?.find((item) => item.RESULT)?.RESULT;
   if (serviceResult?.CODE && !["INFO-000", "INFO-200"].includes(serviceResult.CODE)) {
     throw Object.assign(new Error(serviceResult.MESSAGE || "나이스 교육정보를 불러오지 못했습니다."), { status: 502 });
@@ -772,10 +790,11 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.0-ai-partner",
+    version: "3.1.13",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
+    neisApiKeyConfigured: Boolean(neisApiKey),
     firebaseTokenVerificationConfigured: Boolean(adminAuth),
     unauthenticatedAiAllowed: allowUnauthenticatedAi,
     guestAiTrialDailyLimit,
