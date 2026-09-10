@@ -4,7 +4,7 @@ const CERTIFICATE_PAGES = new Set(["catalog", "certificate", "past", "subject", 
 const SCHOOL_PAGES = new Set(["library", "pdfstudy", "notes", "graph", "tutor"]);
 
 function activeModule(active) {
-  if (["partnerToday", "partnerPlan", "partnerCalendar", "partnerGoals"].includes(active)) return "partner";
+  if (["partnerToday", "partnerPlan", "partnerCalendar", "timetable", "partnerGoals"].includes(active)) return "partner";
   if (CERTIFICATE_PAGES.has(active)) return "certificateLearn";
   if (SCHOOL_PAGES.has(active)) return "schoolLearn";
   if (active === "invent") return "invent";
@@ -47,6 +47,7 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
   const currentSubItems = module === "certificateLearn" ? certificateItems : module === "schoolLearn" ? schoolItems : [];
 
   function isMainActive(item) {
+    if (item.key === "partnerCalendar" && active === "timetable") return true;
     return item.module ? module === item.module : active === item.key;
   }
 
@@ -121,6 +122,7 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
               <span>다른 기능</span>
               <nav>
                 <button type="button" onClick={() => navigate("catalog")}>전체 자격증</button>
+                <button type="button" onClick={() => navigate("timetable")}>학교 시간표</button>
                 <button type="button" onClick={() => navigate("tutor")}>AI 튜터</button>
                 <button type="button" onClick={() => navigate("makerHome")}>MakerOS 홈</button>
                 <button type="button" onClick={() => navigate("invent")}>발명</button>
@@ -148,7 +150,7 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
     <aside className={`maker-mobile-drawer ${mobileMenuOpen ? "open" : ""}`} aria-hidden={!mobileMenuOpen}>
       <header><div className="maker-mobile-drawer-brand"><span className="maker-brand-mark">M</span><div><strong>MakerOS</strong><small>목표와 학습을 한 번에 관리</small></div></div><button type="button" className="maker-drawer-close" onClick={() => setMobileMenuOpen(false)} aria-label="전체 메뉴 닫기">×</button></header>
       <div className="maker-mobile-drawer-scroll">
-        <section><span>일정</span><nav>{mainItems.filter((item) => !item.module).map((item) => <button key={item.key} className={isMainActive(item) ? "active" : ""} onClick={() => navigate(item.key)}>{item.label}</button>)}</nav></section>
+        <section><span>일정</span><nav>{mainItems.filter((item) => !item.module).map((item) => <button key={item.key} className={isMainActive(item) ? "active" : ""} onClick={() => navigate(item.key)}>{item.label}</button>)}<button className={active === "timetable" ? "active" : ""} onClick={() => navigate("timetable")}>학교 시간표</button></nav></section>
         <section><span>내 자격증 바로가기</span><nav>{certificateShortcuts.length ? certificateShortcuts.map((item) => <button key={item.goalId} onClick={() => openCertificateGoal(item.goalId, true)}>{item.name} CBT{item.supported ? "" : " · DB 없음"}</button>) : <button onClick={() => navigate("partnerGoals")}>자격증 일정 추가</button>}</nav></section>
         <section><span>자격증</span><nav><button className={active === "catalog" ? "active" : ""} onClick={() => navigate("catalog")}>전체 자격증</button>{certificateItems.filter(([key]) => key !== "catalog").map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
         <section><span>내신</span><nav>{schoolItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
