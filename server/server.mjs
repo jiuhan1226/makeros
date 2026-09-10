@@ -57,7 +57,7 @@ const neisRequestHeaders = {
   "cache-control": "no-cache",
   pragma: "no-cache",
   referer: "https://open.neis.go.kr/portal/mainPage.do",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.16",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.17",
 };
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
@@ -574,10 +574,11 @@ app.get("/api/school-data/timetable", async (req, res) => {
   if (!schoolName || !from.iso || !to.iso) return res.status(400).json({ error: "학교와 조회 기간을 다시 선택해 주세요." });
 
   let comciganError = null;
-  if (comciganEnabled && isCurrentSeoulSchoolWeek(from.iso, to.iso)) {
+  const currentWeek = isCurrentSeoulSchoolWeek(from.iso, to.iso);
+  if (comciganEnabled) {
     try {
       const snapshot = await loadComciganSnapshot({ schoolName, comciganCode, force });
-      const allLessons = mapComciganLessonsToWeek(snapshot.lessons, from.iso);
+      const allLessons = mapComciganLessonsToWeek(snapshot.lessons, from.iso, { useOriginal: !currentWeek });
       const lessons = allLessons.filter((lesson) => String(lesson.grade) === grade && String(lesson.classNo) === classNo);
       const teachers = [...new Set(allLessons.map((lesson) => lesson.teacher).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
       return res.json({
@@ -589,8 +590,10 @@ app.get("/api/school-data/timetable", async (req, res) => {
         classCounts: snapshot.classCounts,
         classTimes: snapshot.classTimes,
         sourceUpdatedAt: snapshot.sourceUpdatedAt,
-        source: snapshot.stale ? "컴시간 최근 저장본" : "컴시간 실시간",
+        source: currentWeek ? snapshot.stale ? "컴시간 이번 주 최근 저장본" : "컴시간 이번 주 시간표" : "컴시간 기본 시간표",
         provider: "comcigan",
+        scheduleMode: currentWeek ? "current" : "base",
+        isRealtime: currentWeek && !snapshot.stale,
         stale: Boolean(snapshot.stale),
         loadedAt: snapshot.loadedAt || Date.now(),
       });
@@ -610,7 +613,9 @@ app.get("/api/school-data/timetable", async (req, res) => {
       teacherDataAvailable: false,
       source: "NEIS 대체 시간표",
       provider: "neis",
-      fallbackReason: comciganError?.code || (!comciganEnabled ? "comcigan_disabled" : isCurrentSeoulSchoolWeek(from.iso, to.iso) ? "comcigan_unavailable" : "outside_current_week"),
+      scheduleMode: "fallback",
+      isRealtime: false,
+      fallbackReason: comciganError?.code || (!comciganEnabled ? "comcigan_disabled" : "comcigan_unavailable"),
       loadedAt: Date.now(),
     });
   } catch (neisError) {
@@ -1135,7 +1140,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.16",
+    version: "3.1.17",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
