@@ -37,6 +37,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 
+RUN apk add --no-cache curl
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 
