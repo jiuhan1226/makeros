@@ -149,7 +149,8 @@ Firebase
 Express API
   ├─ Firebase ID Token 검증
   ├─ Gemini API 연동
-  ├─ 나이스 학교·시간표·급식 API 연동
+  ├─ 컴시간 학교 시간표·교사 시간표 연동
+  ├─ 나이스 학교 검색·시간표 대체·급식 API 연동
   ├─ Origin Allowlist
   ├─ Rate Limiting
   └─ AI 해설 안전 파이프라인
@@ -256,7 +257,7 @@ AI는 다음과 같이 언어 생성과 맥락 이해가 필요한 영역에 사
 
 ## 4. 실행방법
 
-학교 시간표·급식처럼 서버 API를 사용하는 기능은 Live Server나 `npm run dev:web`만으로 실행하지 않습니다.
+학교 시간표·급식처럼 서버 API를 사용하는 기능은 Live Server나 `npm run dev:web`만으로 실행하지 않습니다. `npm run dev`로 프론트와 MakerOS 서버를 함께 실행해야 합니다.
 
 ```bash
 npm install
@@ -265,10 +266,11 @@ npm run dev
 
 브라우저에서는 `http://localhost:5173`으로 접속합니다. `npm run dev`는 Vite 화면과 Express API 서버를 함께 실행합니다.
 
-`Failed to fetch`가 보이면 먼저 `http://localhost:8787/api/health`가 열리는지 확인합니다. 학교 검색·시간표·급식 기능을 사용하려면 프로젝트 루트의 `.env` 또는 Render 환경변수에 `NEIS_API_KEY`를 등록해야 합니다.
+`Failed to fetch`가 보이면 먼저 `http://localhost:8787/api/health`가 열리는지 확인합니다. 컴시간 시간표는 별도 API 키가 필요하지 않으며 서버에서 조회합니다. 학교 검색·NEIS 대체 시간표·급식 기능을 사용하려면 프로젝트 루트의 `.env` 또는 Render 환경변수에 `NEIS_API_KEY`를 등록해야 합니다.
 
 ```env
 NEIS_API_KEY=발급받은_인증키
+COMCIGAN_ENABLED=true
 ```
 
 인증키는 `VITE_` 접두사를 붙이지 않습니다. 브라우저는 나이스에 직접 접근하지 않고 `/api/neis/*`를 호출하며, MakerOS 서버만 인증키를 붙여 공식 API에 요청합니다. 설정 후에는 서버를 완전히 종료하고 다시 실행해야 합니다. `http://localhost:8787/api/neis/status`에서 `configured`와 `connected`가 모두 `true`인지 확인할 수 있습니다.
