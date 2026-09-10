@@ -13,7 +13,10 @@ import {
 
 const base = createDefaultPartnerState();
 assert.equal(base.timetable.schoolCode, '8140347', '기본 학교는 나이스 학교 코드로 저장되어야 합니다.');
+assert.equal(base.timetable.comciganCode, '85318', '기본 학교는 컴시간 학교 코드도 저장되어야 합니다.');
 assert.deepEqual(base.timetable.teacherAssignments, {}, '교사별 시간표 연결 정보를 저장할 공간이 있어야 합니다.');
+assert.deepEqual(base.timetable.classCounts, {}, '컴시간 학급 수를 저장할 공간이 있어야 합니다.');
+assert.deepEqual(base.timetable.classTimes, [], '컴시간 교시 시간을 저장할 공간이 있어야 합니다.');
 base.profile.weeklyAvailableHours = 8;
 base.profile.dailyAvailableMinutes = { mon: 90, tue: 90, wed: 90, thu: 90, fri: 60, sat: 180, sun: 120 };
 base.goals = [
