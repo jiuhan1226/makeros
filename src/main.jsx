@@ -47,6 +47,7 @@ import PartnerTodayPage from "./pages/PartnerTodayPage";
 import PartnerPlanPage from "./pages/PartnerPlanPage";
 import PartnerCalendarPage from "./pages/PartnerCalendarPage";
 import TimetablePage from "./pages/TimetablePage";
+import MealPage from "./pages/MealPage";
 import PartnerGoalsPage from "./pages/PartnerGoalsPage";
 import { shuffle } from "./utils/exam";
 import { useExamSession } from "./hooks/useExamSession";
@@ -1012,11 +1013,15 @@ function App() {
     setAssets(next);
   }
 
-  function deleteAssetFolder(root, folder) {
-    if (root !== "PDF" || !folder || folder === "전체") return;
-    const normalized = String(folder).replace(/\.pdf$/i, "").trim().toLowerCase();
-    const matches = (item) => String(item.sourceType || "").toLowerCase().includes("pdf")
-      && String(item.sourceName || "").replace(/\.pdf$/i, "").trim().toLowerCase() === normalized;
+  function deleteAssetFolder(root, folderKey, folderLabel) {
+    if (root !== "PDF" || !folderKey || folderKey === "전체") return;
+    const normalized = String(folderLabel || "").replace(/\.pdf$/i, "").trim().toLowerCase();
+    const matches = (item) => {
+      if (!String(item.sourceType || "").toLowerCase().includes("pdf")) return false;
+      if (item.folderId) return item.folderId === folderKey;
+      if (item.pdfId) return `pdf:${item.pdfId}` === folderKey;
+      return String(item.sourceName || "").replace(/\.pdf$/i, "").trim().toLowerCase() === normalized;
+    };
     const next = {
       notes: (assets.notes || []).filter((item) => !matches(item)),
       cards: (assets.cards || []).filter((item) => !matches(item)),
@@ -1105,6 +1110,7 @@ function App() {
       {page === "partnerPlan" && <PartnerPlanPage state={partnerState} focusGoalId={planFocusGoalId} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
       {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
       {page === "timetable" && <TimetablePage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
+      {page === "meals" && <MealPage state={partnerState} onNavigate={navigate} />}
       {page === "partnerGoals" && <PartnerGoalsPage value={partnerState} onChange={setPartnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "학생 정보가 변경되어 가능한 시간에 맞춘 계획을 적용했습니다." }, { destination: "partnerToday" })} busy={partnerBusy} />}
       {page === "makerHome" && <MakerHomePage onNavigate={navigate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} />}
       {page === "invent" && <InventPage projects={inventorProjects} onChangeProjects={setInventorProjects} onCreateBuildProject={createBuildProject} />}
