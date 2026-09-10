@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { normalizePartnerState } from "../utils/aiPartner";
-import { loadSchoolTimetable, searchSchools } from "../utils/schoolApi";
+import { loadNeisStatus, loadSchoolTimetable, searchSchools } from "../utils/schoolApi";
 
 const DAYS = [{ key: "mon", label: "월" }, { key: "tue", label: "화" }, { key: "wed", label: "수" }, { key: "thu", label: "목" }, { key: "fri", label: "금" }];
 const DAY_KEYS = { 1: "mon", 2: "tue", 3: "wed", 4: "thu", 5: "fri" };
@@ -54,6 +54,7 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
   const [error, setError] = useState("");
   const [editor, setEditor] = useState(null);
   const [selectedTeacher, setSelectedTeacher] = useState("");
+  const [apiStatus, setApiStatus] = useState(null);
   const week = useMemo(() => weekRange(weekCursor), [weekCursor]);
   const key = cacheKey(timetable.schoolCode, week.from, grade, classNo);
   const record = timetable.schedules?.[key] || { cells: {}, loadedAt: 0 };
@@ -71,6 +72,10 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
   useEffect(() => {
     if (timetable.officeCode && timetable.schoolCode) refreshTimetable(false);
   }, [timetable.officeCode, timetable.schoolCode, timetable.schoolKind, grade, classNo, week.from]);
+
+  useEffect(() => {
+    loadNeisStatus().then(setApiStatus).catch(() => setApiStatus({ configured: false, connected: false, serverUnreachable: true }));
+  }, []);
 
   function updateTimetable(patch) {
     onChange?.({ ...normalized, timetable: { ...timetable, ...patch, updatedAt: Date.now() }, lastUpdatedAt: Date.now() });
@@ -184,7 +189,7 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
 
   return <main className="partner-page timetable-page">
     <nav className="school-life-tabs" aria-label="학교 생활 메뉴"><button onClick={() => onNavigate("partnerCalendar")}>월간 일정</button><button className="active">학교 시간표</button><button onClick={() => onNavigate("meals")}>급식</button></nav>
-    <section className="partner-page-head"><div><span className="partner-kicker">LIVE SCHOOL DATA</span><h1>학교 시간표</h1><p>학교를 검색하면 나이스 교육정보에서 선택한 주의 시간표를 가져옵니다.</p></div><button className="partner-secondary" onClick={() => refreshTimetable(true)} disabled={busy}>{busy ? "불러오는 중…" : "새로고침"}</button></section>
+    <section className="partner-page-head"><div><span className="partner-kicker">LIVE SCHOOL DATA</span><h1>학교 시간표</h1><p>학교를 검색하면 MakerOS 서버가 인증키로 나이스 시간표를 조회합니다.</p>{apiStatus && <span className={`neis-auth-state ${apiStatus.connected ? "connected" : apiStatus.configured ? "warning" : "missing"}`}>{apiStatus.connected ? "NEIS 정식 인증 연결됨" : apiStatus.configured ? "인증키 설정됨 · 나이스 연결 재확인 필요" : apiStatus.serverUnreachable ? "MakerOS API 서버 연결 필요" : "서버에 NEIS_API_KEY가 없습니다"}</span>}</div><button className="partner-secondary" onClick={() => refreshTimetable(true)} disabled={busy}>{busy ? "불러오는 중…" : "새로고침"}</button></section>
 
     <section className="partner-panel school-picker">
       <div><label htmlFor="school-search">학교 검색</label><div><input id="school-search" value={schoolQuery} onChange={(event) => setSchoolQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && findSchools()} placeholder="예: 공주마이스터고등학교"/><button className="primary" onClick={findSchools} disabled={schoolBusy}>{schoolBusy ? "검색 중…" : "검색"}</button></div></div>
