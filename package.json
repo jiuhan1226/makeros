@@ -1,7 +1,7 @@
 {
   "name": "makeros-product-final",
   "private": true,
-  "version": "3.1.11",
+  "version": "3.1.12",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"node --watch server/server.mjs\"",
@@ -15,7 +15,7 @@
     "test:learning": "node scripts/learning-smoke-test.mjs",
     "test:explanation": "node scripts/explanation-safety-test.mjs",
     "test:maintenance": "node scripts/learning-maintenance-test.mjs",
-    "test": "npm run test:partner && npm run test:diagnostic && npm run test:routing && npm run test:calendar && npm run test:flashcards && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:copy && npm run test:submission && npm run test:responsive",
+    "test": "npm run test:partner && npm run test:diagnostic && npm run test:routing && npm run test:calendar && npm run test:flashcards && npm run test:school-data && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:copy && npm run test:submission && npm run test:responsive",
     "test:copy": "node scripts/copy-audit.mjs",
     "seed:demo": "node scripts/seed-demo-account.mjs",
     "test:submission": "node scripts/submission-readiness-test.mjs",
@@ -25,7 +25,8 @@
     "test:diagnostic": "node scripts/partner-diagnostic-test.mjs",
     "test:routing": "node scripts/certificate-routing-test.mjs",
     "test:calendar": "node scripts/calendar-layout-test.mjs",
-    "test:flashcards": "node scripts/flashcard-learning-test.mjs"
+    "test:flashcards": "node scripts/flashcard-learning-test.mjs",
+    "test:school-data": "node scripts/school-data-test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
