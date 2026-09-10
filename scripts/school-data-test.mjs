@@ -43,17 +43,23 @@ try {
   const currentWeek = currentSeoulSchoolWeek(new Date("2026-09-10T03:00:00Z"));
   assert.deepEqual(currentWeek, { from: "2026-09-07", to: "2026-09-11" });
   assert.equal(isCurrentSeoulSchoolWeek("2026-09-07", "2026-09-11", new Date("2026-09-10T03:00:00Z")), true);
-  const flattened = flattenComciganTimetable({
-    1: {
-      1: [[{ grade: 1, class: 1, classTime: 1, subject: "전기기기", teacher: "김선생", changed: true }], [], [], [], []],
-      2: [[{ grade: 1, class: 2, classTime: 1, subject: "전기회로", teacher: "이선생" }], [], [], [], []],
-    },
-  });
+  const flattened = flattenComciganTimetable([[
+    [[{ subject: "전기기기", teacher: "김선생", changed: true, originalSubject: "전기회로", originalTeacher: "이선생" }, { subject: "추가수업", teacher: "최선생", changed: true, originalSubject: "없음", originalTeacher: "없음" }, { subject: "없음", teacher: "없음", changed: true, originalSubject: "기초제어", originalTeacher: "정선생" }], [], [], [], []],
+    [[{ subject: "전자회로", teacher: "박선생", changed: false }], [], [], [], []],
+  ]]);
   assert.equal(flattened.classCounts["1"], 2, "컴시간의 학년별 반 수를 계산해야 합니다.");
   assert.equal(flattened.lessons[0].changed, true, "컴시간의 변경 수업 표시를 보존해야 합니다.");
+  assert.equal(flattened.lessons[0].originalSubject, "전기회로", "변경 전 기본 과목을 보존해야 합니다.");
   const mapped = mapComciganLessonsToWeek(flattened.lessons, "2026-09-07");
   assert.equal(mapped[0].date, "20260907", "컴시간 요일을 조회 주의 실제 날짜로 변환해야 합니다.");
-  assert.equal(mapped[1].teacher, "이선생", "모든 학급의 교사명을 보존해야 합니다.");
+  assert.equal(mapped[0].subject, "전기기기", "현재 주에는 변경된 일자료 과목을 사용해야 합니다.");
+  assert.equal(mapped.find((lesson) => lesson.subject === "전자회로")?.teacher, "박선생", "모든 학급의 교사명을 보존해야 합니다.");
+  const baseMapped = mapComciganLessonsToWeek(flattened.lessons, "2026-09-14", { useOriginal: true });
+  assert.equal(baseMapped[0].subject, "전기회로", "다른 주에는 원자료의 기본 과목을 사용해야 합니다.");
+  assert.equal(baseMapped[0].teacher, "이선생", "다른 주에는 원자료의 기본 교사 정보를 사용해야 합니다.");
+  assert.equal(baseMapped[0].changed, false, "기본 시간표에는 이번 주 변경 표시를 이어 붙이면 안 됩니다.");
+  assert.ok(!baseMapped.some((lesson) => lesson.subject === "추가수업"), "이번 주에만 추가된 수업을 기본 시간표에 넣으면 안 됩니다.");
+  assert.ok(mapped.some((lesson) => lesson.subject === "수업 없음" && lesson.originalSubject === "기초제어"), "이번 주에 취소된 수업은 변경 전 과목과 함께 표시해야 합니다.");
 
   const clientSource = await readFile(new URL("../src/utils/schoolApi.js", import.meta.url), "utf8");
   const serverSource = await readFile(new URL("../server/server.mjs", import.meta.url), "utf8");
@@ -66,6 +72,7 @@ try {
   assert.ok(serverSource.includes('app.get("/api/school-data/timetable"'), "컴시간 우선 통합 시간표 라우트가 있어야 합니다.");
   assert.ok(serverSource.includes("loadComciganSnapshot"), "서버가 컴시간 시간표 공급자를 사용해야 합니다.");
   assert.ok(serverSource.includes("loadNeisTimetableData"), "컴시간 실패 시 NEIS 시간표 대체 경로가 있어야 합니다.");
+  assert.ok(!serverSource.includes('"outside_current_week"'), "다른 주차라는 이유만으로 NEIS로 전환하면 안 됩니다.");
   assert.ok(!serverSource.includes("console.log(neisApiKey)"), "NEIS 인증키는 서버 로그에 출력하면 안 됩니다.");
 
   const cards = [
