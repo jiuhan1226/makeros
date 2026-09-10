@@ -48,6 +48,16 @@ export function createDefaultPartnerState() {
     activities: [],
     goals: [],
     calendarExtras: [],
+    calendarColors: {},
+    timetable: {
+      schoolCode: "85318",
+      schoolName: "공주마이스터고등학교",
+      grade: "1",
+      classNo: "1",
+      weekLabel: "",
+      schedules: {},
+      updatedAt: 0,
+    },
     planVersions: [],
     activePlanVersionId: "",
     pendingPlanVersionId: "",
@@ -69,6 +79,9 @@ export function normalizePartnerState(input = {}) {
   state.academics = Array.isArray(input?.academics) ? input.academics : [];
   state.activities = Array.isArray(input?.activities) ? input.activities : [];
   state.calendarExtras = Array.isArray(input?.calendarExtras) ? input.calendarExtras : [];
+  state.calendarColors = input?.calendarColors && typeof input.calendarColors === "object" ? input.calendarColors : {};
+  state.timetable = { ...base.timetable, ...(input?.timetable || {}) };
+  state.timetable.schedules = input?.timetable?.schedules && typeof input.timetable.schedules === "object" ? input.timetable.schedules : {};
   state.planVersions = Array.isArray(input?.planVersions) ? input.planVersions : [];
   state.changeEvents = Array.isArray(input?.changeEvents) ? input.changeEvents : [];
   state.studyLinks = Array.isArray(input?.studyLinks) ? input.studyLinks : [];
@@ -119,6 +132,8 @@ export function profileSnapshot(state) {
     activities: normalized.activities,
     goals: normalized.goals,
     calendarExtras: normalized.calendarExtras,
+    calendarColors: normalized.calendarColors,
+    timetable: normalized.timetable,
   };
 }
 
@@ -740,6 +755,7 @@ export function partnerCalendarItems(state) {
         rangeStart,
         rangeEnd,
         rangeKey,
+        color: item?.color || normalized.calendarColors?.[rangeKey] || "",
         isRange: rangeStart !== rangeEnd,
       });
     }
