@@ -141,7 +141,8 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
   }
 
   return <main className="partner-page">
-    <section className="partner-page-head"><div><span className="partner-kicker">ONE CALENDAR</span><h1>통합 일정</h1><p>일정을 눌러 색을 바꾸고, 빈 날짜를 눌러 새 일정을 추가하세요.</p></div><div className="partner-calendar-head-actions"><button className="partner-secondary" onClick={() => onNavigate("timetable")}>학교 시간표</button><button className="partner-secondary" onClick={() => onNavigate("partnerGoals")}>일정 정보 수정</button></div></section>
+    <nav className="school-life-tabs" aria-label="학교 생활 메뉴"><button className="active">월간 일정</button><button onClick={() => onNavigate("timetable")}>학교 시간표</button><button onClick={() => onNavigate("meals")}>급식</button></nav>
+    <section className="partner-page-head"><div><span className="partner-kicker">ONE CALENDAR</span><h1>통합 일정</h1><p>일정을 눌러 색을 바꾸고, 빈 날짜를 눌러 새 일정을 추가하세요.</p></div><div className="partner-calendar-head-actions"><button className="partner-secondary" onClick={() => onNavigate("partnerGoals")}>일정 정보 수정</button></div></section>
     <section className="partner-calendar-layout">
       <section className="partner-month-calendar partner-panel">
         <header className="partner-calendar-toolbar">
