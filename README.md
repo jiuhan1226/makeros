@@ -265,7 +265,13 @@ npm run dev
 
 브라우저에서는 `http://localhost:5173`으로 접속합니다. `npm run dev`는 Vite 화면과 Express API 서버를 함께 실행합니다.
 
-`Failed to fetch`가 보이면 먼저 `http://localhost:8787/api/health`가 열리는지 확인합니다. `NEIS_API_KEY`는 없어도 공개 조회가 가능하지만 운영 배포에서는 발급받아 `.env` 또는 Render 환경변수에 등록하는 것을 권장합니다.
+`Failed to fetch`가 보이면 먼저 `http://localhost:8787/api/health`가 열리는지 확인합니다. 학교 검색·시간표·급식 기능을 사용하려면 프로젝트 루트의 `.env` 또는 Render 환경변수에 `NEIS_API_KEY`를 등록해야 합니다.
+
+```env
+NEIS_API_KEY=발급받은_인증키
+```
+
+인증키는 `VITE_` 접두사를 붙이지 않습니다. 브라우저는 나이스에 직접 접근하지 않고 `/api/neis/*`를 호출하며, MakerOS 서버만 인증키를 붙여 공식 API에 요청합니다. 설정 후에는 서버를 완전히 종료하고 다시 실행해야 합니다. `http://localhost:8787/api/neis/status`에서 `configured`와 `connected`가 모두 `true`인지 확인할 수 있습니다.
 
 ### 필수 환경
 
