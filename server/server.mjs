@@ -14,6 +14,12 @@ import { GoogleGenAI } from "@google/genai";
 import { initializeApp as initializeAdminApp, getApps as getAdminApps } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import {
+  isCurrentSeoulSchoolWeek,
+  loadComciganSnapshot,
+  mapComciganLessonsToWeek,
+  searchComciganSchools,
+} from "./comciganProvider.mjs";
+import {
   buildExplanationHash,
   normalizeDraftExplanation,
   normalizeVerificationResult,
@@ -43,6 +49,7 @@ const explanationForceRetryDailyLimit = Math.max(0, Number(process.env.AI_EXPLAN
 const aiTutorUserDailyLimit = Math.max(1, Number(process.env.AI_TUTOR_USER_DAILY_LIMIT || 5));
 const guestAiTrialDailyLimit = Math.max(1, Number(process.env.GUEST_AI_TRIAL_DAILY_LIMIT || 2));
 const neisApiKey = String(process.env.NEIS_API_KEY || "").trim();
+const comciganEnabled = String(process.env.COMCIGAN_ENABLED || "true").toLowerCase() !== "false";
 const neisCache = new Map();
 const neisRequestHeaders = {
   accept: "application/json,text/plain,*/*",
@@ -50,7 +57,7 @@ const neisRequestHeaders = {
   "cache-control": "no-cache",
   pragma: "no-cache",
   referer: "https://open.neis.go.kr/portal/mainPage.do",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.15",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.16",
 };
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
@@ -117,7 +124,7 @@ app.use("/api/", rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "오늘의 AI 생성 요청 한도에 도달했습니다." },
-  skip: (req) => req.path.startsWith("/neis/"),
+  skip: (req) => req.path.startsWith("/neis/") || req.path.startsWith("/school-data/"),
 }));
 
 app.use("/api/neis", rateLimit({
@@ -126,6 +133,14 @@ app.use("/api/neis", rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "학교 정보 조회가 너무 빠릅니다. 잠시 후 다시 시도해 주세요." },
+}));
+
+app.use("/api/school-data", rateLimit({
+  windowMs: 60 * 1000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "시간표 조회가 너무 빠릅니다. 잠시 후 다시 시도해 주세요." },
 }));
 
 const explanationMinuteLimiter = rateLimit({
@@ -463,6 +478,151 @@ function schoolTimetableDataset(kind = "") {
   return "hisTimetable";
 }
 
+function schoolDateParameter(value = "") {
+  const digits = String(value).replace(/\D/g, "").slice(0, 8);
+  return { digits, iso: digits.length === 8 ? `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}` : "" };
+}
+
+async function loadNeisTimetableData({ officeCode, schoolCode, schoolKind, grade, classNo, from, to }) {
+  const dataset = schoolTimetableDataset(schoolKind);
+  const rows = await fetchNeis(dataset, {
+    pSize: "1000",
+    ATPT_OFCDC_SC_CODE: officeCode,
+    SD_SCHUL_CODE: schoolCode,
+    GRADE: grade,
+    CLASS_NM: classNo,
+    TI_FROM_YMD: from,
+    TI_TO_YMD: to,
+  });
+  return rows.map((row) => ({
+    date: row.ALL_TI_YMD,
+    grade: row.GRADE,
+    classNo: row.CLASS_NM || row.CLRM_NM,
+    period: Number(row.PERIO),
+    subject: cleanNeisText(row.ITRT_CNTNT),
+    department: row.DDDEP_NM || "",
+    room: row.CLRM_NM || "",
+    teacher: "",
+    changed: false,
+  }));
+}
+
+app.get("/api/school-data/status", (req, res) => res.json({
+  timetablePrimary: "Comcigan",
+  timetableFallback: "NEIS Open API",
+  meals: "NEIS Open API",
+  comciganEnabled,
+  serverProxy: true,
+  neisApiKeyConfigured: Boolean(neisApiKey),
+}));
+
+app.get("/api/school-data/schools", async (req, res) => {
+  const query = normalize(req.query?.q || "");
+  if (query.length < 2) return res.status(400).json({ error: "학교 이름을 두 글자 이상 입력해 주세요." });
+  try {
+    const rows = await fetchNeis("schoolInfo", { pSize: "30", SCHUL_NM: query });
+    return res.json({
+      schools: rows.map((row) => ({
+        officeCode: row.ATPT_OFCDC_SC_CODE,
+        officeName: row.ATPT_OFCDC_SC_NM,
+        schoolCode: row.SD_SCHUL_CODE,
+        schoolName: row.SCHUL_NM,
+        schoolKind: row.SCHUL_KND_SC_NM,
+        region: row.LCTN_SC_NM,
+        address: row.ORG_RDNMA,
+      })),
+      source: "NEIS 학교 검색",
+    });
+  } catch (neisError) {
+    if (!comciganEnabled) {
+      return res.status(neisError.status || 502).json({ error: neisError.message || "학교 검색에 실패했습니다.", code: neisError.code || "school_search_failed" });
+    }
+    try {
+      const schools = await searchComciganSchools(query);
+      return res.json({
+        schools: schools.map((school) => ({
+          officeCode: "",
+          officeName: "",
+          schoolCode: `comcigan-${school.comciganCode}`,
+          comciganCode: school.comciganCode,
+          schoolName: school.schoolName,
+          schoolKind: school.schoolName.includes("초등") ? "초등학교" : school.schoolName.includes("중학교") ? "중학교" : school.schoolName.includes("고등") ? "고등학교" : "학교",
+          region: school.region,
+          address: "",
+        })),
+        source: "컴시간 학교 검색",
+        fallbackReason: neisError.code || "neis_unavailable",
+      });
+    } catch (comciganError) {
+      console.error("[MakerOS School Search Error]", { neis: neisError?.code || "neis_school_search_failed", comcigan: comciganError?.code || "comcigan_school_search_failed" });
+      return res.status(502).json({ error: "NEIS와 컴시간에서 학교를 찾지 못했습니다. 잠시 후 다시 시도해 주세요.", code: "school_search_unavailable" });
+    }
+  }
+});
+
+app.get("/api/school-data/timetable", async (req, res) => {
+  const officeCode = String(req.query?.officeCode || "").trim();
+  const schoolCode = String(req.query?.schoolCode || "").trim();
+  const schoolName = normalize(req.query?.schoolName || "");
+  const comciganCode = String(req.query?.comciganCode || "").replace(/\D/g, "").slice(0, 12);
+  const schoolKind = normalize(req.query?.schoolKind || "고등학교");
+  const grade = String(req.query?.grade || "1").replace(/\D/g, "").slice(0, 2);
+  const classNo = String(req.query?.classNo || "1").replace(/[^0-9가-힣A-Za-z-]/g, "").slice(0, 8);
+  const from = schoolDateParameter(req.query?.from);
+  const to = schoolDateParameter(req.query?.to);
+  const force = String(req.query?.force || "") === "1";
+  if (!schoolName || !from.iso || !to.iso) return res.status(400).json({ error: "학교와 조회 기간을 다시 선택해 주세요." });
+
+  let comciganError = null;
+  if (comciganEnabled && isCurrentSeoulSchoolWeek(from.iso, to.iso)) {
+    try {
+      const snapshot = await loadComciganSnapshot({ schoolName, comciganCode, force });
+      const allLessons = mapComciganLessonsToWeek(snapshot.lessons, from.iso);
+      const lessons = allLessons.filter((lesson) => String(lesson.grade) === grade && String(lesson.classNo) === classNo);
+      const teachers = [...new Set(allLessons.map((lesson) => lesson.teacher).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
+      return res.json({
+        lessons,
+        allLessons,
+        teachers,
+        teacherDataAvailable: teachers.length > 0,
+        comciganCode: snapshot.comciganCode,
+        classCounts: snapshot.classCounts,
+        classTimes: snapshot.classTimes,
+        sourceUpdatedAt: snapshot.sourceUpdatedAt,
+        source: snapshot.stale ? "컴시간 최근 저장본" : "컴시간 실시간",
+        provider: "comcigan",
+        stale: Boolean(snapshot.stale),
+        loadedAt: snapshot.loadedAt || Date.now(),
+      });
+    } catch (error) {
+      comciganError = error;
+      console.warn(`[MakerOS Comcigan] school=${schoolName} code=${error?.code || "comcigan_unavailable"} fallback=neis`);
+    }
+  }
+
+  try {
+    if (!officeCode || !schoolCode) throw Object.assign(new Error("NEIS 대체 조회에 필요한 학교 코드가 없습니다."), { code: "neis_school_code_missing" });
+    const lessons = await loadNeisTimetableData({ officeCode, schoolCode, schoolKind, grade, classNo, from: from.digits, to: to.digits });
+    return res.json({
+      lessons,
+      allLessons: lessons,
+      teachers: [],
+      teacherDataAvailable: false,
+      source: "NEIS 대체 시간표",
+      provider: "neis",
+      fallbackReason: comciganError?.code || (!comciganEnabled ? "comcigan_disabled" : isCurrentSeoulSchoolWeek(from.iso, to.iso) ? "comcigan_unavailable" : "outside_current_week"),
+      loadedAt: Date.now(),
+    });
+  } catch (neisError) {
+    console.error("[MakerOS School Timetable Error]", { comcigan: comciganError?.code || null, neis: neisError?.code || "neis_timetable_failed" });
+    return res.status(neisError.status || 502).json({
+      error: "컴시간과 NEIS에서 시간표를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+      code: "school_timetable_unavailable",
+      providers: { comcigan: comciganError?.code || "not_used", neis: neisError?.code || "neis_timetable_failed" },
+    });
+  }
+});
+
 app.get("/api/neis/status", async (req, res) => {
   if (!neisApiKey) return res.json({ configured: false, connected: false, route: "server-only", provider: "NEIS Open API", code: "neis_key_missing" });
   try {
@@ -515,27 +675,9 @@ app.get("/api/neis/timetable", async (req, res) => {
     const from = String(req.query?.from || "").replace(/\D/g, "").slice(0, 8);
     const to = String(req.query?.to || "").replace(/\D/g, "").slice(0, 8);
     if (!officeCode || !schoolCode || from.length !== 8 || to.length !== 8) return res.status(400).json({ error: "학교와 조회 기간을 다시 선택해 주세요." });
-    const dataset = schoolTimetableDataset(schoolKind);
-    const rows = await fetchNeis(dataset, {
-      pSize: "1000",
-      ATPT_OFCDC_SC_CODE: officeCode,
-      SD_SCHUL_CODE: schoolCode,
-      GRADE: grade,
-      CLASS_NM: classNo,
-      TI_FROM_YMD: from,
-      TI_TO_YMD: to,
-    });
+    const lessons = await loadNeisTimetableData({ officeCode, schoolCode, schoolKind, grade, classNo, from, to });
     return res.json({
-      lessons: rows.map((row) => ({
-        date: row.ALL_TI_YMD,
-        grade: row.GRADE,
-        classNo: row.CLASS_NM || row.CLRM_NM,
-        period: Number(row.PERIO),
-        subject: cleanNeisText(row.ITRT_CNTNT),
-        department: row.DDDEP_NM || "",
-        room: row.CLRM_NM || "",
-        teacher: "",
-      })),
+      lessons,
       teacherDataAvailable: false,
       source: "NEIS 공식 Open API · 서버 인증",
       loadedAt: Date.now(),
@@ -993,11 +1135,12 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.15",
+    version: "3.1.16",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
     neisApiKeyConfigured: Boolean(neisApiKey),
+    comciganEnabled,
     firebaseTokenVerificationConfigured: Boolean(adminAuth),
     unauthenticatedAiAllowed: allowUnauthenticatedAi,
     guestAiTrialDailyLimit,
@@ -2099,4 +2242,5 @@ app.listen(port, host, () => {
   console.log(`[MakerOS] provider=Google Gemini SDK requestedModel=${requestedModel}`);
   console.log(`[MakerOS] Gemini API key configured=${Boolean(apiKey)}`);
   console.log(`[MakerOS] NEIS API key configured=${Boolean(neisApiKey)} route=server-only`);
+  console.log(`[MakerOS] timetable primary=${comciganEnabled ? "Comcigan" : "disabled"} fallback=NEIS`);
 });
