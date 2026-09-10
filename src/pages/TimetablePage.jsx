@@ -62,9 +62,10 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
   const schedule = record.cells || {};
   const todayKey = DAY_KEYS[new Date().getDay()];
 
-  const teacherNames = useMemo(() => [...new Set(Object.entries(timetable.teacherAssignments || {})
-    .filter(([assignmentKey, name]) => assignmentKey.startsWith(`${schoolIdentity}:`) && String(name || "").trim())
-    .map(([, name]) => String(name).trim()))].sort((a, b) => a.localeCompare(b, "ko")), [schoolIdentity, timetable.teacherAssignments]);
+  const teacherNames = useMemo(() => [...new Set(Object.values(timetable.schedules || {})
+    .filter((saved) => saved?.schoolCode === schoolIdentity && saved?.weekStart === week.from)
+    .flatMap((saved) => Object.values(saved.cells || {}).map((lesson) => String(lesson.teacher || "").trim()))
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko")), [schoolIdentity, timetable.schedules, week.from]);
 
   useEffect(() => {
     if (!selectedTeacher || !teacherNames.includes(selectedTeacher)) setSelectedTeacher(teacherNames[0] || "");
@@ -144,9 +145,9 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
         const groupKey = cacheKey(schoolIdentity, week.from, lessonGrade, lessonClassNo);
         if (!lessonsByClass.has(groupKey)) lessonsByClass.set(groupKey, { grade: lessonGrade, classNo: lessonClassNo, cells: {} });
         const assignmentKey = teacherKey(schoolIdentity, lessonGrade, lessonClassNo, day, periodIndex);
-        const teacher = String(lesson.teacher || teacherAssignments[assignmentKey] || "").trim();
+        const teacher = String(result.provider === "comcigan" ? lesson.teacher || "" : lesson.teacher || teacherAssignments[assignmentKey] || "").trim();
         if (teacher) teacherAssignments[assignmentKey] = teacher;
-        lessonsByClass.get(groupKey).cells[`${day}-${periodIndex}`] = { ...lesson, teacher, live: result.provider === "comcigan", provider: result.provider };
+        lessonsByClass.get(groupKey).cells[`${day}-${periodIndex}`] = { ...lesson, teacher, live: result.provider === "comcigan" && result.scheduleMode === "current" && !result.stale, provider: result.provider };
       }
       for (const [groupKey, group] of lessonsByClass.entries()) {
         nextSchedules[groupKey] = {
@@ -160,11 +161,12 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
           checkedAt: Date.now(),
           source: result.source,
           provider: result.provider,
+          scheduleMode: result.scheduleMode,
           stale: Boolean(result.stale),
         };
       }
       const selectedGroup = lessonsByClass.get(key);
-      if (!selectedGroup) nextSchedules[key] = { cells: {}, weekStart: week.from, weekEnd: week.to, grade, classNo, schoolCode: schoolIdentity, loadedAt: result.loadedAt || Date.now(), checkedAt: Date.now(), source: result.source, provider: result.provider };
+      if (!selectedGroup) nextSchedules[key] = { cells: {}, weekStart: week.from, weekEnd: week.to, grade, classNo, schoolCode: schoolIdentity, loadedAt: result.loadedAt || Date.now(), checkedAt: Date.now(), source: result.source, provider: result.provider, scheduleMode: result.scheduleMode };
       updateTimetable({
         grade,
         classNo,
@@ -243,10 +245,11 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
           {view === "class" ? <><label>학년<select value={grade} onChange={(event) => { setGrade(event.target.value); setClassNo("1"); }}>{grades.map((value) => <option key={value} value={value}>{value}학년</option>)}</select></label><label>반<select value={classNo} onChange={(event) => setClassNo(event.target.value)}>{Array.from({ length: classCount }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}반</option>)}</select></label></> : <label className="teacher-select">선생님<select value={selectedTeacher} onChange={(event) => setSelectedTeacher(event.target.value)}><option value="">선생님 선택</option>{teacherNames.map((name) => <option key={name}>{name}</option>)}</select></label>}
         </header>
         {view === "teacher" && <div className="teacher-data-notice"><strong>선생님별 시간표</strong><span>컴시간에 등록된 교사명을 기준으로 모든 학급의 수업을 자동으로 모았습니다. 별표는 원본에서 마스킹된 이름입니다.</span></div>}
+        {record.scheduleMode === "base" && <div className="base-schedule-notice"><strong>기본 시간표</strong><span>컴시간 원자료를 표시합니다. 선택한 주에 있었던 임시 변경 수업은 포함되지 않습니다.</span></div>}
         {error && <p className="school-api-error" role="alert">{error}</p>}
         <div className="timetable-scroll"><div className="timetable-grid" role="table" aria-label={view === "class" ? `${grade}학년 ${classNo}반 주간 시간표` : `${selectedTeacher || "선생님"} 주간 시간표`}>
           <div className="timetable-corner" role="columnheader">교시</div>{DAYS.map((day) => <div className={`timetable-day ${todayKey === day.key ? "today" : ""}`} role="columnheader" key={day.key}>{day.label}</div>)}
-          {periods.map((periodIndex) => <div className="timetable-row" role="row" key={periodIndex}><div className="timetable-period" role="rowheader"><strong>{periodIndex + 1}교시</strong><small>{timetable.classTimes?.[periodIndex] || "시간 정보 없음"}</small></div>{DAYS.map((day) => { const lesson = visibleSchedule[`${day.key}-${periodIndex}`] || {}; return <button type="button" className={`timetable-cell ${lesson.changed ? "changed" : ""}`} style={lesson.subject ? { backgroundColor: colorForSubject(lesson.subject) } : undefined} key={day.key} onClick={() => view === "class" && openCell(day.key, periodIndex)} disabled={view === "teacher"} aria-label={`${day.label}요일 ${periodIndex + 1}교시 ${lesson.subject || "빈 교시"}`}>{lesson.subject ? <><strong>{lesson.subject}</strong><small>{view === "teacher" ? lesson.classLabel : lesson.teacher || "선생님 정보 없음"}</small>{lesson.changed ? <em className="change-badge">변경</em> : lesson.live && <em className="live-badge">LIVE</em>}</> : <span>{view === "class" ? "＋" : "-"}</span>}</button>; })}</div>)}
+          {periods.map((periodIndex) => <div className="timetable-row" role="row" key={periodIndex}><div className="timetable-period" role="rowheader"><strong>{periodIndex + 1}교시</strong><small>{timetable.classTimes?.[periodIndex] || "시간 정보 없음"}</small></div>{DAYS.map((day) => { const lesson = visibleSchedule[`${day.key}-${periodIndex}`] || {}; const originalLabel = lesson.changed && lesson.originalSubject ? `기본 ${lesson.originalSubject}${lesson.originalTeacher ? ` · ${lesson.originalTeacher}` : ""}` : ""; return <button type="button" className={`timetable-cell ${lesson.changed ? "changed" : ""}`} style={lesson.subject ? { backgroundColor: colorForSubject(lesson.subject) } : undefined} key={day.key} onClick={() => view === "class" && openCell(day.key, periodIndex)} disabled={view === "teacher"} title={originalLabel} aria-label={`${day.label}요일 ${periodIndex + 1}교시 ${lesson.subject || "빈 교시"}${originalLabel ? `, ${originalLabel}` : ""}`}>{lesson.subject ? <><strong>{lesson.subject}</strong><small>{view === "teacher" ? lesson.classLabel : lesson.teacher || "선생님 정보 없음"}</small>{originalLabel && <span className="change-origin">{originalLabel}</span>}{lesson.changed ? <em className="change-badge">변경</em> : lesson.live && <em className="live-badge">LIVE</em>}</> : <span>{view === "class" ? "＋" : "-"}</span>}</button>; })}</div>)}
         </div></div>
         {!busy && !Object.keys(visibleSchedule).length && <div className="timetable-empty"><strong>{view === "teacher" ? "표시할 선생님 시간표가 없어요." : "선택한 주의 시간표가 없어요."}</strong><p>{view === "teacher" ? "현재 주의 컴시간 시간표를 먼저 불러와 주세요." : "학년·반을 확인하거나 새로고침해 주세요."}</p></div>}
       </section>
