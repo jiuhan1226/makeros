@@ -108,7 +108,7 @@ MakerOS는 정오답뿐 아니라 학생의 이해도와 반복 학습 과정을
 ```text
 PDF 업로드
 → AI 노트
-→ 플래시카드
+→ PDF별 개념카드
 → Learning Tree
 → AI Tutor
 ```
@@ -149,6 +149,7 @@ Firebase
 Express API
   ├─ Firebase ID Token 검증
   ├─ Gemini API 연동
+  ├─ 나이스 학교·시간표·급식 API 연동
   ├─ Origin Allowlist
   ├─ Rate Limiting
   └─ AI 해설 안전 파이프라인
