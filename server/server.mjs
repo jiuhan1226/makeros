@@ -39,6 +39,8 @@ const explanationUserDailyLimit = Math.max(1, Number(process.env.AI_EXPLANATION_
 const explanationForceRetryDailyLimit = Math.max(0, Number(process.env.AI_EXPLANATION_FORCE_RETRY_DAILY_LIMIT || 2));
 const aiTutorUserDailyLimit = Math.max(1, Number(process.env.AI_TUTOR_USER_DAILY_LIMIT || 5));
 const guestAiTrialDailyLimit = Math.max(1, Number(process.env.GUEST_AI_TRIAL_DAILY_LIMIT || 2));
+const neisApiKey = String(process.env.NEIS_API_KEY || "").trim();
+const neisCache = new Map();
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
 const fallbackModels = [
@@ -103,7 +105,16 @@ app.use("/api/", rateLimit({
   limit: dailyLimit,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "오늘의 AI 생성 요청 한도에 도달했습니다." }
+  message: { error: "오늘의 AI 생성 요청 한도에 도달했습니다." },
+  skip: (req) => req.path.startsWith("/schools") || req.path.startsWith("/school/"),
+}));
+
+app.use(["/api/schools", "/api/school"], rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "학교 정보 조회가 너무 빠릅니다. 잠시 후 다시 시도해 주세요." },
 }));
 
 const explanationMinuteLimiter = rateLimit({
@@ -214,6 +225,137 @@ function normalize(text = "") {
     .replace(/[‘’]/g, "'")
     .trim();
 }
+
+function neisRows(payload, dataset) {
+  const blocks = Array.isArray(payload?.[dataset]) ? payload[dataset] : [];
+  return blocks.find((block) => Array.isArray(block?.row))?.row || [];
+}
+
+function cleanNeisText(value = "") {
+  return String(value).replace(/<br\s*\/?\s*>/gi, "\n").replace(/&amp;/g, "&").replace(/\s+$/gm, "").trim();
+}
+
+async function fetchNeis(dataset, parameters = {}) {
+  const query = new URLSearchParams({ Type: "json", pIndex: "1", pSize: "100", ...parameters });
+  if (neisApiKey) query.set("KEY", neisApiKey);
+  const url = `https://open.neis.go.kr/hub/${dataset}?${query}`;
+  const cacheKey = `${dataset}:${query}`;
+  const cached = neisCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < 5 * 60 * 1000) return cached.value;
+  const response = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(15000) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw Object.assign(new Error(`나이스 교육정보 API 연결 실패 (HTTP ${response.status})`), { status: 502 });
+  const serviceResult = payload?.RESULT || payload?.[dataset]?.[0]?.head?.find((item) => item.RESULT)?.RESULT;
+  if (serviceResult?.CODE && !["INFO-000", "INFO-200"].includes(serviceResult.CODE)) {
+    throw Object.assign(new Error(serviceResult.MESSAGE || "나이스 교육정보를 불러오지 못했습니다."), { status: 502 });
+  }
+  const value = neisRows(payload, dataset);
+  neisCache.set(cacheKey, { value, createdAt: Date.now() });
+  return value;
+}
+
+function schoolTimetableDataset(kind = "") {
+  if (kind.includes("초등")) return "elsTimetable";
+  if (kind.includes("중학교")) return "misTimetable";
+  if (kind.includes("특수")) return "spsTimetable";
+  return "hisTimetable";
+}
+
+app.get("/api/schools", async (req, res) => {
+  try {
+    const query = normalize(req.query?.q || "");
+    if (query.length < 2) return res.status(400).json({ error: "학교 이름을 두 글자 이상 입력해 주세요." });
+    const rows = await fetchNeis("schoolInfo", { pSize: "30", SCHUL_NM: query });
+    return res.json({
+      schools: rows.map((row) => ({
+        officeCode: row.ATPT_OFCDC_SC_CODE,
+        officeName: row.ATPT_OFCDC_SC_NM,
+        schoolCode: row.SD_SCHUL_CODE,
+        schoolName: row.SCHUL_NM,
+        schoolKind: row.SCHUL_KND_SC_NM,
+        region: row.LCTN_SC_NM,
+        address: row.ORG_RDNMA,
+      })),
+      source: "NEIS 교육정보 개방 API",
+    });
+  } catch (error) {
+    console.error("[MakerOS NEIS School Search Error]", error);
+    return res.status(error.status || 502).json({ error: error.message || "학교 검색에 실패했습니다." });
+  }
+});
+
+app.get("/api/school/timetable", async (req, res) => {
+  try {
+    const officeCode = String(req.query?.officeCode || "").trim();
+    const schoolCode = String(req.query?.schoolCode || "").trim();
+    const schoolKind = normalize(req.query?.schoolKind || "고등학교");
+    const grade = String(req.query?.grade || "1").replace(/\D/g, "").slice(0, 2);
+    const classNo = String(req.query?.classNo || "1").replace(/[^0-9가-힣A-Za-z-]/g, "").slice(0, 8);
+    const from = String(req.query?.from || "").replace(/\D/g, "").slice(0, 8);
+    const to = String(req.query?.to || "").replace(/\D/g, "").slice(0, 8);
+    if (!officeCode || !schoolCode || from.length !== 8 || to.length !== 8) return res.status(400).json({ error: "학교와 조회 기간을 다시 선택해 주세요." });
+    const dataset = schoolTimetableDataset(schoolKind);
+    const rows = await fetchNeis(dataset, {
+      pSize: "1000",
+      ATPT_OFCDC_SC_CODE: officeCode,
+      SD_SCHUL_CODE: schoolCode,
+      GRADE: grade,
+      CLASS_NM: classNo,
+      TI_FROM_YMD: from,
+      TI_TO_YMD: to,
+    });
+    return res.json({
+      lessons: rows.map((row) => ({
+        date: row.ALL_TI_YMD,
+        grade: row.GRADE,
+        classNo: row.CLASS_NM || row.CLRM_NM,
+        period: Number(row.PERIO),
+        subject: cleanNeisText(row.ITRT_CNTNT),
+        department: row.DDDEP_NM || "",
+        room: row.CLRM_NM || "",
+        teacher: "",
+      })),
+      teacherDataAvailable: false,
+      source: "NEIS 교육정보 개방 API",
+      loadedAt: Date.now(),
+    });
+  } catch (error) {
+    console.error("[MakerOS NEIS Timetable Error]", error);
+    return res.status(error.status || 502).json({ error: error.message || "시간표 조회에 실패했습니다." });
+  }
+});
+
+app.get("/api/school/meals", async (req, res) => {
+  try {
+    const officeCode = String(req.query?.officeCode || "").trim();
+    const schoolCode = String(req.query?.schoolCode || "").trim();
+    const from = String(req.query?.from || "").replace(/\D/g, "").slice(0, 8);
+    const to = String(req.query?.to || "").replace(/\D/g, "").slice(0, 8);
+    if (!officeCode || !schoolCode || from.length !== 8 || to.length !== 8) return res.status(400).json({ error: "학교와 조회 기간을 다시 선택해 주세요." });
+    const rows = await fetchNeis("mealServiceDietInfo", {
+      pSize: "100",
+      ATPT_OFCDC_SC_CODE: officeCode,
+      SD_SCHUL_CODE: schoolCode,
+      MLSV_FROM_YMD: from,
+      MLSV_TO_YMD: to,
+    });
+    return res.json({
+      meals: rows.map((row) => ({
+        date: row.MLSV_YMD,
+        type: row.MMEAL_SC_NM,
+        dishes: cleanNeisText(row.DDISH_NM).split("\n").filter(Boolean),
+        calories: row.CAL_INFO || "",
+        nutrition: cleanNeisText(row.NTR_INFO).split("\n").filter(Boolean),
+        origin: cleanNeisText(row.ORPLC_INFO),
+      })),
+      source: "NEIS 교육정보 개방 API",
+      loadedAt: Date.now(),
+    });
+  } catch (error) {
+    console.error("[MakerOS NEIS Meal Error]", error);
+    return res.status(error.status || 502).json({ error: error.message || "급식 조회에 실패했습니다." });
+  }
+});
 
 function looksNoisy(text) {
   const t = normalize(text);
