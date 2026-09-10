@@ -1,6 +1,8 @@
 import "dotenv/config";
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import http2 from "node:http2";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -106,10 +108,10 @@ app.use("/api/", rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "오늘의 AI 생성 요청 한도에 도달했습니다." },
-  skip: (req) => req.path.startsWith("/schools") || req.path.startsWith("/school/"),
+  skip: (req) => req.path.startsWith("/neis/"),
 }));
 
-app.use(["/api/schools", "/api/school"], rateLimit({
+app.use("/api/neis", rateLimit({
   windowMs: 60 * 1000,
   limit: 60,
   standardHeaders: true,
@@ -235,37 +237,150 @@ function cleanNeisText(value = "") {
   return String(value).replace(/<br\s*\/?\s*>/gi, "\n").replace(/&amp;/g, "&").replace(/\s+$/gm, "").trim();
 }
 
+function requestNeisWithHttp2(url) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const client = http2.connect(target.origin);
+    let settled = false;
+    let status = 0;
+    let body = "";
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      client.close();
+      callback(value);
+    };
+    const timer = setTimeout(() => {
+      client.destroy();
+      finish(reject, Object.assign(new Error("나이스 HTTP/2 요청 시간이 초과되었습니다."), { code: "neis_timeout" }));
+    }, 15000);
+    client.once("error", (error) => {
+      clearTimeout(timer);
+      finish(reject, error);
+    });
+    const request = client.request({
+      ":method": "GET",
+      ":path": `${target.pathname}${target.search}`,
+      accept: "application/json",
+      "accept-language": "ko-KR,ko;q=0.9",
+      "user-agent": "MakerOS/3.1.14",
+    });
+    request.setEncoding("utf8");
+    request.once("response", (headers) => { status = Number(headers[":status"] || 0); });
+    request.on("data", (chunk) => { body += chunk; });
+    request.once("error", (error) => {
+      clearTimeout(timer);
+      finish(reject, error);
+    });
+    request.once("end", () => {
+      clearTimeout(timer);
+      let payload = {};
+      try { payload = JSON.parse(body); } catch { payload = {}; }
+      finish(resolve, { ok: status >= 200 && status < 300, status, payload });
+    });
+    request.end();
+  });
+}
+
+async function requestNeisWithFetch(url) {
+  const response = await fetch(url, {
+    headers: { accept: "application/json", "accept-language": "ko-KR,ko;q=0.9" },
+    signal: AbortSignal.timeout(15000),
+  });
+  return { ok: response.ok, status: response.status, payload: await response.json().catch(() => ({})) };
+}
+
+function requestNeisWithCurl(url) {
+  return new Promise((resolve, reject) => {
+    const executable = process.platform === "win32" ? "curl.exe" : "curl";
+    const marker = "\n__MAKEROS_HTTP_STATUS__";
+    const child = spawn(executable, [
+      "--silent",
+      "--show-error",
+      "--location",
+      "--http2",
+      "--max-time", "15",
+      "--write-out", `${marker}%{http_code}`,
+      "--config", "-",
+    ], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (stdout.length > 6_000_000) child.kill();
+    });
+    child.stderr.resume();
+    child.once("error", () => reject(Object.assign(new Error("서버에서 curl 실행 파일을 찾을 수 없습니다."), { code: "curl_unavailable" })));
+    child.once("close", (exitCode) => {
+      if (exitCode !== 0) return reject(Object.assign(new Error(`curl 기반 나이스 연결에 실패했습니다. (exit ${exitCode})`), { code: "neis_curl_failed" }));
+      const markerAt = stdout.lastIndexOf(marker);
+      const body = markerAt >= 0 ? stdout.slice(0, markerAt) : stdout;
+      const status = markerAt >= 0 ? Number(stdout.slice(markerAt + marker.length).trim()) : 0;
+      let payload = {};
+      try { payload = JSON.parse(body); } catch { payload = {}; }
+      return resolve({ ok: status >= 200 && status < 300, status, payload });
+    });
+    const safeUrl = String(url).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    child.stdin.end(`url = "${safeUrl}"\nheader = "accept: application/json"\n`);
+  });
+}
+
+async function requestNeis(url) {
+  const proxyConfigured = Boolean(process.env.HTTPS_PROXY || process.env.https_proxy || process.env.ALL_PROXY || process.env.all_proxy);
+  if (proxyConfigured) {
+    try {
+      const result = await requestNeisWithCurl(url);
+      if (result.ok || ![429, 500, 502, 503, 504].includes(result.status)) return result;
+    } catch {
+      // 프록시 환경의 curl 요청이 실패하면 Node 전송 방식으로 이어갑니다.
+    }
+  }
+  try {
+    const result = await requestNeisWithHttp2(url);
+    if (result.ok || ![429, 500, 502, 503, 504].includes(result.status)) return result;
+  } catch {
+    // 일부 개발·프록시 환경은 직접 HTTP/2 연결을 차단하므로 fetch 경로로 이어갑니다.
+  }
+  try {
+    const result = await requestNeisWithFetch(url);
+    if (result.ok || ![429, 500, 502, 503, 504].includes(result.status)) return result;
+  } catch {
+    // Node fetch가 차단되거나 upstream 5xx를 받으면 curl HTTP/2로 마지막 재시도합니다.
+  }
+  return requestNeisWithCurl(url);
+}
+
 async function fetchNeis(dataset, parameters = {}) {
-  const query = new URLSearchParams({ Type: "json", pIndex: "1", pSize: "100", ...parameters });
-  if (neisApiKey) query.set("KEY", neisApiKey);
+  if (!neisApiKey) {
+    throw Object.assign(new Error("나이스 API 인증키가 서버에 설정되지 않았습니다. NEIS_API_KEY를 등록한 뒤 서버를 다시 시작해 주세요."), { status: 503, code: "neis_key_missing" });
+  }
+  const query = new URLSearchParams({ KEY: neisApiKey, Type: "json", pIndex: "1", pSize: "100", ...parameters });
   const url = `https://open.neis.go.kr/hub/${dataset}?${query}`;
-  const cacheKey = `${dataset}:${query}`;
+  const cacheKey = `${dataset}:${new URLSearchParams(parameters)}`;
   const cached = neisCache.get(cacheKey);
   if (cached && Date.now() - cached.createdAt < 5 * 60 * 1000) return cached.value;
-  let response;
+  let result;
   let lastError;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      response = await fetch(url, {
-        headers: { accept: "application/json", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "MakerOS/3.1.13" },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (response.ok || ![429, 500, 502, 503, 504].includes(response.status)) break;
-      lastError = new Error(`나이스 교육정보 API 연결 실패 (HTTP ${response.status})`);
+      result = await requestNeis(url);
+      if (result.ok || ![429, 500, 502, 503, 504].includes(result.status)) break;
+      lastError = new Error(`나이스 교육정보 API 연결 실패 (HTTP ${result.status})`);
     } catch (error) {
       lastError = error;
     }
     if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
   }
-  if (!response?.ok) {
-    const status = response?.status;
+  if (!result?.ok) {
+    const status = result?.status;
     const detail = status ? `HTTP ${status}` : lastError?.message || "네트워크 오류";
     throw Object.assign(new Error(`나이스 교육정보가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요. (${detail})`), { status: 502, code: "neis_unavailable" });
   }
-  const payload = await response.json().catch(() => ({}));
+  const payload = result.payload || {};
   const serviceResult = payload?.RESULT || payload?.[dataset]?.[0]?.head?.find((item) => item.RESULT)?.RESULT;
   if (serviceResult?.CODE && !["INFO-000", "INFO-200"].includes(serviceResult.CODE)) {
-    throw Object.assign(new Error(serviceResult.MESSAGE || "나이스 교육정보를 불러오지 못했습니다."), { status: 502 });
+    const authenticationError = /인증|키|KEY/i.test(`${serviceResult.CODE} ${serviceResult.MESSAGE || ""}`);
+    throw Object.assign(new Error(authenticationError ? "나이스 API 인증키가 유효하지 않거나 승인되지 않았습니다. 발급 상태와 키 값을 확인해 주세요." : serviceResult.MESSAGE || "나이스 교육정보를 불러오지 못했습니다."), { status: authenticationError ? 503 : 502, code: authenticationError ? "neis_key_invalid" : "neis_api_error" });
   }
   const value = neisRows(payload, dataset);
   neisCache.set(cacheKey, { value, createdAt: Date.now() });
@@ -279,7 +394,17 @@ function schoolTimetableDataset(kind = "") {
   return "hisTimetable";
 }
 
-app.get("/api/schools", async (req, res) => {
+app.get("/api/neis/status", async (req, res) => {
+  if (!neisApiKey) return res.json({ configured: false, connected: false, route: "server-only", provider: "NEIS Open API", code: "neis_key_missing" });
+  try {
+    await fetchNeis("schoolInfo", { pSize: "1", SCHUL_NM: "공주마이스터고등학교" });
+    return res.json({ configured: true, connected: true, route: "server-only", provider: "NEIS Open API" });
+  } catch (error) {
+    return res.json({ configured: true, connected: false, route: "server-only", provider: "NEIS Open API", code: error.code || "neis_connection_failed", error: error.message || "나이스 연결 확인에 실패했습니다." });
+  }
+});
+
+app.get("/api/neis/schools", async (req, res) => {
   try {
     const query = normalize(req.query?.q || "");
     if (query.length < 2) return res.status(400).json({ error: "학교 이름을 두 글자 이상 입력해 주세요." });
@@ -294,15 +419,15 @@ app.get("/api/schools", async (req, res) => {
         region: row.LCTN_SC_NM,
         address: row.ORG_RDNMA,
       })),
-      source: "NEIS 교육정보 개방 API",
+      source: "NEIS 공식 Open API · 서버 인증",
     });
   } catch (error) {
     console.error("[MakerOS NEIS School Search Error]", error);
-    return res.status(error.status || 502).json({ error: error.message || "학교 검색에 실패했습니다." });
+    return res.status(error.status || 502).json({ error: error.message || "학교 검색에 실패했습니다.", code: error.code || "neis_school_search_failed" });
   }
 });
 
-app.get("/api/school/timetable", async (req, res) => {
+app.get("/api/neis/timetable", async (req, res) => {
   try {
     const officeCode = String(req.query?.officeCode || "").trim();
     const schoolCode = String(req.query?.schoolCode || "").trim();
@@ -334,16 +459,16 @@ app.get("/api/school/timetable", async (req, res) => {
         teacher: "",
       })),
       teacherDataAvailable: false,
-      source: "NEIS 교육정보 개방 API",
+      source: "NEIS 공식 Open API · 서버 인증",
       loadedAt: Date.now(),
     });
   } catch (error) {
     console.error("[MakerOS NEIS Timetable Error]", error);
-    return res.status(error.status || 502).json({ error: error.message || "시간표 조회에 실패했습니다." });
+    return res.status(error.status || 502).json({ error: error.message || "시간표 조회에 실패했습니다.", code: error.code || "neis_timetable_failed" });
   }
 });
 
-app.get("/api/school/meals", async (req, res) => {
+app.get("/api/neis/meals", async (req, res) => {
   try {
     const officeCode = String(req.query?.officeCode || "").trim();
     const schoolCode = String(req.query?.schoolCode || "").trim();
@@ -366,12 +491,12 @@ app.get("/api/school/meals", async (req, res) => {
         nutrition: cleanNeisText(row.NTR_INFO).split("\n").filter(Boolean),
         origin: cleanNeisText(row.ORPLC_INFO),
       })),
-      source: "NEIS 교육정보 개방 API",
+      source: "NEIS 공식 Open API · 서버 인증",
       loadedAt: Date.now(),
     });
   } catch (error) {
     console.error("[MakerOS NEIS Meal Error]", error);
-    return res.status(error.status || 502).json({ error: error.message || "급식 조회에 실패했습니다." });
+    return res.status(error.status || 502).json({ error: error.message || "급식 조회에 실패했습니다.", code: error.code || "neis_meals_failed" });
   }
 });
 
@@ -790,7 +915,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.13",
+    version: "3.1.14",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
