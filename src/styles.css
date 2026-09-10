@@ -711,3 +711,5 @@ html{overflow-x:hidden;-webkit-text-size-adjust:100%}body{min-width:320px;overfl
 /* v3.1.16 컴시간 변경 수업 표시 */
 .timetable-cell.changed{box-shadow:inset 0 0 0 2px #f1a23a}
 .timetable-cell .change-badge{right:5px;top:5px;background:#e98b22}
+.timetable-cell .change-origin{max-width:calc(100% - 10px);overflow:hidden;color:#9a611c;font-size:10px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
+.base-schedule-notice{display:flex;align-items:center;gap:12px;border-bottom:1px solid #cfe5f0;background:#f1f9fd;padding:11px 16px;color:#42677e;font-size:12px}.base-schedule-notice strong{flex:0 0 auto;color:#087fba}
