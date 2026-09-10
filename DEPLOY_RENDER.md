@@ -1,4 +1,4 @@
-# MakerOS v3.1.15 Render 배포 가이드
+# MakerOS v3.1.16 Render 배포 가이드
 
 이 버전은 Vite 프론트엔드와 Express API를 하나의 Render Web Service에서 제공합니다.
 
@@ -7,7 +7,7 @@
 ```bash
 git init
 git add .
-git commit -m "Deploy MakerOS v3.1.15"
+git commit -m "Deploy MakerOS v3.1.16"
 git branch -M main
 git remote add origin <GitHub 저장소 주소>
 git push -u origin main
@@ -34,6 +34,7 @@ git push -u origin main
 - `VITE_FIREBASE_MESSAGING_SENDER_ID`
 - `VITE_FIREBASE_APP_ID`
 - `NEIS_API_KEY`
+- `COMCIGAN_ENABLED` (`true`, 수업시간표는 컴시간 우선·NEIS 대체)
 
 선택:
 
@@ -65,7 +66,7 @@ https://<Render 도메인>/api/health
 ```json
 {
   "ok": true,
-  "version": "3.1.15",
+  "version": "3.1.16",
   "apiKeyConfigured": true,
   "neisApiKeyConfigured": true,
   "firebaseTokenVerificationConfigured": true,
