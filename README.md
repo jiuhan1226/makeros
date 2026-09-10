@@ -273,6 +273,15 @@ NEIS_API_KEY=발급받은_인증키
 
 인증키는 `VITE_` 접두사를 붙이지 않습니다. 브라우저는 나이스에 직접 접근하지 않고 `/api/neis/*`를 호출하며, MakerOS 서버만 인증키를 붙여 공식 API에 요청합니다. 설정 후에는 서버를 완전히 종료하고 다시 실행해야 합니다. `http://localhost:8787/api/neis/status`에서 `configured`와 `connected`가 모두 `true`인지 확인할 수 있습니다.
 
+Render 시작 로그에서는 아래 두 줄이 별도로 표시됩니다. 첫 번째 값은 Gemini, 두 번째 값은 NEIS 설정 상태이므로 서로 혼동하지 않습니다.
+
+```text
+[MakerOS] Gemini API key configured=true
+[MakerOS] NEIS API key configured=true route=server-only
+```
+
+`configured: true`, `connected: false`라면 키는 서버에 로드됐지만 Render에서 NEIS 원본 서버로 연결하지 못한 상태입니다. v3.1.15부터 `/api/neis/status`의 `transports`와 서버의 `[MakerOS NEIS Upstream]` 로그에서 인증키를 노출하지 않고 전송 방식별 HTTP 상태를 확인할 수 있습니다.
+
 ### 필수 환경
 
 - Node.js 22.x
