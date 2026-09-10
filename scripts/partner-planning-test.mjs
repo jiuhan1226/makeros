@@ -52,10 +52,15 @@ assert.ok(new Set(balancedPlan.weeks[1].items.slice(0, 2).map((item) => item.goa
 
 const calendar = normalizePartnerState({
   ...base,
-  calendarExtras: [{ id: 'range-1', title: '집중 학습 기간', startDate: '2026-09-10', endDate: '2026-09-12', isSingleDay: false, type: 'custom' }],
+  calendarExtras: [{ id: 'range-1', title: '집중 학습 기간', startDate: '2026-09-10', endDate: '2026-09-12', isSingleDay: false, type: 'custom', color: '#e05a67' }],
+  calendarColors: { a1: '#43a56e' },
+  timetable: { grade: '2', classNo: '3', schedules: { '2-3': { 'mon-0': { subject: '전기기기', teacher: '김선생' } } } },
 });
 assert.equal(partnerCalendarItems(calendar).filter((item) => item.sourceId === 'range-1').length, 3, '기간 일정은 시작일부터 종료일까지 표시되어야 합니다.');
 assert.equal(partnerCalendarItems(calendar).filter((item) => item.rangeKey === 'a1').length, 11, '목표 기간 전체가 캘린더에 이어져 표시되어야 합니다.');
+assert.ok(partnerCalendarItems(calendar).filter((item) => item.rangeKey === 'a1').every((item) => item.color === '#43a56e'), '목표별 캘린더 색상이 전체 기간에 유지되어야 합니다.');
+assert.ok(partnerCalendarItems(calendar).filter((item) => item.rangeKey === 'range-1').every((item) => item.color === '#e05a67'), '직접 추가한 일정 색상이 전체 기간에 유지되어야 합니다.');
+assert.equal(calendar.timetable.schedules['2-3']['mon-0'].subject, '전기기기', '학년·반별 시간표가 상태에 저장되어야 합니다.');
 
 let state = createPlanVersion(base, plan, { activate: false });
 assert.ok(state.pendingPlanVersionId, '첫 계획은 학생 확정 전 draft여야 합니다.');
