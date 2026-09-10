@@ -53,6 +53,7 @@ export function createDefaultPartnerState() {
       officeCode: "N10",
       officeName: "충청남도교육청",
       schoolCode: "8140347",
+      comciganCode: "85318",
       schoolName: "공주마이스터고등학교",
       schoolKind: "고등학교",
       grade: "1",
@@ -60,6 +61,8 @@ export function createDefaultPartnerState() {
       weekLabel: "",
       schedules: {},
       teacherAssignments: {},
+      classCounts: {},
+      classTimes: [],
       updatedAt: 0,
     },
     planVersions: [],
@@ -87,12 +90,16 @@ export function normalizePartnerState(input = {}) {
   state.timetable = { ...base.timetable, ...(input?.timetable || {}) };
   state.timetable.schedules = input?.timetable?.schedules && typeof input.timetable.schedules === "object" ? input.timetable.schedules : {};
   state.timetable.teacherAssignments = input?.timetable?.teacherAssignments && typeof input.timetable.teacherAssignments === "object" ? input.timetable.teacherAssignments : {};
+  state.timetable.classCounts = input?.timetable?.classCounts && typeof input.timetable.classCounts === "object" ? input.timetable.classCounts : {};
+  state.timetable.classTimes = Array.isArray(input?.timetable?.classTimes) ? input.timetable.classTimes : [];
   if (state.timetable.schoolCode === "85318" && state.timetable.schoolName === "공주마이스터고등학교") {
     state.timetable.officeCode = "N10";
     state.timetable.officeName = "충청남도교육청";
     state.timetable.schoolCode = "8140347";
+    state.timetable.comciganCode = "85318";
     state.timetable.schoolKind = "고등학교";
   }
+  if (!state.timetable.comciganCode && state.timetable.schoolName === "공주마이스터고등학교") state.timetable.comciganCode = "85318";
   state.planVersions = Array.isArray(input?.planVersions) ? input.planVersions : [];
   state.changeEvents = Array.isArray(input?.changeEvents) ? input.changeEvents : [];
   state.studyLinks = Array.isArray(input?.studyLinks) ? input.studyLinks : [];
