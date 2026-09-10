@@ -46,6 +46,7 @@ import CareerPage from "./pages/CareerPage";
 import PartnerTodayPage from "./pages/PartnerTodayPage";
 import PartnerPlanPage from "./pages/PartnerPlanPage";
 import PartnerCalendarPage from "./pages/PartnerCalendarPage";
+import TimetablePage from "./pages/TimetablePage";
 import PartnerGoalsPage from "./pages/PartnerGoalsPage";
 import { shuffle } from "./utils/exam";
 import { useExamSession } from "./hooks/useExamSession";
@@ -1103,6 +1104,7 @@ function App() {
       {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} onOpenPlanItem={openPartnerPlan} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
       {page === "partnerPlan" && <PartnerPlanPage state={partnerState} focusGoalId={planFocusGoalId} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
       {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
+      {page === "timetable" && <TimetablePage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
       {page === "partnerGoals" && <PartnerGoalsPage value={partnerState} onChange={setPartnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "학생 정보가 변경되어 가능한 시간에 맞춘 계획을 적용했습니다." }, { destination: "partnerToday" })} busy={partnerBusy} />}
       {page === "makerHome" && <MakerHomePage onNavigate={navigate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} />}
       {page === "invent" && <InventPage projects={inventorProjects} onChangeProjects={setInventorProjects} onCreateBuildProject={createBuildProject} />}
