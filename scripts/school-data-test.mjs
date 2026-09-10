@@ -41,6 +41,10 @@ try {
   assert.ok(!clientSource.includes("open.neis.go.kr"), "인증키를 보호하기 위해 나이스 호출은 서버에서만 해야 합니다.");
   assert.ok(serverSource.includes("KEY: neisApiKey"), "서버의 공식 나이스 요청에 인증키가 포함되어야 합니다.");
   assert.ok(serverSource.includes("neis_key_missing"), "서버에서 인증키 누락을 구분해야 합니다.");
+  assert.ok(serverSource.includes("https-http1-ipv4"), "Render 호환 IPv4 HTTP/1.1 전송 경로가 있어야 합니다.");
+  assert.ok(serverSource.includes("curl-http2-ipv4"), "NEIS 장애 시 curl HTTP/2 대체 경로가 있어야 합니다.");
+  assert.ok(serverSource.includes("NEIS API key configured=${Boolean(neisApiKey)}"), "시작 로그에서 NEIS 키 설정 여부를 별도로 확인할 수 있어야 합니다.");
+  assert.ok(!serverSource.includes("console.log(neisApiKey)"), "NEIS 인증키는 서버 로그에 출력하면 안 됩니다.");
 
   const cards = [
     { sourceType: "PDF", sourceName: "교과서.pdf", pdfId: "pdf-a" },
