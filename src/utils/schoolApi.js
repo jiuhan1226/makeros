@@ -18,12 +18,16 @@ export async function loadNeisStatus() {
   return getJson("/api/neis/status");
 }
 
-export async function searchSchools(query) {
-  return getJson("/api/neis/schools", { q: query });
+export async function loadSchoolDataStatus() {
+  return getJson("/api/school-data/status");
 }
 
-export async function loadSchoolTimetable({ officeCode, schoolCode, schoolKind, grade, classNo, from, to }) {
-  return getJson("/api/neis/timetable", { officeCode, schoolCode, schoolKind, grade, classNo, from, to });
+export async function searchSchools(query) {
+  return getJson("/api/school-data/schools", { q: query });
+}
+
+export async function loadSchoolTimetable({ officeCode, schoolCode, schoolName, comciganCode, schoolKind, grade, classNo, from, to, force = false }) {
+  return getJson("/api/school-data/timetable", { officeCode, schoolCode, schoolName, comciganCode, schoolKind, grade, classNo, from, to, force: force ? "1" : "" });
 }
 
 export async function loadSchoolMeals({ officeCode, schoolCode, from, to }) {
