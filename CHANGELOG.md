@@ -1,3 +1,11 @@
+# v3.1.15
+
+- Render에서 NEIS 공식 API를 호출할 때 브라우저 호환 헤더를 사용하도록 수정
+- Fetch, IPv4 HTTP/1.1, HTTP/2, curl HTTP/1.1·HTTP/2 순차 전송 경로 추가
+- 전송 방식별 HTTP 상태를 인증키 없이 서버 로그와 `/api/neis/status`에 표시
+- 일시적인 NEIS 장애 때 24시간 이내 서버 캐시를 안전하게 재사용
+- 시작 로그에서 Gemini 키와 NEIS 키의 설정 상태를 각각 구분
+
 # v0.12.0
 
 - 실제 런칭을 위한 전 화면 UI 카피 정리
