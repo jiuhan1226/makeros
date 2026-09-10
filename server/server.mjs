@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http2 from "node:http2";
+import https from "node:https";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -43,6 +44,14 @@ const aiTutorUserDailyLimit = Math.max(1, Number(process.env.AI_TUTOR_USER_DAILY
 const guestAiTrialDailyLimit = Math.max(1, Number(process.env.GUEST_AI_TRIAL_DAILY_LIMIT || 2));
 const neisApiKey = String(process.env.NEIS_API_KEY || "").trim();
 const neisCache = new Map();
+const neisRequestHeaders = {
+  accept: "application/json,text/plain,*/*",
+  "accept-language": "ko-KR,ko;q=0.9,en;q=0.7",
+  "cache-control": "no-cache",
+  pragma: "no-cache",
+  referer: "https://open.neis.go.kr/portal/mainPage.do",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.15",
+};
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
 const fallbackModels = [
@@ -261,9 +270,7 @@ function requestNeisWithHttp2(url) {
     const request = client.request({
       ":method": "GET",
       ":path": `${target.pathname}${target.search}`,
-      accept: "application/json",
-      "accept-language": "ko-KR,ko;q=0.9",
-      "user-agent": "MakerOS/3.1.14",
+      ...neisRequestHeaders,
     });
     request.setEncoding("utf8");
     request.once("response", (headers) => { status = Number(headers[":status"] || 0); });
@@ -284,22 +291,52 @@ function requestNeisWithHttp2(url) {
 
 async function requestNeisWithFetch(url) {
   const response = await fetch(url, {
-    headers: { accept: "application/json", "accept-language": "ko-KR,ko;q=0.9" },
-    signal: AbortSignal.timeout(15000),
+    headers: neisRequestHeaders,
+    redirect: "follow",
+    signal: AbortSignal.timeout(12000),
   });
   return { ok: response.ok, status: response.status, payload: await response.json().catch(() => ({})) };
 }
 
-function requestNeisWithCurl(url) {
+function requestNeisWithHttps(url) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, {
+      family: 4,
+      headers: neisRequestHeaders,
+      timeout: 12000,
+    }, (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => {
+        body += chunk;
+        if (body.length > 6_000_000) request.destroy(Object.assign(new Error("나이스 응답 크기가 허용 범위를 초과했습니다."), { code: "neis_response_too_large" }));
+      });
+      response.once("end", () => {
+        let payload = {};
+        try { payload = JSON.parse(body); } catch { payload = {}; }
+        const status = Number(response.statusCode || 0);
+        resolve({ ok: status >= 200 && status < 300, status, payload });
+      });
+    });
+    request.once("timeout", () => request.destroy(Object.assign(new Error("나이스 HTTPS 요청 시간이 초과되었습니다."), { code: "neis_timeout" })));
+    request.once("error", reject);
+  });
+}
+
+function requestNeisWithCurl(url, httpVersion = "1.1") {
   return new Promise((resolve, reject) => {
     const executable = process.platform === "win32" ? "curl.exe" : "curl";
     const marker = "\n__MAKEROS_HTTP_STATUS__";
+    const versionFlag = httpVersion === "2" ? "--http2" : "--http1.1";
     const child = spawn(executable, [
       "--silent",
       "--show-error",
       "--location",
-      "--http2",
-      "--max-time", "15",
+      "--compressed",
+      "--ipv4",
+      versionFlag,
+      "--connect-timeout", "7",
+      "--max-time", "12",
       "--write-out", `${marker}%{http_code}`,
       "--config", "-",
     ], { stdio: ["pipe", "pipe", "pipe"] });
@@ -321,33 +358,54 @@ function requestNeisWithCurl(url) {
       return resolve({ ok: status >= 200 && status < 300, status, payload });
     });
     const safeUrl = String(url).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    child.stdin.end(`url = "${safeUrl}"\nheader = "accept: application/json"\n`);
+    const safeHeaders = Object.entries(neisRequestHeaders)
+      .map(([name, value]) => `header = "${name}: ${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`)
+      .join("\n");
+    child.stdin.end(`url = "${safeUrl}"\n${safeHeaders}\n`);
   });
+}
+
+function isRetryableNeisStatus(status) {
+  return !status || [408, 425, 429, 500, 502, 503, 504].includes(Number(status));
+}
+
+function neisAttemptSummary(attempts = []) {
+  return attempts.map((attempt) => `${attempt.transport}:${attempt.status || attempt.code || "error"}`).join(",");
 }
 
 async function requestNeis(url) {
   const proxyConfigured = Boolean(process.env.HTTPS_PROXY || process.env.https_proxy || process.env.ALL_PROXY || process.env.all_proxy);
-  if (proxyConfigured) {
+  const transports = proxyConfigured
+    ? [
+      ["curl-http1-ipv4", (target) => requestNeisWithCurl(target, "1.1")],
+      ["curl-http2-ipv4", (target) => requestNeisWithCurl(target, "2")],
+      ["fetch", requestNeisWithFetch],
+      ["https-http1-ipv4", requestNeisWithHttps],
+      ["http2", requestNeisWithHttp2],
+    ]
+    : [
+      ["fetch", requestNeisWithFetch],
+      ["https-http1-ipv4", requestNeisWithHttps],
+      ["http2", requestNeisWithHttp2],
+      ["curl-http1-ipv4", (target) => requestNeisWithCurl(target, "1.1")],
+      ["curl-http2-ipv4", (target) => requestNeisWithCurl(target, "2")],
+    ];
+  const attempts = [];
+  let lastResponse = null;
+  let lastError = null;
+  for (const [transport, requester] of transports) {
     try {
-      const result = await requestNeisWithCurl(url);
-      if (result.ok || ![429, 500, 502, 503, 504].includes(result.status)) return result;
-    } catch {
-      // 프록시 환경의 curl 요청이 실패하면 Node 전송 방식으로 이어갑니다.
+      const response = await requester(url);
+      lastResponse = { ...response, transport, attempts };
+      attempts.push({ transport, status: response.status });
+      if (response.ok || !isRetryableNeisStatus(response.status)) return { ...response, transport, attempts };
+    } catch (error) {
+      lastError = error;
+      attempts.push({ transport, code: error?.code || error?.name || "request_failed" });
     }
   }
-  try {
-    const result = await requestNeisWithHttp2(url);
-    if (result.ok || ![429, 500, 502, 503, 504].includes(result.status)) return result;
-  } catch {
-    // 일부 개발·프록시 환경은 직접 HTTP/2 연결을 차단하므로 fetch 경로로 이어갑니다.
-  }
-  try {
-    const result = await requestNeisWithFetch(url);
-    if (result.ok || ![429, 500, 502, 503, 504].includes(result.status)) return result;
-  } catch {
-    // Node fetch가 차단되거나 upstream 5xx를 받으면 curl HTTP/2로 마지막 재시도합니다.
-  }
-  return requestNeisWithCurl(url);
+  if (lastResponse) return { ...lastResponse, attempts };
+  throw Object.assign(lastError || new Error("사용 가능한 나이스 전송 경로가 없습니다."), { attempts });
 }
 
 async function fetchNeis(dataset, parameters = {}) {
@@ -361,20 +419,31 @@ async function fetchNeis(dataset, parameters = {}) {
   if (cached && Date.now() - cached.createdAt < 5 * 60 * 1000) return cached.value;
   let result;
   let lastError;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       result = await requestNeis(url);
-      if (result.ok || ![429, 500, 502, 503, 504].includes(result.status)) break;
+      if (result.ok || !isRetryableNeisStatus(result.status)) break;
       lastError = new Error(`나이스 교육정보 API 연결 실패 (HTTP ${result.status})`);
     } catch (error) {
       lastError = error;
     }
-    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+    console.warn(`[MakerOS NEIS Upstream] dataset=${dataset} round=${attempt + 1} transports=${neisAttemptSummary(result?.attempts || lastError?.attempts) || "none"}`);
+    if (attempt < 1) await new Promise((resolve) => setTimeout(resolve, 800));
   }
   if (!result?.ok) {
     const status = result?.status;
     const detail = status ? `HTTP ${status}` : lastError?.message || "네트워크 오류";
-    throw Object.assign(new Error(`나이스 교육정보가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요. (${detail})`), { status: 502, code: "neis_unavailable" });
+    const stale = neisCache.get(cacheKey);
+    if (stale && Date.now() - stale.createdAt < 24 * 60 * 60 * 1000) {
+      console.warn(`[MakerOS NEIS Cache] dataset=${dataset} stale-cache-used=true`);
+      return stale.value;
+    }
+    throw Object.assign(new Error(`나이스 교육정보가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요. (${detail})`), {
+      status: 502,
+      code: "neis_unavailable",
+      upstreamStatus: status || null,
+      attempts: result?.attempts || lastError?.attempts || [],
+    });
   }
   const payload = result.payload || {};
   const serviceResult = payload?.RESULT || payload?.[dataset]?.[0]?.head?.find((item) => item.RESULT)?.RESULT;
@@ -400,7 +469,16 @@ app.get("/api/neis/status", async (req, res) => {
     await fetchNeis("schoolInfo", { pSize: "1", SCHUL_NM: "공주마이스터고등학교" });
     return res.json({ configured: true, connected: true, route: "server-only", provider: "NEIS Open API" });
   } catch (error) {
-    return res.json({ configured: true, connected: false, route: "server-only", provider: "NEIS Open API", code: error.code || "neis_connection_failed", error: error.message || "나이스 연결 확인에 실패했습니다." });
+    return res.json({
+      configured: true,
+      connected: false,
+      route: "server-only",
+      provider: "NEIS Open API",
+      code: error.code || "neis_connection_failed",
+      upstreamStatus: error.upstreamStatus || null,
+      transports: error.attempts || [],
+      error: error.message || "나이스 연결 확인에 실패했습니다.",
+    });
   }
 });
 
@@ -915,7 +993,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.14",
+    version: "3.1.15",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
@@ -2019,5 +2097,6 @@ app.listen(port, host, () => {
   console.log(`[MakerOS] server: http://${host}:${port}`);
   console.log(`[MakerOS] environment=${process.env.NODE_ENV || "development"}`);
   console.log(`[MakerOS] provider=Google Gemini SDK requestedModel=${requestedModel}`);
-  console.log(`[MakerOS] API key configured=${Boolean(apiKey)}`);
+  console.log(`[MakerOS] Gemini API key configured=${Boolean(apiKey)}`);
+  console.log(`[MakerOS] NEIS API key configured=${Boolean(neisApiKey)} route=server-only`);
 });
