@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { normalizePartnerState } from "../utils/aiPartner";
-import { loadNeisStatus, loadSchoolTimetable, searchSchools } from "../utils/schoolApi";
+import { loadSchoolDataStatus, loadSchoolTimetable, searchSchools } from "../utils/schoolApi";
 
 const DAYS = [{ key: "mon", label: "월" }, { key: "tue", label: "화" }, { key: "wed", label: "수" }, { key: "thu", label: "목" }, { key: "fri", label: "금" }];
 const DAY_KEYS = { 1: "mon", 2: "tue", 3: "wed", 4: "thu", 5: "fri" };
@@ -56,25 +56,26 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
   const [selectedTeacher, setSelectedTeacher] = useState("");
   const [apiStatus, setApiStatus] = useState(null);
   const week = useMemo(() => weekRange(weekCursor), [weekCursor]);
-  const key = cacheKey(timetable.schoolCode, week.from, grade, classNo);
+  const schoolIdentity = timetable.schoolCode || `comcigan-${timetable.comciganCode || timetable.schoolName}`;
+  const key = cacheKey(schoolIdentity, week.from, grade, classNo);
   const record = timetable.schedules?.[key] || { cells: {}, loadedAt: 0 };
   const schedule = record.cells || {};
   const todayKey = DAY_KEYS[new Date().getDay()];
 
   const teacherNames = useMemo(() => [...new Set(Object.entries(timetable.teacherAssignments || {})
-    .filter(([assignmentKey, name]) => assignmentKey.startsWith(`${timetable.schoolCode}:`) && String(name || "").trim())
-    .map(([, name]) => String(name).trim()))].sort((a, b) => a.localeCompare(b, "ko")), [timetable.schoolCode, timetable.teacherAssignments]);
+    .filter(([assignmentKey, name]) => assignmentKey.startsWith(`${schoolIdentity}:`) && String(name || "").trim())
+    .map(([, name]) => String(name).trim()))].sort((a, b) => a.localeCompare(b, "ko")), [schoolIdentity, timetable.teacherAssignments]);
 
   useEffect(() => {
     if (!selectedTeacher || !teacherNames.includes(selectedTeacher)) setSelectedTeacher(teacherNames[0] || "");
   }, [selectedTeacher, teacherNames]);
 
   useEffect(() => {
-    if (timetable.officeCode && timetable.schoolCode) refreshTimetable(false);
-  }, [timetable.officeCode, timetable.schoolCode, timetable.schoolKind, grade, classNo, week.from]);
+    if (timetable.schoolName) refreshTimetable(false);
+  }, [timetable.officeCode, timetable.schoolCode, timetable.comciganCode, timetable.schoolName, timetable.schoolKind, grade, classNo, week.from]);
 
   useEffect(() => {
-    loadNeisStatus().then(setApiStatus).catch(() => setApiStatus({ configured: false, connected: false, serverUnreachable: true }));
+    loadSchoolDataStatus().then(setApiStatus).catch(() => setApiStatus({ serverUnreachable: true }));
   }, []);
 
   function updateTimetable(patch) {
@@ -100,12 +101,15 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
       officeCode: school.officeCode,
       officeName: school.officeName,
       schoolCode: school.schoolCode,
+      comciganCode: school.comciganCode || "",
       schoolName: school.schoolName,
       schoolKind: school.schoolKind,
       region: school.region,
       address: school.address,
       grade: "1",
       classNo: "1",
+      classCounts: {},
+      classTimes: [],
     });
     setGrade("1"); setClassNo("1"); setSelectedTeacher("");
   }
@@ -117,28 +121,61 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
       const result = await loadSchoolTimetable({
         officeCode: timetable.officeCode,
         schoolCode: timetable.schoolCode,
+        schoolName: timetable.schoolName,
+        comciganCode: timetable.comciganCode,
         schoolKind: timetable.schoolKind,
         grade,
         classNo,
         from: week.from,
         to: week.to,
+        force,
       });
-      const cells = {};
-      for (const lesson of result.lessons || []) {
+      const nextSchedules = { ...timetable.schedules };
+      const teacherAssignments = { ...timetable.teacherAssignments };
+      const lessonsByClass = new Map();
+      const incomingLessons = result.allLessons?.length ? result.allLessons : result.lessons || [];
+      for (const lesson of incomingLessons) {
         const date = parseNeisDate(lesson.date);
         const day = date ? DAY_KEYS[date.getDay()] : "";
         const periodIndex = Number(lesson.period) - 1;
         if (!day || periodIndex < 0) continue;
-        const assignment = timetable.teacherAssignments?.[teacherKey(timetable.schoolCode, grade, classNo, day, periodIndex)] || "";
-        cells[`${day}-${periodIndex}`] = { ...lesson, teacher: assignment, live: true };
+        const lessonGrade = String(lesson.grade || grade);
+        const lessonClassNo = String(lesson.classNo || classNo);
+        const groupKey = cacheKey(schoolIdentity, week.from, lessonGrade, lessonClassNo);
+        if (!lessonsByClass.has(groupKey)) lessonsByClass.set(groupKey, { grade: lessonGrade, classNo: lessonClassNo, cells: {} });
+        const assignmentKey = teacherKey(schoolIdentity, lessonGrade, lessonClassNo, day, periodIndex);
+        const teacher = String(lesson.teacher || teacherAssignments[assignmentKey] || "").trim();
+        if (teacher) teacherAssignments[assignmentKey] = teacher;
+        lessonsByClass.get(groupKey).cells[`${day}-${periodIndex}`] = { ...lesson, teacher, live: result.provider === "comcigan", provider: result.provider };
       }
+      for (const [groupKey, group] of lessonsByClass.entries()) {
+        nextSchedules[groupKey] = {
+          cells: group.cells,
+          weekStart: week.from,
+          weekEnd: week.to,
+          grade: group.grade,
+          classNo: group.classNo,
+          schoolCode: schoolIdentity,
+          loadedAt: result.loadedAt || Date.now(),
+          checkedAt: Date.now(),
+          source: result.source,
+          provider: result.provider,
+          stale: Boolean(result.stale),
+        };
+      }
+      const selectedGroup = lessonsByClass.get(key);
+      if (!selectedGroup) nextSchedules[key] = { cells: {}, weekStart: week.from, weekEnd: week.to, grade, classNo, schoolCode: schoolIdentity, loadedAt: result.loadedAt || Date.now(), checkedAt: Date.now(), source: result.source, provider: result.provider };
       updateTimetable({
         grade,
         classNo,
+        comciganCode: result.comciganCode || timetable.comciganCode || "",
+        classCounts: result.classCounts || timetable.classCounts || {},
+        classTimes: result.classTimes || timetable.classTimes || [],
+        teacherAssignments,
         weekLabel: `${week.from} ~ ${week.to}`,
-        schedules: { ...timetable.schedules, [key]: { cells, weekStart: week.from, weekEnd: week.to, grade, classNo, schoolCode: timetable.schoolCode, loadedAt: result.loadedAt || Date.now(), source: result.source } },
+        schedules: nextSchedules,
       });
-      if (!Object.keys(cells).length) setError("선택한 주의 시간표가 없습니다. 학년·반 또는 조회 주간을 확인해 주세요.");
+      if (!Object.keys(selectedGroup?.cells || {}).length) setError("선택한 주의 시간표가 없습니다. 학년·반 또는 조회 주간을 확인해 주세요.");
     } catch (requestError) { setError(requestError.message); }
     finally { setBusy(false); }
   }
@@ -156,14 +193,14 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
     const cellKey = `${editor.day}-${editor.periodIndex}`;
     const cells = { ...schedule, [cellKey]: { ...(schedule[cellKey] || {}), subject: editor.subject.trim(), teacher: editor.teacher.trim(), manuallyEdited: true } };
     if (!editor.subject.trim() && !editor.teacher.trim()) delete cells[cellKey];
-    const assignmentId = teacherKey(timetable.schoolCode, grade, classNo, editor.day, editor.periodIndex);
+    const assignmentId = teacherKey(schoolIdentity, grade, classNo, editor.day, editor.periodIndex);
     const teacherAssignments = { ...timetable.teacherAssignments };
     if (editor.teacher.trim()) teacherAssignments[assignmentId] = editor.teacher.trim(); else delete teacherAssignments[assignmentId];
     updateTimetable({
       grade,
       classNo,
       teacherAssignments,
-      schedules: { ...timetable.schedules, [key]: { ...record, cells, weekStart: week.from, weekEnd: week.to, grade, classNo, schoolCode: timetable.schoolCode, loadedAt: Date.now() } },
+      schedules: { ...timetable.schedules, [key]: { ...record, cells, weekStart: week.from, weekEnd: week.to, grade, classNo, schoolCode: schoolIdentity, loadedAt: Date.now() } },
     });
     setEditor(null);
   }
@@ -172,49 +209,50 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
     const output = {};
     if (!selectedTeacher) return output;
     Object.values(timetable.schedules || {}).forEach((saved) => {
-      if (saved?.schoolCode !== timetable.schoolCode || saved?.weekStart !== week.from) return;
+      if (saved?.schoolCode !== schoolIdentity || saved?.weekStart !== week.from) return;
       Object.entries(saved.cells || {}).forEach(([cellKey, lesson]) => {
         if (String(lesson.teacher || "").trim() !== selectedTeacher) return;
         output[cellKey] = { ...lesson, classLabel: `${saved.grade}학년 ${saved.classNo}반` };
       });
     });
     return output;
-  }, [selectedTeacher, timetable.schoolCode, timetable.schedules, week.from]);
+  }, [selectedTeacher, schoolIdentity, timetable.schedules, week.from]);
 
   const visibleSchedule = view === "teacher" ? teacherSchedule : schedule;
-  const periodCount = Math.max(DEFAULT_PERIOD_COUNT, ...Object.keys(visibleSchedule).map((cellKey) => Number(cellKey.split("-").at(-1)) + 1).filter(Number.isFinite));
+  const periodCount = Math.max(DEFAULT_PERIOD_COUNT, timetable.classTimes?.length || 0, ...Object.keys(visibleSchedule).map((cellKey) => Number(cellKey.split("-").at(-1)) + 1).filter(Number.isFinite));
   const periods = Array.from({ length: periodCount }, (_, index) => index);
   const grades = timetable.schoolKind?.includes("초등") ? [1, 2, 3, 4, 5, 6] : [1, 2, 3];
+  const classCount = Math.max(1, Number(timetable.classCounts?.[grade]) || 20);
   const todayLessons = periods.map((periodIndex) => ({ periodIndex, ...(visibleSchedule[`${todayKey}-${periodIndex}`] || {}) })).filter((item) => item.subject);
 
   return <main className="partner-page timetable-page">
     <nav className="school-life-tabs" aria-label="학교 생활 메뉴"><button onClick={() => onNavigate("partnerCalendar")}>월간 일정</button><button className="active">학교 시간표</button><button onClick={() => onNavigate("meals")}>급식</button></nav>
-    <section className="partner-page-head"><div><span className="partner-kicker">LIVE SCHOOL DATA</span><h1>학교 시간표</h1><p>학교를 검색하면 MakerOS 서버가 인증키로 나이스 시간표를 조회합니다.</p>{apiStatus && <span className={`neis-auth-state ${apiStatus.connected ? "connected" : apiStatus.configured ? "warning" : "missing"}`}>{apiStatus.connected ? "NEIS 정식 인증 연결됨" : apiStatus.configured ? "인증키 설정됨 · 나이스 연결 재확인 필요" : apiStatus.serverUnreachable ? "MakerOS API 서버 연결 필요" : "서버에 NEIS_API_KEY가 없습니다"}</span>}</div><button className="partner-secondary" onClick={() => refreshTimetable(true)} disabled={busy}>{busy ? "불러오는 중…" : "새로고침"}</button></section>
+    <section className="partner-page-head"><div><span className="partner-kicker">LIVE SCHOOL DATA</span><h1>학교 시간표</h1><p>컴시간 최신 시간표를 우선 불러오고, 연결되지 않으면 NEIS 시간표로 전환합니다.</p>{apiStatus && <span className={`neis-auth-state ${apiStatus.serverUnreachable ? "missing" : apiStatus.comciganEnabled === false ? "warning" : "connected"}`}>{apiStatus.serverUnreachable ? "MakerOS API 서버 연결 필요" : apiStatus.comciganEnabled === false ? "NEIS 시간표 사용 중" : "컴시간 우선 · NEIS 자동 대체"}</span>}</div><button className="partner-secondary" onClick={() => refreshTimetable(true)} disabled={busy}>{busy ? "불러오는 중…" : "새로고침"}</button></section>
 
     <section className="partner-panel school-picker">
       <div><label htmlFor="school-search">학교 검색</label><div><input id="school-search" value={schoolQuery} onChange={(event) => setSchoolQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && findSchools()} placeholder="예: 공주마이스터고등학교"/><button className="primary" onClick={findSchools} disabled={schoolBusy}>{schoolBusy ? "검색 중…" : "검색"}</button></div></div>
       <aside><strong>{timetable.schoolName}</strong><span>{timetable.region || timetable.officeName} · {timetable.schoolKind}</span></aside>
-      {!!schoolResults.length && <div className="school-search-results">{schoolResults.map((school) => <button key={`${school.officeCode}:${school.schoolCode}`} onClick={() => selectSchool(school)}><strong>{school.schoolName}</strong><span>{school.region} · {school.schoolKind}</span><small>{school.address}</small></button>)}</div>}
+      {!!schoolResults.length && <div className="school-search-results">{schoolResults.map((school) => <button key={`${school.officeCode}:${school.schoolCode}:${school.comciganCode || ""}`} onClick={() => selectSchool(school)}><strong>{school.schoolName}</strong><span>{school.region} · {school.schoolKind}</span>{school.address && <small>{school.address}</small>}</button>)}</div>}
     </section>
 
     <section className="timetable-layout">
       <section className="partner-panel timetable-board">
         <header className="timetable-toolbar live">
-          <div className="timetable-week-control"><button onClick={() => moveWeek(-1)} aria-label="이전 주">‹</button><div><strong>{week.from} ~ {week.to}</strong><small>{record.loadedAt ? `최근 조회 ${new Date(record.loadedAt).toLocaleString("ko-KR")}` : "실시간 조회 전"}</small></div><button onClick={() => moveWeek(1)} aria-label="다음 주">›</button></div>
+          <div className="timetable-week-control"><button onClick={() => moveWeek(-1)} aria-label="이전 주">‹</button><div><strong>{week.from} ~ {week.to}</strong><small>{record.loadedAt ? `${record.source || "시간표"} · ${new Date(record.checkedAt || record.loadedAt).toLocaleString("ko-KR")}` : "실시간 조회 전"}</small></div><button onClick={() => moveWeek(1)} aria-label="다음 주">›</button></div>
           <div className="timetable-view-tabs"><button className={view === "class" ? "active" : ""} onClick={() => setView("class")}>학급별</button><button className={view === "teacher" ? "active" : ""} onClick={() => setView("teacher")}>선생님별</button></div>
-          {view === "class" ? <><label>학년<select value={grade} onChange={(event) => setGrade(event.target.value)}>{grades.map((value) => <option key={value} value={value}>{value}학년</option>)}</select></label><label>반<select value={classNo} onChange={(event) => setClassNo(event.target.value)}>{Array.from({ length: 20 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}반</option>)}</select></label></> : <label className="teacher-select">선생님<select value={selectedTeacher} onChange={(event) => setSelectedTeacher(event.target.value)}><option value="">선생님 선택</option>{teacherNames.map((name) => <option key={name}>{name}</option>)}</select></label>}
+          {view === "class" ? <><label>학년<select value={grade} onChange={(event) => { setGrade(event.target.value); setClassNo("1"); }}>{grades.map((value) => <option key={value} value={value}>{value}학년</option>)}</select></label><label>반<select value={classNo} onChange={(event) => setClassNo(event.target.value)}>{Array.from({ length: classCount }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}반</option>)}</select></label></> : <label className="teacher-select">선생님<select value={selectedTeacher} onChange={(event) => setSelectedTeacher(event.target.value)}><option value="">선생님 선택</option>{teacherNames.map((name) => <option key={name}>{name}</option>)}</select></label>}
         </header>
-        {view === "teacher" && <div className="teacher-data-notice"><strong>선생님별 시간표 안내</strong><span>나이스 API는 교사명을 제공하지 않습니다. 학급별 시간표에서 수업을 눌러 선생님 이름을 입력하면, 저장된 학급을 모아 선생님별로 보여 줍니다.</span></div>}
+        {view === "teacher" && <div className="teacher-data-notice"><strong>선생님별 시간표</strong><span>컴시간에 등록된 교사명을 기준으로 모든 학급의 수업을 자동으로 모았습니다. 별표는 원본에서 마스킹된 이름입니다.</span></div>}
         {error && <p className="school-api-error" role="alert">{error}</p>}
         <div className="timetable-scroll"><div className="timetable-grid" role="table" aria-label={view === "class" ? `${grade}학년 ${classNo}반 주간 시간표` : `${selectedTeacher || "선생님"} 주간 시간표`}>
           <div className="timetable-corner" role="columnheader">교시</div>{DAYS.map((day) => <div className={`timetable-day ${todayKey === day.key ? "today" : ""}`} role="columnheader" key={day.key}>{day.label}</div>)}
-          {periods.map((periodIndex) => <div className="timetable-row" role="row" key={periodIndex}><div className="timetable-period" role="rowheader"><strong>{periodIndex + 1}교시</strong><small>수업 시간은 학교별 상이</small></div>{DAYS.map((day) => { const lesson = visibleSchedule[`${day.key}-${periodIndex}`] || {}; return <button type="button" className="timetable-cell" style={lesson.subject ? { backgroundColor: colorForSubject(lesson.subject) } : undefined} key={day.key} onClick={() => view === "class" && openCell(day.key, periodIndex)} disabled={view === "teacher"} aria-label={`${day.label}요일 ${periodIndex + 1}교시 ${lesson.subject || "빈 교시"}`}>{lesson.subject ? <><strong>{lesson.subject}</strong><small>{view === "teacher" ? lesson.classLabel : lesson.teacher || "선생님 입력"}</small>{lesson.live && <em className="live-badge">LIVE</em>}</> : <span>{view === "class" ? "＋" : "-"}</span>}</button>; })}</div>)}
+          {periods.map((periodIndex) => <div className="timetable-row" role="row" key={periodIndex}><div className="timetable-period" role="rowheader"><strong>{periodIndex + 1}교시</strong><small>{timetable.classTimes?.[periodIndex] || "시간 정보 없음"}</small></div>{DAYS.map((day) => { const lesson = visibleSchedule[`${day.key}-${periodIndex}`] || {}; return <button type="button" className={`timetable-cell ${lesson.changed ? "changed" : ""}`} style={lesson.subject ? { backgroundColor: colorForSubject(lesson.subject) } : undefined} key={day.key} onClick={() => view === "class" && openCell(day.key, periodIndex)} disabled={view === "teacher"} aria-label={`${day.label}요일 ${periodIndex + 1}교시 ${lesson.subject || "빈 교시"}`}>{lesson.subject ? <><strong>{lesson.subject}</strong><small>{view === "teacher" ? lesson.classLabel : lesson.teacher || "선생님 정보 없음"}</small>{lesson.changed ? <em className="change-badge">변경</em> : lesson.live && <em className="live-badge">LIVE</em>}</> : <span>{view === "class" ? "＋" : "-"}</span>}</button>; })}</div>)}
         </div></div>
-        {!busy && !Object.keys(visibleSchedule).length && <div className="timetable-empty"><strong>{view === "teacher" ? "표시할 선생님 시간표가 없어요." : "선택한 주의 시간표가 없어요."}</strong><p>{view === "teacher" ? "학급별 시간표에서 선생님 이름을 먼저 등록해 주세요." : "학년·반을 확인하거나 새로고침해 주세요."}</p></div>}
+        {!busy && !Object.keys(visibleSchedule).length && <div className="timetable-empty"><strong>{view === "teacher" ? "표시할 선생님 시간표가 없어요." : "선택한 주의 시간표가 없어요."}</strong><p>{view === "teacher" ? "현재 주의 컴시간 시간표를 먼저 불러와 주세요." : "학년·반을 확인하거나 새로고침해 주세요."}</p></div>}
       </section>
       <aside className="partner-panel timetable-today"><span className="partner-kicker">TODAY CLASS</span><h2>{view === "teacher" ? selectedTeacher || "선생님" : `${grade}학년 ${classNo}반`}</h2><p>오늘 수업만 빠르게 확인하세요.</p><div>{todayLessons.map((lesson) => <article key={lesson.periodIndex}><span>{lesson.periodIndex + 1}교시</span><strong>{lesson.subject}</strong><small>{view === "teacher" ? lesson.classLabel : lesson.teacher}</small></article>)}{!todayLessons.length && <div className="partner-empty compact">오늘 등록된 수업이 없습니다.</div>}</div><button className="partner-primary full" onClick={() => onNavigate("partnerToday")}>오늘 공부 보기</button></aside>
     </section>
 
-    {editor && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditor(null)}><section className="modal timetable-editor" role="dialog" aria-modal="true" aria-labelledby="timetable-editor-title"><button className="modal-close" onClick={() => setEditor(null)} aria-label="닫기">×</button><span className="partner-kicker">CLASS</span><h2 id="timetable-editor-title">{DAYS.find((day) => day.key === editor.day)?.label}요일 {editor.periodIndex + 1}교시</h2><label>과목<input value={editor.subject} onChange={(event) => setEditor({ ...editor, subject: event.target.value })} placeholder="예: 전기기기"/></label><label>선생님<input value={editor.teacher} onChange={(event) => setEditor({ ...editor, teacher: event.target.value })} placeholder="교사명은 나이스 API에 없어 직접 입력합니다." autoFocus/></label><div className="asset-edit-actions"><button className="secondary" onClick={() => setEditor(null)}>취소</button><button className="primary" onClick={saveCell}>저장</button></div></section></div>}
+    {editor && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditor(null)}><section className="modal timetable-editor" role="dialog" aria-modal="true" aria-labelledby="timetable-editor-title"><button className="modal-close" onClick={() => setEditor(null)} aria-label="닫기">×</button><span className="partner-kicker">CLASS</span><h2 id="timetable-editor-title">{DAYS.find((day) => day.key === editor.day)?.label}요일 {editor.periodIndex + 1}교시</h2><label>과목<input value={editor.subject} onChange={(event) => setEditor({ ...editor, subject: event.target.value })} placeholder="예: 전기기기"/></label><label>선생님<input value={editor.teacher} onChange={(event) => setEditor({ ...editor, teacher: event.target.value })} placeholder="컴시간 교사명을 필요하면 수정하세요." autoFocus/></label><div className="asset-edit-actions"><button className="secondary" onClick={() => setEditor(null)}>취소</button><button className="primary" onClick={saveCell}>저장</button></div></section></div>}
   </main>;
 }
