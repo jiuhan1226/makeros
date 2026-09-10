@@ -256,6 +256,17 @@ AI는 다음과 같이 언어 생성과 맥락 이해가 필요한 영역에 사
 
 ## 4. 실행방법
 
+학교 시간표·급식처럼 서버 API를 사용하는 기능은 Live Server나 `npm run dev:web`만으로 실행하지 않습니다.
+
+```bash
+npm install
+npm run dev
+```
+
+브라우저에서는 `http://localhost:5173`으로 접속합니다. `npm run dev`는 Vite 화면과 Express API 서버를 함께 실행합니다.
+
+`Failed to fetch`가 보이면 먼저 `http://localhost:8787/api/health`가 열리는지 확인합니다. `NEIS_API_KEY`는 없어도 공개 조회가 가능하지만 운영 배포에서는 발급받아 `.env` 또는 Render 환경변수에 등록하는 것을 권장합니다.
+
 ### 필수 환경
 
 - Node.js 22.x
@@ -361,7 +372,7 @@ MakerOS는 Google Gemini API를 다음 기능에 사용합니다.
 - CBT 해설 독립 2차 검증
 - 취약 개념 학습 가이드 생성
 - PDF AI 노트 생성
-- PDF 플래시카드 생성
+- PDF별 개념카드 생성
 - Learning Tree 생성
 - 선택한 CBT 또는 PDF 범위 기반 AI Tutor
 - 학습 기록 기반 학습 코치
