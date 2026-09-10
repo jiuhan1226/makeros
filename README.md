@@ -284,6 +284,8 @@ Render 시작 로그에서는 아래 두 줄이 별도로 표시됩니다. 첫 �
 
 `configured: true`, `connected: false`라면 키는 서버에 로드됐지만 Render에서 NEIS 원본 서버로 연결하지 못한 상태입니다. v3.1.15부터 `/api/neis/status`의 `transports`와 서버의 `[MakerOS NEIS Upstream]` 로그에서 인증키를 노출하지 않고 전송 방식별 HTTP 상태를 확인할 수 있습니다.
 
+시간표는 현재 주에는 컴시간 `일자료`를 사용해 변경 수업을 표시하고, 이전·다음 주에는 `원자료`의 기본 시간표를 표시합니다. 주차 이동만으로 NEIS로 바뀌지 않으며, 컴시간 요청이 실패했을 때만 NEIS 시간표를 대신 사용합니다.
+
 ### 필수 환경
 
 - Node.js 22.x
