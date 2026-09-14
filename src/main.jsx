@@ -29,7 +29,8 @@ import AdminPage from "./pages/AdminPage";
 import SearchPage from "./pages/SearchPage";
 import PlannerPage from "./pages/PlannerPage";
 import LearningCenterPage from "./pages/LearningCenterPage";
-import TopicStudyPage from "./pages/TopicStudyPage";
+import AllQuestionsPage from "./pages/AllQuestionsPage";
+import SavedBookmarksPage from "./pages/SavedBookmarksPage";
 import SubjectStudyPage from "./pages/SubjectStudyPage";
 import UnifiedSearchPage from "./pages/UnifiedSearchPage";
 import PdfLibraryPage from "./pages/PdfLibraryPage";
@@ -98,6 +99,7 @@ import {
   certificateUnavailableReason,
   findCertificateForGoal,
 } from "./utils/certificateRouting";
+import { deduplicateQuestions, questionContentKey, removeQuestionFromList } from "./utils/questionDedup";
 import "./styles.css";
 
 const LOCAL_KEY = "studylock-v3-state";
@@ -302,13 +304,13 @@ function App() {
   );
   const legacyPdf = readLegacyPdf();
   const pdfWrongNotes = (legacyPdf.wrongNotes || []).filter((question) => !question.examId);
-  const activeBookmarks = useMemo(
-    () => session.questions.filter((question, index) => session.bookmarks[index]),
-    [session.bookmarks, session.questions],
-  );
   const savedBookmarks = useMemo(
-    () => [...activeBookmarks, ...questionBookmarks].filter((question, index, array) => array.findIndex((item) => item.id === question.id) === index),
-    [activeBookmarks, questionBookmarks],
+    () => deduplicateQuestions(questionBookmarks).questions,
+    [questionBookmarks],
+  );
+  const savedBookmarkKeys = useMemo(
+    () => new Set(questionBookmarks.map((question, index) => questionContentKey(question, index))),
+    [questionBookmarks],
   );
   const progressMap = useMemo(
     () => new Map(learningProgress.map((item) => [item.questionId, item])),
@@ -335,6 +337,10 @@ function App() {
   const certificateLearningProgress = useMemo(
     () => learningProgress.filter((item) => sameCertificate(item, certificate?.id, certificateExamIds)),
     [certificate?.id, certificateExamIds, learningProgress],
+  );
+  const certificateBookmarks = useMemo(
+    () => savedBookmarks.filter((item) => sameCertificate(item, certificate?.id, certificateExamIds)),
+    [certificate?.id, certificateExamIds, savedBookmarks],
   );
 
   async function selectCertificate(nextCertificate) {
@@ -560,11 +566,16 @@ function App() {
 
     const bookmarked = session.questions
       .filter((question, index) => session.bookmarks[index])
-      .map((question) => ({ ...question, examTitle: session.exam?.title || "시험", savedAt: now }));
+      .map((question) => ({
+        ...question,
+        examId: question.examId || session.exam?.id || "",
+        examTitle: question.examTitle || session.exam?.title || "시험",
+        certificateId: question.certificateId || session.exam?.certificateId || certificate?.id || "",
+        certificateName: question.certificateName || session.exam?.certificateName || certificate?.name || "",
+        savedAt: now,
+      }));
     if (bookmarked.length) {
-      setQuestionBookmarks((previous) => [...bookmarked, ...previous]
-        .filter((question, index, array) => array.findIndex((item) => item.id === question.id) === index)
-        .slice(0, 1000));
+      setQuestionBookmarks((previous) => deduplicateQuestions([...bookmarked, ...previous]).questions.slice(0, 1000));
     }
   }
 
@@ -623,7 +634,9 @@ function App() {
     const fallback = {
       pdf: "pdfstudy",
       subject: "subject",
-      topic: "topic",
+      all: "all",
+      topic: "all",
+      "saved-bookmark": "saved",
       recommended: "learning",
       "wrong-review": "bookmark",
       "due-review": "learning",
@@ -632,19 +645,38 @@ function App() {
       exam: "past",
       mock: "mock",
     }[scope] || "past";
-    setPage(session.exam?.returnPage || fallback);
+    setPage(session.exam?.returnPage === "topic" ? "all" : (session.exam?.returnPage || fallback));
   }
 
   function navigate(next) {
-    if (!certificate && ["certificate", "past", "subject", "topic", "mock", "bookmark", "search", "planner", "learning", "report"].includes(next)) {
+    const destination = next === "topic" ? "all" : next;
+    if (!certificate && ["certificate", "past", "subject", "all", "saved", "mock", "bookmark", "search", "planner", "learning", "report"].includes(destination)) {
       setPage("catalog");
       return;
     }
-    if (next === "graph") setGraphQuery("");
-    if (next === "notes") setAssetFocus(null);
-    if (next === "tutor" && page !== "pdfstudy") setTutorSeed({ question: "", pdfId: "" });
-    if (next === "partnerPlan") setPlanFocusGoalId("");
-    setPage(next);
+    if (destination === "graph") setGraphQuery("");
+    if (destination === "notes") setAssetFocus(null);
+    if (destination === "tutor" && page !== "pdfstudy") setTutorSeed({ question: "", pdfId: "" });
+    if (destination === "partnerPlan") setPlanFocusGoalId("");
+    setPage(destination);
+  }
+
+  function removeSavedBookmark(question) {
+    setQuestionBookmarks((previous) => removeQuestionFromList(previous, question));
+  }
+
+  function updateSavedBookmark(question, bookmarked, exam) {
+    const enriched = {
+      ...question,
+      examId: question.examId || exam?.id || "",
+      examTitle: question.examTitle || exam?.title || "시험",
+      certificateId: question.certificateId || exam?.certificateId || certificate?.id || "",
+      certificateName: question.certificateName || exam?.certificateName || certificate?.name || "",
+      savedAt: Date.now(),
+    };
+    setQuestionBookmarks((previous) => bookmarked
+      ? deduplicateQuestions([enriched, ...previous]).questions.slice(0, 1000)
+      : removeQuestionFromList(previous, enriched));
   }
 
   function openPartnerPlan(goalId = "") {
@@ -1129,11 +1161,12 @@ function App() {
       {page === "graph" && <KnowledgeGraphPage initialQuery={graphQuery} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} searchCbt={searchQuestions} onOpenCbt={openSearchResult} onOpenPdf={openPdf} onOpenAsset={openStudyAsset} onAskTutor={(payload) => { const value = typeof payload === "string" ? { question: payload, pdfId: "" } : payload || { question: "", pdfId: "" }; setTutorSeed(value); setPage("tutor"); }} />}
       {page === "past" && <PastExamsPage exams={exams} loadQuestions={getExamQuestions} onOpen={openExam} onNavigate={navigate} />}
       {page === "subject" && <SubjectStudyPage certificate={certificate} exams={exams} history={certificatePracticeHistory.filter((item) => item.studyScope === "subject")} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "subject", learningType: "subjectPractice", returnPage: "subject" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
-      {page === "topic" && <TopicStudyPage certificate={certificate} exams={exams} history={certificatePracticeHistory.filter((item) => item.studyScope === "topic")} learningProgress={certificateLearningProgress} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "topic", learningType: "topicPractice", returnPage: "topic" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
+      {page === "all" && <AllQuestionsPage certificate={certificate} exams={exams} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "all", learningType: "allPractice", returnPage: "all" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
       {page === "mode" && <ModeSelectPage exam={selectedExam} onStart={startExam} onBack={() => setPage("past")} />}
-      {page === "exam" && <ExamPage session={session} onExit={finishExam} onSaveConfidence={saveConfidenceRecord} getDifficulty={getDifficulty} />}
+      {page === "exam" && <ExamPage session={session} onExit={finishExam} onSaveConfidence={saveConfidenceRecord} onBookmarkChange={updateSavedBookmark} isQuestionBookmarked={(question) => savedBookmarkKeys.has(questionContentKey(question))} getDifficulty={getDifficulty} />}
       {page === "mock" && <MockExamPage exams={exams} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "exam", studyScope: "mock", learningType: "mock", returnPage: "mock", certificateId: certificate?.id || "", certificateName: certificate?.name || "" }, questions, "실전모드"); setPage("exam"); }} />}
       {page === "bookmark" && <BookmarkPage wrongNotes={certificateWrongNotes} certificateName={certificate?.name} history={certificateHistory} onStartRecommended={startRecommended} onStartWrongReview={startWrongReview} repeatedWrong={repeatedWrong} dueReviews={dueReviews} onStartDueReview={startDueReview} />}
+      {page === "saved" && <SavedBookmarksPage certificate={certificate} bookmarks={certificateBookmarks} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "saved-bookmark", learningType: "bookmarkPractice", returnPage: "saved" }, questions, "연습모드"); setPage("exam"); }} onRemove={removeSavedBookmark} onNavigate={navigate} />}
       {page === "search" && <SearchPage exams={exams} searchQuestions={async (term) => (await searchQuestions(term)).map((item) => item.q)} onOpenResult={(exam, question) => openSearchResult(exam, question)} />}
       {page === "planner" && <PlannerPage certificate={certificate} wrongNotes={certificateWrongNotes} history={certificateHistory} practiceHistory={certificatePracticeHistory} learningProgress={certificateLearningProgress} exams={exams} plan={plan} onSavePlan={setPlan} onStartRecommended={startRecommended} onStartDueReview={startDueReview} onStartRepeatedWrong={startWrongReview} pdfLibrary={pdfLibrary} />}
       {page === "admin" && isAdminUser(user) && <AdminPage />}
