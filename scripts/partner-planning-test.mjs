@@ -9,6 +9,11 @@ import {
   partnerCalendarItems,
   planDiff,
   rollbackPartnerPlan,
+  availableMinutesForDate,
+  fixedScheduleMinutesForDate,
+  rolloverPartnerDay,
+  transferPlanProgress,
+  updateTodayItemStatus,
 } from '../src/utils/aiPartner.js';
 
 const base = createDefaultPartnerState();
@@ -38,7 +43,7 @@ assert.ok(plan.weeks.at(-1).endsAt >= '2027-01-10', '계획 마지막 주가 가
 assert.ok(plan.today.items.length >= 1 && plan.today.items.length <= 5, '오늘 계획은 1~5개여야 합니다.');
 assert.ok(plan.weeks.every((week) => week.totalMinutes <= plan.constraints.weeklyAvailableMinutes), '주간 계획이 가능 시간을 넘으면 안 됩니다.');
 assert.ok(plan.today.totalMinutes <= plan.today.availableMinutes, '오늘 계획이 오늘 가능 시간을 넘으면 안 됩니다.');
-assert.equal(plan.algorithmVersion, 3, '새 균형 분배 알고리즘을 사용해야 합니다.');
+assert.equal(plan.algorithmVersion, 4, '고정 일정까지 차감하는 새 분배 알고리즘을 사용해야 합니다.');
 assert.ok(plan.roadmap.some((goal) => goal.type === 'academic'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'certificate'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'career'));
@@ -54,6 +59,21 @@ const middleWeekMinutes = balancedPlan.weeks.slice(1, 3).map((week) => week.tota
 assert.ok(Math.max(...middleWeekMinutes) - Math.min(...middleWeekMinutes) <= 60, '전체 기간의 주간 학습량이 한 주에 몰리면 안 됩니다.');
 assert.ok(balancedPlan.weeks.every((week) => week.totalMinutes <= (week.availableMinutes || balancedPlan.constraints.weeklyAvailableMinutes)), '부분 주차도 실제 남은 가능 시간을 넘으면 안 됩니다.');
 assert.ok(new Set(balancedPlan.weeks[1].items.slice(0, 2).map((item) => item.goalId)).size > 1, '같은 주의 여러 목표가 번갈아 배치되어야 합니다.');
+
+const constrained = createDefaultPartnerState();
+constrained.profile.dailyAvailableMinutes.mon = 180;
+constrained.profile.dailyAvailableMinutes.tue = 0;
+constrained.profile.fixedSchedules = [
+  { id: 'fixed-1', dayKey: 'mon', startTime: '16:00', endTime: '18:00' },
+  { id: 'fixed-2', dayKey: 'mon', startTime: '17:00', endTime: '19:00' },
+];
+constrained.goals = [{ id: 'constraint-goal', type: 'academic', title: '전기기기 내신', startDate: '2026-09-14', deadline: '2026-09-30' }];
+assert.equal(fixedScheduleMinutesForDate(constrained.profile, '2026-09-14'), 180, '겹치는 고정 일정은 중복 차감하면 안 됩니다.');
+assert.equal(availableMinutesForDate(constrained.profile, '2026-09-14'), 0, '고정 일정을 공부 가능 시간에서 차감해야 합니다.');
+assert.equal(availableMinutesForDate(constrained.profile, '2026-09-15'), 0, '0분으로 지정한 날은 그대로 0분이어야 합니다.');
+const zeroDayPlan = buildDeterministicPlan(constrained, { today: '2026-09-15' });
+assert.equal(zeroDayPlan.today.availableMinutes, 0);
+assert.deepEqual(zeroDayPlan.today.items, [], '0분인 날에는 기본 안내 행동도 배치하면 안 됩니다.');
 
 const calendar = normalizePartnerState({
   ...base,
@@ -84,6 +104,16 @@ state = confirmPendingPlan(state);
 assert.notEqual(state.activePlanVersionId, previousActive, '새 계획 버전이 활성화되어야 합니다.');
 state = rollbackPartnerPlan(state, previousActive);
 assert.ok(state.activePlanVersionId, '롤백 후에도 active 버전이 있어야 합니다.');
+
+let completionState = createPlanVersion(base, buildDeterministicPlan(base, { today: '2026-09-14' }), { activate: true });
+const completionItem = getActivePartnerPlan(completionState).today.items[0];
+completionState = updateTodayItemStatus(completionState, completionItem.id, 'completed', { score: 80 });
+const transferred = transferPlanProgress(getActivePartnerPlan(completionState), buildDeterministicPlan(completionState, { today: '2026-09-14' }));
+assert.ok(transferred.weeks.flatMap((week) => week.items).some((item) => item.status === 'completed'), '재계획 후에도 완료 상태가 유지되어야 합니다.');
+const beforeRolloverId = completionState.activePlanVersionId;
+completionState = rolloverPartnerDay(completionState, { today: '2026-09-15' });
+assert.equal(getActivePartnerPlan(completionState).today.date, '2026-09-15', '날짜 변경 시 오늘 계획 날짜가 자동 갱신되어야 합니다.');
+assert.notEqual(completionState.activePlanVersionId, beforeRolloverId, '날짜 변경은 되돌릴 수 있는 새 계획 버전으로 저장되어야 합니다.');
 
 const legacy = normalizePartnerState({
   schemaVersion: 1,
