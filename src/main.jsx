@@ -68,8 +68,10 @@ import {
   profileSnapshot,
   recordChangeEvent,
   rollbackPartnerPlan,
+  adjustTodayPlanItem,
   updateTodayItemStatus,
 } from "./utils/aiPartner";
+import { pageFromLocation, pageToHash } from "./utils/appRouting";
 import {
   buildRepeatedWrong,
   getDueReviews,
@@ -146,7 +148,7 @@ function progressToQuestion(item, index = 0) {
 function App() {
   const initial = useRef(migrateLearningState(readLocal())).current;
   const makerInitial = useRef(readMakerState()).current;
-  const [page, setPage] = useState("partnerToday");
+  const [page, setPage] = useState(() => pageFromLocation());
   const [certificates, setCertificates] = useState([]);
   const [certificatesLoaded, setCertificatesLoaded] = useState(false);
   const [certificate, setCertificate] = useState(null);
@@ -192,6 +194,25 @@ function App() {
     () => buildCertificateShortcuts(partnerCertificateGoals, certificates),
     [certificates, partnerCertificateGoals],
   );
+
+  useEffect(() => {
+    if (!window.location.hash) window.history.replaceState({ page }, "", pageToHash(page));
+    const restoreRoute = () => setPage(pageFromLocation());
+    window.addEventListener("popstate", restoreRoute);
+    window.addEventListener("hashchange", restoreRoute);
+    return () => {
+      window.removeEventListener("popstate", restoreRoute);
+      window.removeEventListener("hashchange", restoreRoute);
+    };
+  }, []);
+  useEffect(() => {
+    const nextHash = pageToHash(page);
+    if (window.location.hash !== nextHash) window.history.pushState({ page }, "", nextHash);
+  }, [page]);
+  useEffect(() => {
+    if (page === "exam" && !session.exam) setPage("partnerToday");
+    if (page === "mode" && !selectedExam) setPage(certificate ? "past" : "catalog");
+  }, [certificate, page, selectedExam, session.exam]);
 
   useEffect(() => (firebaseConfigured ? onAuthStateChanged(auth, setUser) : undefined), []);
   useEffect(() => {
@@ -254,6 +275,8 @@ function App() {
           setStudyEvents(migrated.studyEvents || []);
           setPlan(migrated.plan || {});
           setQuestionBookmarks(migrated.questionBookmarks || []);
+          setPdfQuizHistory(migrated.pdfQuizHistory || data.pdfQuizHistory || []);
+          setPdfQuizWrongNotes(migrated.pdfQuizWrongNotes || data.pdfQuizWrongNotes || []);
           setActiveCertificateId(String(migrated.activeCertificateId || data.activeCertificateId || ""));
           if (data.partnerState) setPartnerState(normalizePartnerState(data.partnerState));
         }
@@ -285,7 +308,7 @@ function App() {
     };
     localStorage.setItem(LOCAL_KEY, JSON.stringify(state));
     if (user && cloudReady && cloudLoadedForUid === user.uid) {
-      const cloudState = { history, practiceHistory, wrongNotes, learningProgress, studyEvents, plan, questionBookmarks, activeCertificateId: certificate?.id || activeCertificateId, partnerState };
+      const cloudState = { history, practiceHistory, wrongNotes, learningProgress, studyEvents, plan, questionBookmarks, pdfQuizHistory, pdfQuizWrongNotes, activeCertificateId: certificate?.id || activeCertificateId, partnerState };
       const id = setTimeout(() => saveCloudState(user.uid, cloudState).catch(console.error), 500);
       return () => clearTimeout(id);
     }
@@ -475,6 +498,36 @@ function App() {
         createdAt: now,
       }, ...previous].slice(0, 300));
       setPdfQuizWrongNotes((previous) => [...wrong.map((question) => ({ ...question, pdfId, sourceName, sourceType: "PDF" })), ...previous].slice(0, 1500));
+      setPartnerState((previous) => {
+        const normalized = normalizePartnerState(previous);
+        const weakSubjects = [...(result.subjects || [])]
+          .sort((a, b) => Number(a.score || 0) - Number(b.score || 0) || Number(b.wrong || 0) - Number(a.wrong || 0))
+          .slice(0, 3)
+          .map((item) => item.subject)
+          .filter(Boolean);
+        const signal = {
+          id: `pdf-signal-${now}`,
+          type: "pdf_quiz",
+          pdfId,
+          sourceName,
+          score: result.score,
+          total: result.total,
+          correct: result.correct,
+          weakSubjects,
+          createdAt: now,
+        };
+        let next = normalizePartnerState({ ...normalized, learningSignals: [signal, ...normalized.learningSignals].slice(0, 100) });
+        next = recordChangeEvent(next, {
+          type: "study_result_saved",
+          label: `${sourceName} 이해도 확인 ${result.score}점이 저장되어 내신 계획에 반영됩니다.`,
+          after: { score: result.score, weakSubjects },
+          actor: "system",
+        });
+        const hasAcademicGoal = next.goals.some((goal) => goal.type === "academic" || /내신|과목|시험|수행평가/.test(`${goal.title || ""} ${goal.details || ""}`));
+        if (!hasAcademicGoal || !getActivePartnerPlan(next)) return next;
+        const replanned = buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" });
+        return createPlanVersion(next, replanned, { activate: true });
+      });
       return;
     }
 
@@ -645,6 +698,7 @@ function App() {
       exam: "past",
       mock: "mock",
     }[scope] || "past";
+    if (session.submitted) session.clearCheckpoint();
     setPage(session.exam?.returnPage === "topic" ? "all" : (session.exam?.returnPage || fallback));
   }
 
@@ -1132,13 +1186,21 @@ function App() {
     });
   }
 
+  function adjustTodayPartnerItem(itemId, action) {
+    const labels = { reduce: "학습 분량을 15분 줄였습니다.", defer: "이 일을 내일로 옮기고 다음 할 일을 채웠습니다.", skip: "오늘은 건너뛰고 다음 할 일을 채웠습니다." };
+    setPartnerState((previous) => recordChangeEvent(
+      adjustTodayPlanItem(previous, itemId, action),
+      { type: "plan_item_adjusted", label: labels[action] || "오늘 계획을 조정했습니다.", actor: "student" },
+    ));
+  }
+
   const repeatedWrong = useMemo(() => buildRepeatedWrong(certificateLearningProgress), [certificateLearningProgress]);
   const dueReviews = useMemo(() => getDueReviews(certificateLearningProgress), [certificateLearningProgress]);
 
   return (
     <div className="app">
       <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} certificateShortcuts={certificateShortcuts} onOpenCertificateGoal={openPartnerCertificateGoal} onStartCertificateGoal={startPartnerCertificateGoal} user={user} onLogin={() => setShowAuth(true)} onTutorial={() => setShowTutorial(true)} isAdmin={isAdminUser(user)} />
-      {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} onOpenPlanItem={openPartnerPlan} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
+      {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} onOpenPlanItem={openPartnerPlan} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onAdjustItem={adjustTodayPartnerItem} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
       {page === "partnerPlan" && <PartnerPlanPage state={partnerState} focusGoalId={planFocusGoalId} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
       {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
       {page === "timetable" && <TimetablePage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
@@ -1161,7 +1223,7 @@ function App() {
       {page === "graph" && <KnowledgeGraphPage initialQuery={graphQuery} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} searchCbt={searchQuestions} onOpenCbt={openSearchResult} onOpenPdf={openPdf} onOpenAsset={openStudyAsset} onAskTutor={(payload) => { const value = typeof payload === "string" ? { question: payload, pdfId: "" } : payload || { question: "", pdfId: "" }; setTutorSeed(value); setPage("tutor"); }} />}
       {page === "past" && <PastExamsPage exams={exams} loadQuestions={getExamQuestions} onOpen={openExam} onNavigate={navigate} />}
       {page === "subject" && <SubjectStudyPage certificate={certificate} exams={exams} history={certificatePracticeHistory.filter((item) => item.studyScope === "subject")} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "subject", learningType: "subjectPractice", returnPage: "subject" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
-      {page === "all" && <AllQuestionsPage certificate={certificate} exams={exams} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "all", learningType: "allPractice", returnPage: "all" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
+      {page === "all" && <AllQuestionsPage certificate={certificate} exams={exams} loadQuestions={getExamQuestions} resumeSession={session.resumable && session.exam?.studyScope === "all" && (!certificate?.id || session.exam?.certificateId === certificate.id) ? { title: session.exam?.title || "전체 문제 학습", current: session.current, total: session.questions.length, answered: Object.keys(session.answers).length } : null} onResume={() => setPage("exam")} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "all", learningType: "allPractice", returnPage: "all" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
       {page === "mode" && <ModeSelectPage exam={selectedExam} onStart={startExam} onBack={() => setPage("past")} />}
       {page === "exam" && <ExamPage session={session} onExit={finishExam} onSaveConfidence={saveConfidenceRecord} onBookmarkChange={updateSavedBookmark} isQuestionBookmarked={(question) => savedBookmarkKeys.has(questionContentKey(question))} getDifficulty={getDifficulty} />}
       {page === "mock" && <MockExamPage exams={exams} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "exam", studyScope: "mock", learningType: "mock", returnPage: "mock", certificateId: certificate?.id || "", certificateName: certificate?.name || "" }, questions, "실전모드"); setPage("exam"); }} />}
