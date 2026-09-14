@@ -58,6 +58,10 @@ export function useExamSession() {
     setBookmarks((prev) => ({ ...prev, [index]: !prev[index] }));
   }
 
+  function setBookmark(index, value) {
+    setBookmarks((prev) => ({ ...prev, [index]: Boolean(value) }));
+  }
+
   function toggleReviewCheck(index) {
     setReviewChecks((prev) => ({ ...prev, [index]: !prev[index] }));
   }
@@ -85,6 +89,7 @@ export function useExamSession() {
     start,
     answer,
     toggleBookmark,
+    setBookmark,
     toggleReviewCheck,
     setConfidence,
     setCurrent,
