@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-const CERTIFICATE_PAGES = new Set(["catalog", "certificate", "past", "subject", "topic", "mock", "bookmark", "learning", "report", "planner", "search"]);
+const CERTIFICATE_PAGES = new Set(["catalog", "certificate", "past", "subject", "all", "saved", "mock", "bookmark", "learning", "report", "planner", "search"]);
 const SCHOOL_PAGES = new Set(["library", "pdfstudy", "notes", "graph", "tutor"]);
 
 function activeModule(active) {
@@ -32,7 +32,8 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
     [certificateHome, "학습 홈"],
     ["past", "기출문제"],
     ["subject", "과목별"],
-    ["topic", "주제별"],
+    ["all", "전체 문제"],
+    ["saved", "북마크"],
     ["bookmark", "오답·복습"],
     ["learning", "AI 추천 학습"],
     ["planner", "시험 계획"],
