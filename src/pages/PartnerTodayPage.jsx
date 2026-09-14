@@ -10,7 +10,7 @@ function ActionButton({ item, onNavigate, onQuickAction, learningAction }) {
   return <button className="partner-mini-action" disabled={working} onClick={() => onQuickAction ? onQuickAction(item) : onNavigate(target)}>{label}</button>;
 }
 
-export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onOpenPlanItem, learningAction, onToggleItem, onGeneratePlan, onConfirmPending, busy = false }) {
+export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onOpenPlanItem, learningAction, onToggleItem, onAdjustItem, onGeneratePlan, onConfirmPending, busy = false }) {
   const normalized = useMemo(() => normalizePartnerState(state), [state]);
   const active = getActivePartnerPlan(normalized);
   const pending = getPendingPartnerPlan(normalized);
@@ -61,7 +61,10 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onO
           {items.map((item, index) => <article key={item.id} className={`partner-task ${item.status === "completed" ? "done" : ""}`}>
             <button className="partner-check" aria-label="완료 상태 변경" onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
             <button type="button" className="partner-task-content" onClick={() => onOpenPlanItem?.(item.goalId)}><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><p>{item.reason}</p><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "일정"}</small></button>
-            <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction} learningAction={learningAction}/>
+            <div className="partner-task-actions">
+              <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction} learningAction={learningAction}/>
+              {item.status !== "completed" && <details><summary>조정</summary><div><button type="button" onClick={() => onAdjustItem?.(item.id, "reduce")}>15분 줄이기</button><button type="button" onClick={() => onAdjustItem?.(item.id, "defer")}>내일로 이동</button><button type="button" onClick={() => onAdjustItem?.(item.id, "skip")}>오늘은 건너뛰기</button></div></details>}
+            </div>
           </article>)}
         </div>
       </div>
