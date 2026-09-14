@@ -7,9 +7,13 @@ export function partnerId(prefix = "id") {
 
 function isoDate(value) {
   if (!value) return "";
+  if (typeof value === "string") {
+    const exact = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (exact) return `${exact[1]}-${exact[2]}-${exact[3]}`;
+  }
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function dateAtNoon(value) {
@@ -309,18 +313,66 @@ function weekEnd(base, weekIndex) {
   return isoDate(addDays(dateAtNoon(weekStart(base, weekIndex)), 6));
 }
 
-function weeklyAvailableMinutes(state) {
+function clockMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function scheduleAppliesToDate(schedule, date) {
+  const dateKey = isoDate(date);
+  const dayKey = DAY_KEYS[date.getDay()];
+  const exactDate = isoDate(schedule?.date || "");
+  if (exactDate) return exactDate === dateKey;
+  const startDate = isoDate(schedule?.startDate || "");
+  const endDate = isoDate(schedule?.endDate || schedule?.startDate || "");
+  if (startDate && (dateKey < startDate || (endDate && dateKey > endDate))) return false;
+  const recurringDay = String(schedule?.dayKey || schedule?.day || schedule?.weekday || "").toLowerCase();
+  return recurringDay ? recurringDay === dayKey || recurringDay === DAY_LABELS[dayKey] : Boolean(startDate);
+}
+
+export function fixedScheduleMinutesForDate(profile = {}, value = new Date()) {
+  const date = dateAtNoon(value) || new Date(value);
+  if (Number.isNaN(date.getTime())) return 0;
+  const schedules = (Array.isArray(profile.fixedSchedules) ? profile.fixedSchedules : []).filter((item) => scheduleAppliesToDate(item, date));
+  const intervals = [];
+  let durationOnly = 0;
+  schedules.forEach((schedule) => {
+    const start = clockMinutes(schedule.startTime);
+    const end = clockMinutes(schedule.endTime);
+    if (start != null && end != null && end > start) intervals.push([start, end]);
+    else durationOnly += Math.max(0, Number(schedule.durationMinutes || 0));
+  });
+  intervals.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged = [];
+  intervals.forEach(([start, end]) => {
+    const previous = merged.at(-1);
+    if (previous && start <= previous[1]) previous[1] = Math.max(previous[1], end);
+    else merged.push([start, end]);
+  });
+  return Math.round(durationOnly + merged.reduce((sum, [start, end]) => sum + end - start, 0));
+}
+
+export function availableMinutesForDate(profile = {}, value = new Date()) {
+  const date = dateAtNoon(value) || new Date(value);
+  if (Number.isNaN(date.getTime())) return 0;
+  const base = Math.max(0, Number(profile.dailyAvailableMinutes?.[DAY_KEYS[date.getDay()]] || 0));
+  return Math.max(0, base - fixedScheduleMinutesForDate(profile, date));
+}
+
+function weeklyAvailableMinutes(state, baseDate = new Date()) {
   const profile = normalizePartnerState(state).profile;
-  const daily = profile.dailyAvailableMinutes || {};
-  const sum = Object.values(daily).reduce((total, value) => total + Math.max(0, Number(value) || 0), 0);
-  const fromHours = Math.max(0, Number(profile.weeklyAvailableHours || 0) * 60);
-  return Math.max(60, Math.min(sum || fromHours || 480, fromHours || sum || 480));
+  const monday = dateAtNoon(weekStart(dateAtNoon(baseDate) || new Date(), 0));
+  return Array.from({ length: 7 }, (_, index) => availableMinutesForDate(profile, addDays(monday, index)))
+    .reduce((sum, minutes) => sum + minutes, 0);
 }
 
 function todayAvailableMinutes(state, today = new Date()) {
   const profile = normalizePartnerState(state).profile;
-  const key = DAY_KEYS[today.getDay()];
-  return Math.max(20, Number(profile.dailyAvailableMinutes?.[key] || Math.round(weeklyAvailableMinutes(state) / 7)));
+  return availableMinutesForDate(profile, today);
 }
 
 function planHorizonWeeks(goals, today) {
@@ -355,7 +407,7 @@ function minutesInDateRange(profile, start, end) {
   if (!first || !last || last < first) return 0;
   let minutes = 0;
   for (let date = new Date(first), index = 0; date <= last && index < 7; date = addDays(date, 1), index += 1) {
-    minutes += Math.max(0, Number(profile.dailyAvailableMinutes?.[DAY_KEYS[date.getDay()]] || 0));
+    minutes += availableMinutesForDate(profile, date);
   }
   return minutes;
 }
@@ -437,7 +489,7 @@ export function buildDeterministicPlan(state, options = {}) {
   }));
   const roadmap = [];
   const allocations = weeks.map(() => []);
-  const weekLimit = weeklyAvailableMinutes(normalized);
+  const weekLimit = weeklyAvailableMinutes(normalized, today);
 
   for (const goal of goals) {
     const templates = milestoneTemplates(goal);
@@ -474,7 +526,7 @@ export function buildDeterministicPlan(state, options = {}) {
       const availableMinutes = goalWeekAvailability(goal, weeks[weekIndex], normalized, today);
       if (availableMinutes <= 0) continue;
       const progress = endWeek === startWeek ? 1 : (weekIndex - startWeek) / (endWeek - startWeek);
-      const periodShare = Math.min(1, availableMinutes / weekLimit);
+      const periodShare = Math.min(1, availableMinutes / Math.max(1, weekLimit));
       const ramp = 0.92 + progress * 0.16;
       allocations[weekIndex].push({ goal, templates, progress, requestedMinutes: weeklyGoalDemand(goal) * periodShare * ramp });
     }
@@ -482,7 +534,7 @@ export function buildDeterministicPlan(state, options = {}) {
 
   for (const week of weeks) {
     const weekIndex = week.weekIndex;
-    const availableMinutes = Math.max(0, Math.min(weekLimit, weekAvailability(week, normalized, today)));
+    const availableMinutes = Math.max(0, weekAvailability(week, normalized, today));
     week.availableMinutes = availableMinutes;
     const requestedTotal = allocations[weekIndex].reduce((sum, item) => sum + item.requestedMinutes, 0);
     const studyBudget = Math.floor((availableMinutes * 0.88) / 5) * 5;
@@ -516,13 +568,14 @@ export function buildDeterministicPlan(state, options = {}) {
     }
     week.totalMinutes = week.items.reduce((sum, item) => sum + item.durationMinutes, 0);
     week.items = interleaveStudyItems(week.items);
-    if (week.totalMinutes > weekLimit && week.items.length) {
-      const ratio = weekLimit / week.totalMinutes;
-      week.items = week.items.map((item) => ({
-        ...item,
-        durationMinutes: Math.max(20, Math.round((item.durationMinutes * ratio) / 5) * 5),
-        reason: `${item.reason} 이번 주 가능 시간을 넘지 않도록 분량을 조정했습니다.`,
-      }));
+    if (week.totalMinutes > availableMinutes && week.items.length) {
+      let remainingMinutes = availableMinutes;
+      week.items = week.items.flatMap((item) => {
+        const durationMinutes = Math.floor(Math.min(Number(item.durationMinutes || 0), remainingMinutes) / 5) * 5;
+        if (durationMinutes < 20) return [];
+        remainingMinutes -= durationMinutes;
+        return [{ ...item, durationMinutes, reason: `${item.reason} 이번 주 가능 시간을 넘지 않도록 분량을 조정했습니다.` }];
+      });
       week.totalMinutes = week.items.reduce((sum, item) => sum + item.durationMinutes, 0);
     }
   }
@@ -538,7 +591,7 @@ export function buildDeterministicPlan(state, options = {}) {
     todayItems.push({ ...item, id: partnerId("today"), parentPlanItemId: item.id, durationMinutes: duration });
     remaining -= duration;
   }
-  if (!todayItems.length) {
+  if (!todayItems.length && todayLimit >= 20) {
     todayItems.push({
       id: partnerId("today"), goalId: "onboarding", goalType: "system", title: goals.length ? "이번 주 계획 확인" : "첫 목표 입력하기",
       reason: goals.length ? "이번 주 목표와 마감을 확인하고 오늘 가능한 분량부터 시작합니다." : "목표와 날짜를 입력하면 마감일까지의 계획을 만들 수 있습니다.",
@@ -547,7 +600,7 @@ export function buildDeterministicPlan(state, options = {}) {
   }
 
   const plan = {
-    algorithmVersion: 3,
+    algorithmVersion: 4,
     versionId: partnerId("version"),
     inputSnapshotId: partnerId("snapshot"),
     createdAt: Date.now(),
@@ -556,7 +609,7 @@ export function buildDeterministicPlan(state, options = {}) {
     source: options.source || "rules",
     summary: goals.length
       ? `${goals.length}개의 목표 기간과 주 ${Math.round(weekLimit / 60 * 10) / 10}시간의 가능 시간을 기준으로 계획을 구성했습니다.`
-      : "목표 정보가 부족해 첫 설정 행동만 제안합니다.",
+      : todayLimit >= 20 ? "목표 정보가 부족해 첫 설정 행동만 제안합니다." : "오늘은 등록한 가능 시간과 고정 일정을 반영해 학습을 배치하지 않았습니다.",
     roadmap,
     weeks,
     today: { date: isoDate(today), availableMinutes: todayLimit, items: todayItems },
@@ -573,7 +626,8 @@ export function buildDeterministicPlan(state, options = {}) {
 
 export function validatePartnerPlan(plan, state) {
   const normalized = normalizePartnerState(state);
-  const weekLimit = weeklyAvailableMinutes(normalized);
+  const referenceDate = dateAtNoon(plan?.today?.date) || new Date();
+  const weekLimit = weeklyAvailableMinutes(normalized, referenceDate);
   const output = JSON.parse(JSON.stringify(plan || {}));
   output.warnings = Array.isArray(output.warnings) ? output.warnings : [];
   output.weeks = Array.isArray(output.weeks) ? output.weeks.slice(0, 52) : [];
@@ -584,20 +638,32 @@ export function validatePartnerPlan(plan, state) {
   for (const week of output.weeks) {
     week.items = Array.isArray(week.items) ? week.items : [];
     let total = week.items.reduce((sum, item) => sum + Math.max(0, Number(item.durationMinutes) || 0), 0);
-    if (total > weekLimit && total > 0) {
-      const ratio = weekLimit / total;
-      week.items = week.items.map((item) => ({ ...item, durationMinutes: Math.max(20, Math.round(((Number(item.durationMinutes) || 30) * ratio) / 5) * 5) }));
+    const weekAvailable = Math.max(0, Number.isFinite(Number(week.availableMinutes)) ? Number(week.availableMinutes) : minutesInDateRange(normalized.profile, week.startsAt, week.endsAt));
+    if (total > weekAvailable && total > 0) {
+      let remainingMinutes = weekAvailable;
+      week.items = week.items.flatMap((item) => {
+        const durationMinutes = Math.floor(Math.min(Number(item.durationMinutes || 0), remainingMinutes) / 5) * 5;
+        if (durationMinutes < 20) return [];
+        remainingMinutes -= durationMinutes;
+        return [{ ...item, durationMinutes }];
+      });
       total = week.items.reduce((sum, item) => sum + item.durationMinutes, 0);
       output.warnings.push(`${week.startsAt || "해당 주"} 계획이 가능 시간을 초과해 자동 축소되었습니다.`);
     }
+    week.availableMinutes = weekAvailable;
     week.totalMinutes = total;
   }
 
   const todayLimit = todayAvailableMinutes(normalized, dateAtNoon(output.today.date) || new Date());
   let todayTotal = output.today.items.reduce((sum, item) => sum + Math.max(0, Number(item.durationMinutes) || 0), 0);
   if (todayTotal > todayLimit && todayTotal > 0) {
-    const ratio = todayLimit / todayTotal;
-    output.today.items = output.today.items.map((item) => ({ ...item, durationMinutes: Math.max(15, Math.round(((Number(item.durationMinutes) || 20) * ratio) / 5) * 5) }));
+    let remainingMinutes = todayLimit;
+    output.today.items = output.today.items.flatMap((item) => {
+      const durationMinutes = Math.floor(Math.min(Number(item.durationMinutes || 0), remainingMinutes) / 5) * 5;
+      if (durationMinutes < 15) return [];
+      remainingMinutes -= durationMinutes;
+      return [{ ...item, durationMinutes }];
+    });
     todayTotal = output.today.items.reduce((sum, item) => sum + item.durationMinutes, 0);
     output.warnings.push("오늘 계획이 가능 시간을 초과해 자동 축소되었습니다.");
   }
@@ -703,6 +769,80 @@ export function updateTodayItemStatus(state, itemId, status, result = {}) {
     };
   });
   return { ...normalized, planVersions: versions, lastUpdatedAt: Date.now() };
+}
+
+function normalizedPlanTitle(value = "") {
+  return String(value).replace(/\s*·\s*\d+회차\s*$/, "").trim();
+}
+
+function progressKey(item = {}) {
+  return [item.goalId || "", item.action || "", normalizedPlanTitle(item.title)].join("::");
+}
+
+export function transferPlanProgress(previousPlan, nextPlan) {
+  if (!previousPlan || !nextPlan) return nextPlan;
+  const progress = new Map();
+  const previousItems = [
+    ...(previousPlan.weeks || []).flatMap((week) => week.items || []),
+    ...(previousPlan.today?.items || []),
+  ];
+  previousItems.forEach((item) => {
+    if (!["completed", "skipped", "deferred"].includes(item?.status)) return;
+    const key = progressKey(item);
+    const saved = progress.get(key);
+    if (!saved || Number(item.updatedAt || 0) >= Number(saved.updatedAt || 0)) progress.set(key, item);
+  });
+  const apply = (item) => {
+    const saved = progress.get(progressKey(item));
+    return saved ? { ...item, status: saved.status, result: saved.result || {}, updatedAt: saved.updatedAt || Date.now() } : item;
+  };
+  return {
+    ...nextPlan,
+    weeks: (nextPlan.weeks || []).map((week) => ({ ...week, items: (week.items || []).map(apply) })),
+    today: { ...nextPlan.today, items: (nextPlan.today?.items || []).map(apply) },
+  };
+}
+
+export function rolloverPartnerDay(state, { today = new Date() } = {}) {
+  const normalized = normalizePartnerState(state);
+  const active = normalized.planVersions.find((item) => item.versionId === normalized.activePlanVersionId);
+  const nextDate = isoDate(today);
+  if (!active || !nextDate || active.today?.date === nextDate) return state;
+
+  const oldItems = (active.today?.items || []).filter((item) => !["completed", "skipped"].includes(item.status));
+  const eventId = partnerId("change");
+  let next = recordChangeEvent(normalized, {
+    id: eventId,
+    type: "daily_plan_refreshed",
+    label: oldItems.length ? `날짜가 바뀌어 미완료 ${oldItems.length}개를 포함한 오늘 계획을 갱신했습니다.` : "날짜가 바뀌어 오늘 계획을 갱신했습니다.",
+    before: { date: active.today?.date || "", incompleteCount: oldItems.length },
+    after: { date: nextDate },
+    actor: "system",
+  });
+  let refreshed = transferPlanProgress(active, buildDeterministicPlan(next, { today, basedOnEventId: eventId, source: "daily-rollover" }));
+  const limit = Math.max(0, Number(refreshed.today?.availableMinutes || 0));
+  if (limit <= 0) {
+    refreshed.today = { ...refreshed.today, date: nextDate, items: [], totalMinutes: 0 };
+  } else {
+    let remaining = limit;
+    const merged = [];
+    const candidates = [
+      ...oldItems.map((item) => ({ ...item, id: partnerId("today"), status: "todo", reason: `어제 완료하지 못한 일입니다. ${item.reason || ""}`.trim() })),
+      ...(refreshed.today?.items || []),
+    ];
+    const seen = new Set();
+    candidates.forEach((item) => {
+      const key = progressKey(item);
+      if (merged.length >= 5 || remaining < 15 || seen.has(key) || item.status === "completed") return;
+      const durationMinutes = Math.floor(Math.min(Number(item.durationMinutes || 0), remaining, 75) / 5) * 5;
+      if (durationMinutes < 15) return;
+      seen.add(key);
+      merged.push({ ...item, durationMinutes });
+      remaining -= durationMinutes;
+    });
+    refreshed.today = { ...refreshed.today, date: nextDate, items: merged, totalMinutes: merged.reduce((sum, item) => sum + item.durationMinutes, 0) };
+  }
+  return createPlanVersion(next, refreshed, { activate: true });
 }
 
 export function adjustTodayPlanItem(state, itemId, action) {
