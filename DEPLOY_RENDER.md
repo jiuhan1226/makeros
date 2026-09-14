@@ -1,4 +1,4 @@
-# MakerOS v3.1.18 Render 배포 가이드
+# MakerOS v3.1.19 Render 배포 가이드
 
 이 버전은 Vite 프론트엔드와 Express API를 하나의 Render Web Service에서 제공합니다.
 
@@ -7,7 +7,7 @@
 ```bash
 git init
 git add .
-git commit -m "Deploy MakerOS v3.1.18"
+git commit -m "Deploy MakerOS v3.1.19"
 git branch -M main
 git remote add origin <GitHub 저장소 주소>
 git push -u origin main
@@ -66,7 +66,7 @@ https://<Render 도메인>/api/health
 ```json
 {
   "ok": true,
-  "version": "3.1.18",
+  "version": "3.1.19",
   "apiKeyConfigured": true,
   "neisApiKeyConfigured": true,
   "firebaseTokenVerificationConfigured": true,
