@@ -69,6 +69,7 @@ export function createDefaultPartnerState() {
     activePlanVersionId: "",
     pendingPlanVersionId: "",
     changeEvents: [],
+    learningSignals: [],
     studyLinks: [],
     lastUpdatedAt: Date.now(),
   };
@@ -102,6 +103,7 @@ export function normalizePartnerState(input = {}) {
   if (!state.timetable.comciganCode && state.timetable.schoolName === "공주마이스터고등학교") state.timetable.comciganCode = "85318";
   state.planVersions = Array.isArray(input?.planVersions) ? input.planVersions : [];
   state.changeEvents = Array.isArray(input?.changeEvents) ? input.changeEvents : [];
+  state.learningSignals = Array.isArray(input?.learningSignals) ? input.learningSignals : [];
   state.studyLinks = Array.isArray(input?.studyLinks) ? input.studyLinks : [];
   state.careerGoal = { ...base.careerGoal, ...(input?.careerGoal || {}) };
   state.certificateGoals = Array.isArray(input?.certificateGoals)
@@ -152,6 +154,7 @@ export function profileSnapshot(state) {
     calendarExtras: normalized.calendarExtras,
     calendarColors: normalized.calendarColors,
     timetable: normalized.timetable,
+    learningSignals: normalized.learningSignals,
   };
 }
 
@@ -222,7 +225,7 @@ function inferGoalType(item = {}) {
   return "custom";
 }
 
-function simpleGoal(item, index) {
+function simpleGoal(item, index, latestAcademicSignal = null) {
   if (!item?.title) return null;
   const type = inferGoalType(item);
   return {
@@ -231,22 +234,30 @@ function simpleGoal(item, index) {
     title: item.title,
     startDate: item.startDate || "",
     deadline: item.deadline || "",
-    importance: 0.76,
-    meta: { ...item, details: item.details || "" },
+    importance: type === "academic" && latestAcademicSignal?.score < 70 ? 0.86 : 0.76,
+    meta: {
+      ...item,
+      details: item.details || "",
+      recentScore: type === "academic" ? latestAcademicSignal?.score : undefined,
+      weakSubjects: type === "academic" ? latestAcademicSignal?.weakSubjects || [] : [],
+    },
   };
 }
 
 export function collectGoals(state) {
   const normalized = normalizePartnerState(state);
+  const latestAcademicSignal = [...normalized.learningSignals]
+    .filter((item) => item?.type === "pdf_quiz")
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))[0] || null;
   return [
-    ...normalized.goals.map(simpleGoal),
+    ...normalized.goals.map((item, index) => simpleGoal(item, index, latestAcademicSignal)),
     ...normalized.certificateGoals.map(certificateGoal),
   ].filter(Boolean);
 }
 
 function milestoneTemplates(goal) {
   if (goal.type === "academic") {
-    const unit = goal.meta.weakUnits?.[0];
+    const unit = goal.meta.weakUnits?.[0] || goal.meta.weakSubjects?.[0];
     return [
       ["시험 범위와 목표 정리", 45, "범위와 현재 수준을 먼저 고정해 이후 공부량을 안정적으로 나눕니다."],
       [unit ? `${unit} 취약 개념 보완` : "취약 단원 개념 보완", 75, "점수 차이를 줄이기 위해 취약 개념을 먼저 보완합니다."],
@@ -370,7 +381,10 @@ function weeklyGoalDemand(goal) {
     const accuracy = Math.max(0, Math.min(100, Number(goal.meta?.accuracy || 0)));
     return Math.min(440, 300 + Math.max(0, 70 - accuracy) * 2);
   }
-  if (goal.type === "academic") return Math.min(360, 240 + Math.max(0, Number(goal.meta?.gap || 0)) * 3);
+  if (goal.type === "academic") {
+    const scoreGap = Number.isFinite(Number(goal.meta?.recentScore)) ? Math.max(0, 70 - Number(goal.meta.recentScore)) * 2 : 0;
+    return Math.min(420, 240 + Math.max(0, Number(goal.meta?.gap || 0)) * 3 + scoreGap);
+  }
   if (goal.type === "activity") return 210;
   if (goal.type === "career") return 150;
   return 150;
@@ -675,11 +689,70 @@ export function updateTodayItemStatus(state, itemId, status, result = {}) {
   if (!activeId) return normalized;
   const versions = normalized.planVersions.map((version) => {
     if (version.versionId !== activeId) return version;
+    const target = (version.today?.items || []).find((item) => item.id === itemId);
     return {
       ...version,
+      weeks: (version.weeks || []).map((week) => ({
+        ...week,
+        items: (week.items || []).map((item) => item.id === target?.parentPlanItemId ? { ...item, status, result, updatedAt: Date.now() } : item),
+      })),
       today: {
         ...version.today,
         items: (version.today?.items || []).map((item) => item.id === itemId ? { ...item, status, result, updatedAt: Date.now() } : item),
+      },
+    };
+  });
+  return { ...normalized, planVersions: versions, lastUpdatedAt: Date.now() };
+}
+
+export function adjustTodayPlanItem(state, itemId, action) {
+  const normalized = normalizePartnerState(state);
+  const activeId = normalized.activePlanVersionId;
+  if (!activeId || !["reduce", "skip", "defer"].includes(action)) return normalized;
+  const versions = normalized.planVersions.map((version) => {
+    if (version.versionId !== activeId) return version;
+    const originalToday = version.today?.items || [];
+    const target = originalToday.find((item) => item.id === itemId);
+    if (!target) return version;
+    const now = Date.now();
+    const deferredUntil = isoDate(addDays(new Date(), 1));
+    let todayItems = action === "reduce"
+      ? originalToday.map((item) => item.id === itemId ? { ...item, durationMinutes: Math.max(20, Number(item.durationMinutes || 20) - 15), updatedAt: now } : item)
+      : originalToday.filter((item) => item.id !== itemId);
+    let weeks = (version.weeks || []).map((week) => {
+      const items = (week.items || []).map((item) => {
+        if (item.id !== target.parentPlanItemId) return item;
+        if (action === "reduce") return { ...item, durationMinutes: Math.max(20, Number(item.durationMinutes || 20) - 15), updatedAt: now };
+        if (action === "defer") return { ...item, status: "deferred", deferredUntil, updatedAt: now };
+        return { ...item, status: "skipped", updatedAt: now };
+      });
+      return { ...week, items, totalMinutes: items.reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0) };
+    });
+
+    if (action !== "reduce" && todayItems.length < 5) {
+      const represented = new Set(todayItems.map((item) => item.parentPlanItemId));
+      const usedMinutes = todayItems.reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0);
+      const remainingMinutes = Math.max(0, Number(version.today?.availableMinutes || 0) - usedMinutes);
+      const currentWeek = weeks.find((week) => (week.items || []).some((item) => item.id === target.parentPlanItemId)) || weeks[0];
+      const replacement = (currentWeek?.items || []).find((item) => item.status === "todo" && !represented.has(item.id));
+      if (replacement && remainingMinutes >= 20) {
+        todayItems = [...todayItems, {
+          ...replacement,
+          id: partnerId("today"),
+          parentPlanItemId: replacement.id,
+          durationMinutes: Math.min(Number(replacement.durationMinutes || 20), remainingMinutes, 75),
+        }];
+      }
+    }
+
+    return {
+      ...version,
+      weeks,
+      today: {
+        ...version.today,
+        items: todayItems,
+        totalMinutes: todayItems.reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0),
+        adjustments: [{ id: partnerId("adjustment"), itemTitle: target.title, action, createdAt: now }, ...(version.today?.adjustments || [])].slice(0, 5),
       },
     };
   });
