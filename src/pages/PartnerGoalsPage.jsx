@@ -14,6 +14,7 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
   const [goalDraft, setGoalDraft] = useState({ title: "", startDate: "", deadline: "", details: "", isSingleDay: false });
   const [formMessage, setFormMessage] = useState("");
   const [customTimeOpen, setCustomTimeOpen] = useState(false);
+  const [fixedDraft, setFixedDraft] = useState({ title: "", dayKey: "mon", startTime: "16:00", endTime: "18:00" });
 
   function commit(patch) {
     onChange({ ...state, ...patch, schemaVersion: 2, lastUpdatedAt: Date.now() });
@@ -36,6 +37,13 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
 
   function applyTimePreset(weekdayMinutes, weekendMinutes) {
     setDailyMinutes(Object.fromEntries(dayOptions.map(([key]) => [key, ['sat', 'sun'].includes(key) ? weekendMinutes : weekdayMinutes])));
+  }
+
+  function addFixedSchedule() {
+    if (!fixedDraft.title.trim()) return setFormMessage("고정 일정 이름을 입력해 주세요.");
+    if (!fixedDraft.startTime || !fixedDraft.endTime || fixedDraft.endTime <= fixedDraft.startTime) return setFormMessage("고정 일정의 시작·종료 시간을 확인해 주세요.");
+    patchProfile({ fixedSchedules: [...state.profile.fixedSchedules, { ...fixedDraft, id: partnerId("fixed"), title: fixedDraft.title.trim() }] });
+    setFixedDraft({ title: "", dayKey: fixedDraft.dayKey, startTime: fixedDraft.startTime, endTime: fixedDraft.endTime });
   }
 
   function addCertificate() {
@@ -139,6 +147,17 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
               <input aria-label={`${label}요일 학습 가능 시간`} type="range" min="0" max="480" step="30" value={Math.min(480, minutes)} onChange={(event) => updateDay(key, Number(event.target.value))}/>
             </div>;
           })}
+        </div>
+        <div className="partner-fixed-schedule-editor">
+          <div><strong>고정 일정 차감</strong><small>수업·학원처럼 공부할 수 없는 시간은 자동으로 빼고 배치합니다.</small></div>
+          <div className="partner-fixed-schedule-form">
+            <input value={fixedDraft.title} onChange={(event) => setFixedDraft({ ...fixedDraft, title: event.target.value })} placeholder="예: 방과후 수업" />
+            <select aria-label="고정 일정 요일" value={fixedDraft.dayKey} onChange={(event) => setFixedDraft({ ...fixedDraft, dayKey: event.target.value })}>{dayOptions.map(([key, label]) => <option key={key} value={key}>{label}요일</option>)}</select>
+            <input aria-label="고정 일정 시작 시간" type="time" value={fixedDraft.startTime} onChange={(event) => setFixedDraft({ ...fixedDraft, startTime: event.target.value })}/>
+            <input aria-label="고정 일정 종료 시간" type="time" value={fixedDraft.endTime} onChange={(event) => setFixedDraft({ ...fixedDraft, endTime: event.target.value })}/>
+            <button type="button" onClick={addFixedSchedule}>추가</button>
+          </div>
+          {state.profile.fixedSchedules.length > 0 && <div className="partner-fixed-schedule-list">{state.profile.fixedSchedules.map((item) => <span key={item.id}>{dayOptions.find(([key]) => key === item.dayKey)?.[1] || item.dayKey} · {item.title} {item.startTime}~{item.endTime}<button type="button" aria-label={`${item.title} 삭제`} onClick={() => patchProfile({ fixedSchedules: state.profile.fixedSchedules.filter((row) => row.id !== item.id) })}>×</button></span>)}</div>}
         </div>
       </div>}
     </section>
