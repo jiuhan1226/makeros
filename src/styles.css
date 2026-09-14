@@ -713,3 +713,24 @@ html{overflow-x:hidden;-webkit-text-size-adjust:100%}body{min-width:320px;overfl
 .timetable-cell .change-badge{right:5px;top:5px;background:#e98b22}
 .timetable-cell .change-origin{max-width:calc(100% - 10px);overflow:hidden;color:#9a611c;font-size:10px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
 .base-schedule-notice{display:flex;align-items:center;gap:12px;border-bottom:1px solid #cfe5f0;background:#f1f9fd;padding:11px 16px;color:#42677e;font-size:12px}.base-schedule-notice strong{flex:0 0 auto;color:#087fba}
+
+/* v3.1.18 중복 없는 전체 문제 · 북마크 전용 학습 */
+.simple-learning-menu>div{grid-template-columns:repeat(5,minmax(0,1fr))}
+.all-question-page,.saved-bookmarks-page{min-width:0}
+.all-question-summary{display:grid;grid-template-columns:1fr 1fr minmax(270px,auto);align-items:center;gap:18px;background:linear-gradient(135deg,#f5fbff,#fbf9ff)}
+.all-question-summary>div:not(.all-question-actions){display:grid;gap:5px;padding:8px 14px;border-left:3px solid #16a2e8}
+.all-question-summary span{color:#6d7f8e;font-size:12px;font-weight:850}
+.all-question-summary strong{color:#17364e;font-size:30px}
+.all-question-summary small,.all-question-note{color:#7a8996}
+.all-question-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.all-question-actions .primary{margin:0}
+.all-question-note{margin:12px 4px;font-size:12px}
+.bookmark-toolbar{display:flex;align-items:end;justify-content:space-between;gap:18px;margin-bottom:18px}
+.bookmark-toolbar .wrong-note-filter{margin-top:8px}
+.bookmark-toolbar>.primary{margin:0;white-space:nowrap}
+.bookmark-only-list{display:grid;gap:12px;margin-top:0}
+.bookmark-only-list article{border:1px solid #dfe6ed;border-radius:17px}
+.bookmark-card-actions{display:flex!important;gap:8px;color:inherit!important}
+.bookmark-card-actions .danger-button{border-radius:10px;padding:10px 14px}
+@media(max-width:1000px){.simple-learning-menu>div{grid-template-columns:repeat(3,minmax(0,1fr))}.all-question-summary{grid-template-columns:1fr 1fr}.all-question-actions{grid-column:1/-1}}
+@media(max-width:700px){.simple-learning-menu>div{grid-template-columns:1fr}.all-question-summary{grid-template-columns:1fr}.all-question-actions{grid-column:auto;grid-template-columns:1fr}.bookmark-toolbar{align-items:stretch;flex-direction:column}.bookmark-toolbar>.primary{width:100%}.wrong-card-top{align-items:flex-start;flex-direction:column}.bookmark-card-actions{width:100%}.bookmark-card-actions button{flex:1}}
