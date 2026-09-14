@@ -78,7 +78,7 @@ function resultToExplanationState(result) {
   };
 }
 
-export default function ExamPage({ session, onExit, onSaveConfidence, onBookmarkChange, isQuestionBookmarked, getDifficulty }) {
+export default function ExamPage({ session, onExit, onSaveConfidence, onBookmarkChange, isQuestionBookmarked, getDifficulty, onOpenPdfSource }) {
   const {
     questions,
     exam,
@@ -301,6 +301,10 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
           )}
         </header>
 
+        {session.checkpointStatus !== "idle" && <div className={`exam-checkpoint-status ${session.checkpointStatus}`} role="status">
+          {session.checkpointStatus === "saving" ? "진행 상태 저장 중…" : session.checkpointStatus === "error" ? "자동 저장에 실패했습니다. 브라우저 저장 권한을 확인해 주세요." : "이 기기에 진행 상태가 안전하게 저장되었습니다."}
+        </div>}
+
         {exam?.generationNotice && <div className={`diagnostic-source-notice ${exam.generationMode === "ai" ? "ai" : "fallback"}`}>
           <strong>{exam.generationMode === "ai" ? "AI 맞춤 출제" : "기출 선별 진단"}</strong>
           <span>{exam.generationNotice}</span>
@@ -503,6 +507,11 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
                   </div>
                 )}
               </div>
+              {q.evidencePage && <section className="pdf-source-evidence">
+                <div><strong>PDF 근거 · {q.evidencePage}쪽</strong><span>{exam?.sourceName || "업로드한 학습자료"}</span></div>
+                {q.evidence && <p>{q.evidence}</p>}
+                {exam?.pdfId && <button type="button" className="secondary" onClick={() => onOpenPdfSource?.(exam.pdfId, q.evidencePage)}>원문 {q.evidencePage}쪽 보기</button>}
+              </section>}
             </>
           )}
         </article>
