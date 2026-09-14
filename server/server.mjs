@@ -57,7 +57,7 @@ const neisRequestHeaders = {
   "cache-control": "no-cache",
   pragma: "no-cache",
   referer: "https://open.neis.go.kr/portal/mainPage.do",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.19",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.20",
 };
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
@@ -1140,7 +1140,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.19",
+    version: "3.1.20",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
@@ -1495,11 +1495,11 @@ ${source}
 4. details에는 자료의 세부 설명, 예외, 단계, 비교 관계를 자연스러운 문단으로 정리한다. 세부 내용이 없으면 빈 문자열로 둔다.
 5. keyPoints는 각 note당 4~12개로 하며, 원문의 중요한 내용을 임의로 3개에 맞춰 자르지 않는다.
 6. cards는 현재 구간의 핵심 개념을 충분히 복습하는 데 필요한 만큼 만든다. 보통 6~30개가 적당하며 같은 질문은 반복하지 않는다.
-7. 페이지 번호를 근거로 pageStart와 pageEnd를 기록한다.
+7. 페이지 번호를 근거로 pageStart와 pageEnd를 기록하고, 실제 사용한 페이지 번호만 sourcePages 배열에 넣는다.
 8. 반드시 JSON 객체만 반환한다.
 
 JSON 형식:
-{"notes":[{"title":"학습 주제","summary":"상세 설명","details":"추가 세부 내용","keyPoints":["핵심 내용"],"pageStart":${pageStart},"pageEnd":${pageEnd}}],"cards":[{"front":"질문","back":"충분한 정답 설명","pageStart":${pageStart},"pageEnd":${pageEnd}}]}`;
+{"notes":[{"title":"학습 주제","summary":"상세 설명","details":"추가 세부 내용","keyPoints":["핵심 내용"],"pageStart":${pageStart},"pageEnd":${pageEnd},"sourcePages":[${pageStart}]}],"cards":[{"front":"질문","back":"충분한 정답 설명","pageStart":${pageStart},"pageEnd":${pageEnd},"sourcePages":[${pageStart}]}]}`;
 
     const candidates = await resolveCandidateModels();
     let lastError;
@@ -1508,6 +1508,9 @@ JSON 형식:
         const response = await ai.models.generateContent({ model, contents: prompt, config: { responseMimeType: "application/json", maxOutputTokens: 20000 } });
         const raw = response.text || response.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "{}";
         const parsed = JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim());
+        const validPages = new Set(pages.map((page) => Number(page.page)));
+        const exactPages = (item) => [...new Set((Array.isArray(item?.sourcePages) ? item.sourcePages : [])
+          .map(Number).filter((page) => validPages.has(page)))].sort((a, b) => a - b);
         const notes = (Array.isArray(parsed.notes) ? parsed.notes : []).map((note) => ({
           title: normalize(note?.title || ""),
           summary: normalize(note?.summary || ""),
@@ -1515,12 +1518,14 @@ JSON 형식:
           keyPoints: (Array.isArray(note?.keyPoints) ? note.keyPoints : []).map(normalize).filter(Boolean),
           pageStart: Number(note?.pageStart) || pageStart,
           pageEnd: Number(note?.pageEnd) || pageEnd,
+          sourcePages: exactPages(note),
         })).filter((note) => note.title && (note.summary || note.keyPoints.length));
         const cards = (Array.isArray(parsed.cards) ? parsed.cards : []).map((card) => ({
           front: normalize(card?.front || ""),
           back: normalize(card?.back || ""),
           pageStart: Number(card?.pageStart) || pageStart,
           pageEnd: Number(card?.pageEnd) || pageEnd,
+          sourcePages: exactPages(card),
         })).filter((card) => card.front && card.back);
         return res.json({ notes, cards, model, pageStart, pageEnd });
       } catch (error) {
