@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AnswerSheet from "../components/AnswerSheet";
 import { circled, formatTime } from "../utils/exam";
 import {
@@ -78,7 +78,7 @@ function resultToExplanationState(result) {
   };
 }
 
-export default function ExamPage({ session, onExit, onSaveConfidence, getDifficulty }) {
+export default function ExamPage({ session, onExit, onSaveConfidence, onBookmarkChange, isQuestionBookmarked, getDifficulty }) {
   const {
     questions,
     exam,
@@ -110,6 +110,10 @@ export default function ExamPage({ session, onExit, onSaveConfidence, getDifficu
   const revealCurrent = submitted || practiceAnswered;
   const currentExplanationFingerprint = explanationFingerprint(q || {});
   const answeredCount = Object.values(answers).filter((value) => value !== undefined).length;
+  const displayBookmarks = useMemo(() => Object.fromEntries(questions.map((question, index) => [
+    index,
+    bookmarks[index] === undefined ? Boolean(isQuestionBookmarked?.(question)) : Boolean(bookmarks[index]),
+  ])), [bookmarks, isQuestionBookmarked, questions]);
   const examContextLabel = [
     exam?.year ? `${exam.year}년` : "",
     exam?.round ? `${exam.round}회` : "",
@@ -169,6 +173,12 @@ export default function ExamPage({ session, onExit, onSaveConfidence, getDifficu
     if (index === q.answerIndex) return "correct";
     if (selected && index !== q.answerIndex) return "wrong";
     return "";
+  }
+
+  function toggleCurrentBookmark() {
+    const nextBookmarked = !displayBookmarks[current];
+    session.setBookmark(current, nextBookmarked);
+    onBookmarkChange?.(q, nextBookmarked, exam);
   }
 
   async function handleConfidence(confidence) {
@@ -341,8 +351,8 @@ export default function ExamPage({ session, onExit, onSaveConfidence, getDifficu
               >
                 {reviewChecks[current] ? "✓ 검토 체크됨" : "□ 검토 체크"}
               </button>
-              <button type="button" onClick={() => session.toggleBookmark(current)}>
-                {bookmarks[current] ? "★ 저장됨" : "☆ 북마크"}
+              <button type="button" onClick={toggleCurrentBookmark}>
+                {displayBookmarks[current] ? "★ 저장됨" : "☆ 북마크"}
               </button>
             </div>
           </div>
@@ -516,7 +526,7 @@ export default function ExamPage({ session, onExit, onSaveConfidence, getDifficu
       <AnswerSheet
         questions={questions}
         answers={answers}
-        bookmarks={bookmarks}
+        bookmarks={displayBookmarks}
         reviewChecks={reviewChecks}
         current={current}
         onMove={moveTo}
