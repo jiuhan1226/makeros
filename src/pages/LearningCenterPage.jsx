@@ -99,7 +99,7 @@ export default function LearningCenterPage({
       </article>
 
       <article className="panel simple-weak-card">
-        <div className="simple-section-head"><h2>먼저 볼 개념</h2><button onClick={() => onNavigate?.("topic")}>주제별 보기</button></div>
+        <div className="simple-section-head"><h2>먼저 볼 개념</h2><button onClick={() => onNavigate?.("all")}>전체 문제 보기</button></div>
         <div>{weakConcepts.map((item) => <button key={item.tag} onClick={() => onStartRecommended?.(item.tag, 10)}><span><strong>{item.tag}</strong><small>정답률 {item.accuracy}%</small></span><b>10문제</b></button>)}</div>
         {!weakConcepts.length && <p>문제를 풀면 취약 개념을 자동으로 찾습니다.</p>}
       </article>
