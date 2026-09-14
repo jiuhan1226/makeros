@@ -69,6 +69,8 @@ import {
   recordChangeEvent,
   rollbackPartnerPlan,
   adjustTodayPlanItem,
+  rolloverPartnerDay,
+  transferPlanProgress,
   updateTodayItemStatus,
 } from "./utils/aiPartner";
 import { pageFromLocation, pageToHash } from "./utils/appRouting";
@@ -210,9 +212,21 @@ function App() {
     if (window.location.hash !== nextHash) window.history.pushState({ page }, "", nextHash);
   }, [page]);
   useEffect(() => {
-    if (page === "exam" && !session.exam) setPage("partnerToday");
+    if (page === "exam" && !session.exam && !session.restoring) setPage("partnerToday");
     if (page === "mode" && !selectedExam) setPage(certificate ? "past" : "catalog");
-  }, [certificate, page, selectedExam, session.exam]);
+  }, [certificate, page, selectedExam, session.exam, session.restoring]);
+
+  useEffect(() => {
+    const refreshToday = () => setPartnerState((previous) => rolloverPartnerDay(previous, { today: new Date() }));
+    refreshToday();
+    const timer = window.setInterval(refreshToday, 60_000);
+    const handleVisibility = () => { if (document.visibilityState === "visible") refreshToday(); };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
 
   useEffect(() => (firebaseConfigured ? onAuthStateChanged(auth, setUser) : undefined), []);
   useEffect(() => {
@@ -559,11 +573,22 @@ function App() {
 
     setPartnerState((previous) => {
       const normalized = normalizePartnerState(previous);
-      const target = normalized.certificateGoals.find((item) => item.name === certificateName || item.id === certificateId)
-        || normalized.certificateGoal;
-      if (!target?.name) return normalized;
+      const activeBefore = getActivePartnerPlan(normalized);
+      const completedItem = (activeBefore?.today?.items || []).find((item) => item.id === session.exam?.partnerItemId);
+      let next = completedItem
+        ? updateTodayItemStatus(normalized, completedItem.id, "completed", { score: result.score, correct: result.correct, total: result.total, completedAt: now })
+        : normalized;
+      if (completedItem) next = recordChangeEvent(next, {
+        type: "plan_item_completed",
+        label: `${completedItem.title} 학습을 완료했습니다.`,
+        after: { itemId: completedItem.id, goalId: completedItem.goalId, title: completedItem.title, score: result.score },
+        actor: "student",
+      });
+      const target = next.certificateGoals.find((item) => item.name === certificateName || item.id === certificateId)
+        || next.certificateGoal;
+      if (!target?.name) return next;
       const sameTarget = !certificateName || target.name === certificateName || target.id === certificateId;
-      if (!sameTarget) return normalized;
+      if (!sameTarget) return next;
       const weakestSubjects = [...(result.subjects || [])]
         .sort((a, b) => Number(a.score || 0) - Number(b.score || 0) || Number(b.wrong || 0) - Number(a.wrong || 0))
         .slice(0, 3)
@@ -583,9 +608,9 @@ function App() {
             createdAt: now,
           } : target.lastDiagnostic,
       };
-      let next = normalizePartnerState({
-        ...normalized,
-        certificateGoals: normalized.certificateGoals.map((item) => item.id === target.id ? updatedTarget : item),
+      next = normalizePartnerState({
+        ...next,
+        certificateGoals: next.certificateGoals.map((item) => item.id === target.id ? updatedTarget : item),
       });
       next = recordChangeEvent(next, {
         type: "study_result_saved",
@@ -595,7 +620,8 @@ function App() {
         actor: "system",
       });
       if (!getActivePartnerPlan(next)) return next;
-      const replanned = buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" });
+      const completedPlan = getActivePartnerPlan(next);
+      const replanned = transferPlanProgress(completedPlan, buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" }));
       return createPlanVersion(next, replanned, { activate: true });
     });
 
@@ -680,9 +706,6 @@ function App() {
 
   function finishExam() {
     recordFinishedSession();
-    if (session.submitted && session.exam?.partnerItemId) {
-      changeTodayPartnerItem(session.exam.partnerItemId, "completed");
-    }
     const scope = resolveStudyScope(session.exam, session.mode);
     const fallback = {
       pdf: "pdfstudy",
@@ -1179,9 +1202,10 @@ function App() {
 
   function changeTodayPartnerItem(itemId, status) {
     setPartnerState((previous) => {
+      const item = (getActivePartnerPlan(previous)?.today?.items || []).find((candidate) => candidate.id === itemId);
       let next = updateTodayItemStatus(previous, itemId, status);
       if (status !== "completed") return next;
-      next = recordChangeEvent(next, { type: "plan_item_completed", label: "오늘 계획의 행동을 완료했습니다.", actor: "student" });
+      next = recordChangeEvent(next, { type: "plan_item_completed", label: item ? `${item.title}을 완료했습니다.` : "오늘 계획의 행동을 완료했습니다.", after: item ? { itemId, goalId: item.goalId, title: item.title } : { itemId }, actor: "student" });
       return next;
     });
   }
@@ -1225,7 +1249,7 @@ function App() {
       {page === "subject" && <SubjectStudyPage certificate={certificate} exams={exams} history={certificatePracticeHistory.filter((item) => item.studyScope === "subject")} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "subject", learningType: "subjectPractice", returnPage: "subject" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
       {page === "all" && <AllQuestionsPage certificate={certificate} exams={exams} loadQuestions={getExamQuestions} resumeSession={session.resumable && session.exam?.studyScope === "all" && (!certificate?.id || session.exam?.certificateId === certificate.id) ? { title: session.exam?.title || "전체 문제 학습", current: session.current, total: session.questions.length, answered: Object.keys(session.answers).length } : null} onResume={() => setPage("exam")} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "all", learningType: "allPractice", returnPage: "all" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
       {page === "mode" && <ModeSelectPage exam={selectedExam} onStart={startExam} onBack={() => setPage("past")} />}
-      {page === "exam" && <ExamPage session={session} onExit={finishExam} onSaveConfidence={saveConfidenceRecord} onBookmarkChange={updateSavedBookmark} isQuestionBookmarked={(question) => savedBookmarkKeys.has(questionContentKey(question))} getDifficulty={getDifficulty} />}
+      {page === "exam" && (session.restoring ? <main className="loading-page"><div className="empty-state">저장된 학습 진행 상태를 불러오고 있습니다…</div></main> : <ExamPage session={session} onExit={finishExam} onSaveConfidence={saveConfidenceRecord} onBookmarkChange={updateSavedBookmark} isQuestionBookmarked={(question) => savedBookmarkKeys.has(questionContentKey(question))} getDifficulty={getDifficulty} onOpenPdfSource={(pdfId, pageNumber) => { const document = pdfLibrary.find((item) => item.id === pdfId); if (document) openPdf(document, pageNumber); }} />)}
       {page === "mock" && <MockExamPage exams={exams} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "exam", studyScope: "mock", learningType: "mock", returnPage: "mock", certificateId: certificate?.id || "", certificateName: certificate?.name || "" }, questions, "실전모드"); setPage("exam"); }} />}
       {page === "bookmark" && <BookmarkPage wrongNotes={certificateWrongNotes} certificateName={certificate?.name} history={certificateHistory} onStartRecommended={startRecommended} onStartWrongReview={startWrongReview} repeatedWrong={repeatedWrong} dueReviews={dueReviews} onStartDueReview={startDueReview} />}
       {page === "saved" && <SavedBookmarksPage certificate={certificate} bookmarks={certificateBookmarks} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "saved-bookmark", learningType: "bookmarkPractice", returnPage: "saved" }, questions, "연습모드"); setPage("exam"); }} onRemove={removeSavedBookmark} onNavigate={navigate} />}
