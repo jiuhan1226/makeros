@@ -1,7 +1,7 @@
 {
   "name": "makeros-product-final",
   "private": true,
-  "version": "3.1.17",
+  "version": "3.1.18",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"node --watch server/server.mjs\"",
@@ -15,7 +15,8 @@
     "test:learning": "node scripts/learning-smoke-test.mjs",
     "test:explanation": "node scripts/explanation-safety-test.mjs",
     "test:maintenance": "node scripts/learning-maintenance-test.mjs",
-    "test": "npm run test:partner && npm run test:diagnostic && npm run test:routing && npm run test:calendar && npm run test:flashcards && npm run test:school-data && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:copy && npm run test:submission && npm run test:responsive",
+    "test:dedup": "node scripts/question-dedup-test.mjs",
+    "test": "npm run test:partner && npm run test:diagnostic && npm run test:routing && npm run test:calendar && npm run test:flashcards && npm run test:school-data && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:dedup && npm run test:copy && npm run test:submission && npm run test:responsive",
     "test:copy": "node scripts/copy-audit.mjs",
     "seed:demo": "node scripts/seed-demo-account.mjs",
     "test:submission": "node scripts/submission-readiness-test.mjs",
