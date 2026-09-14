@@ -80,7 +80,8 @@ export default function CertificateHomePage({
       <div>
         <button onClick={() => onNavigate("past")}><strong>기출문제</strong><span>회차별 실전 풀이</span></button>
         <button onClick={() => onNavigate("subject")}><strong>과목별</strong><span>과목을 골라 연습</span></button>
-        <button onClick={() => onNavigate("topic")}><strong>주제별</strong><span>개념을 골라 연습</span></button>
+        <button onClick={() => onNavigate("all")}><strong>전체 문제</strong><span>중복 없이 한 번에</span></button>
+        <button onClick={() => onNavigate("saved")}><strong>북마크</strong><span>저장한 문제만 보기</span></button>
         <button onClick={() => onNavigate("bookmark")}><strong>오답·복습</strong><span>틀린 문제 다시 풀기</span></button>
       </div>
     </section>
