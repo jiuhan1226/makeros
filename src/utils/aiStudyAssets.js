@@ -108,6 +108,7 @@ export async function generateStudyAssetsFromPages({
         pdfId,
         pageStart: Number(note.pageStart) || pageStart,
         pageEnd: Number(note.pageEnd) || pageEnd,
+        sourcePages: Array.isArray(note.sourcePages) ? note.sourcePages.map(Number).filter((page) => Number.isInteger(page) && page >= pageStart && page <= pageEnd) : [],
         createdAt,
       });
     }
@@ -121,6 +122,7 @@ export async function generateStudyAssetsFromPages({
         pdfId,
         pageStart: Number(card.pageStart) || pageStart,
         pageEnd: Number(card.pageEnd) || pageEnd,
+        sourcePages: Array.isArray(card.sourcePages) ? card.sourcePages.map(Number).filter((page) => Number.isInteger(page) && page >= pageStart && page <= pageEnd) : [],
         createdAt,
       });
     }
