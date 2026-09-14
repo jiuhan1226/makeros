@@ -16,9 +16,10 @@ function enrichQuestion(question, exam, certificate) {
   };
 }
 
-export default function AllQuestionsPage({ certificate, exams = [], loadQuestions, onStart, onNavigate }) {
+export default function AllQuestionsPage({ certificate, exams = [], loadQuestions, onStart, onNavigate, resumeSession, onResume }) {
   const [loading, setLoading] = useState(true);
   const [loadedQuestions, setLoadedQuestions] = useState([]);
+  const [questionCount, setQuestionCount] = useState(50);
 
   useEffect(() => {
     let alive = true;
@@ -38,15 +39,16 @@ export default function AllQuestionsPage({ certificate, exams = [], loadQuestion
 
   const result = useMemo(() => deduplicateQuestions(loadedQuestions), [loadedQuestions]);
 
-  function start(mode) {
-    const pool = mode === "quick"
-      ? shuffle(result.questions).slice(0, Math.min(20, result.questions.length))
-      : result.questions;
+  function start() {
+    const requested = questionCount === "all" ? result.questions.length : Number(questionCount || 50);
+    const pool = requested >= result.questions.length
+      ? result.questions
+      : shuffle(result.questions).slice(0, Math.min(requested, result.questions.length));
     const selected = pool.map((question, index) => ({ ...question, questionNumber: index + 1 }));
     if (!selected.length) return;
     onStart?.(selected, {
       id: `all-questions-${certificate?.id || "general"}-${Date.now()}`,
-      title: `${certificate?.name || "자격증"} · ${mode === "quick" ? "중복 없는 20문제" : "중복 없는 전체 문제"}`,
+      title: `${certificate?.name || "자격증"} · 중복 없는 ${requested >= result.questions.length ? "전체 문제" : `${selected.length}문제`}`,
       durationMinutes: Math.max(1, selected.length),
       hasSubjectCutoff: false,
       assessmentType: "practice",
@@ -55,6 +57,7 @@ export default function AllQuestionsPage({ certificate, exams = [], loadQuestion
       returnPage: "all",
       questionCount: selected.length,
       duplicateCount: result.duplicateCount,
+      totalAvailableQuestions: result.questions.length,
       certificateId: certificate?.id || "",
       certificateName: certificate?.name || "",
     });
@@ -79,6 +82,10 @@ export default function AllQuestionsPage({ certificate, exams = [], loadQuestion
       </div>
 
       {loading ? <div className="empty-state">전체 기출문제를 불러오고 있어요.</div> : result.questions.length ? <>
+        {resumeSession && <section className="all-question-resume" role="status">
+          <div><span>진행 중인 학습</span><strong>{resumeSession.title}</strong><small>{resumeSession.current + 1}/{resumeSession.total}번 문제 · 답변 {resumeSession.answered}개 저장됨</small></div>
+          <button className="primary" onClick={onResume}>이어서 풀기</button>
+        </section>}
         <section className="panel all-question-summary">
           <div>
             <span>학습할 문제</span>
@@ -91,8 +98,8 @@ export default function AllQuestionsPage({ certificate, exams = [], loadQuestion
             <small>본문·보기·정답이 같은 문제</small>
           </div>
           <div className="all-question-actions">
-            <button className="secondary" onClick={() => start("quick")}>20문제 빠르게</button>
-            <button className="primary" onClick={() => start("all")}>전체 문제 풀기</button>
+            <label><span>이번 학습 분량</span><select value={questionCount} onChange={(event) => setQuestionCount(event.target.value === "all" ? "all" : Number(event.target.value))}><option value={20}>20문제 · 약 20분</option><option value={50}>50문제 · 약 50분</option><option value={100}>100문제 · 약 100분</option><option value="all">전체 문제</option></select></label>
+            <button className="primary" onClick={start}>선택한 분량 시작</button>
           </div>
         </section>
         <p className="all-question-note">비슷해 보여도 본문이나 정답이 다른 문제는 삭제하지 않습니다.</p>
