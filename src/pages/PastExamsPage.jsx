@@ -48,7 +48,8 @@ export default function PastExamsPage({ exams = [], loadQuestions, onOpen, onNav
     <aside className="cbt-side-menu">
       <button className="active" aria-current="page" disabled>기출문제 학습</button>
       <button onClick={() => onNavigate?.("subject")}>과목별 학습</button>
-      <button onClick={() => onNavigate?.("topic")}>주제별 학습</button>
+      <button onClick={() => onNavigate?.("all")}>전체 문제</button>
+      <button onClick={() => onNavigate?.("saved")}>북마크</button>
     </aside>
 
     <section className="cbt-learning-content">
