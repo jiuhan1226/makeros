@@ -35,8 +35,6 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
     ["all", "전체 문제"],
     ["saved", "북마크"],
     ["bookmark", "오답·복습"],
-    ["learning", "AI 추천 학습"],
-    ["planner", "시험 계획"],
   ];
   const schoolItems = [
     ["library", "내신 자료"],
@@ -126,6 +124,8 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
                 <button type="button" onClick={() => navigate("timetable")}>학교 시간표</button>
                 <button type="button" onClick={() => navigate("meals")}>학교 급식</button>
                 <button type="button" onClick={() => navigate("tutor")}>AI 튜터</button>
+                {certificateName && <button type="button" onClick={() => navigate("learning")}>자격증 AI 추천</button>}
+                {certificateName && <button type="button" onClick={() => navigate("planner")}>자격증 시험 계획</button>}
                 <button type="button" onClick={() => navigate("makerHome")}>MakerOS 홈</button>
                 <button type="button" onClick={() => navigate("invent")}>발명</button>
                 <button type="button" onClick={() => navigate("projects")}>프로젝트</button>
