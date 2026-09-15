@@ -2,6 +2,11 @@ const KEY = "makeros-product-v0.1";
 
 const defaultResumeProfile = {
   name: "",
+  photo: "",
+  hanjaName: "",
+  birthDate: "",
+  gender: "",
+  address: "",
   school: "",
   major: "",
   grade: "",
@@ -9,7 +14,14 @@ const defaultResumeProfile = {
   phone: "",
   location: "",
   desiredRole: "",
+  targetCompany: "",
+  signatureDate: "",
   introduction: "",
+  selfIntro: "",
+  strengths: "",
+  motivation: "",
+  aspiration: "",
+  education: [],
   skills: [],
 };
 
