@@ -65,6 +65,7 @@ export function createDefaultPartnerState() {
       weekLabel: "",
       schedules: {},
       teacherAssignments: {},
+      manualOverrides: {},
       classCounts: {},
       classTimes: [],
       updatedAt: 0,
@@ -95,6 +96,7 @@ export function normalizePartnerState(input = {}) {
   state.timetable = { ...base.timetable, ...(input?.timetable || {}) };
   state.timetable.schedules = input?.timetable?.schedules && typeof input.timetable.schedules === "object" ? input.timetable.schedules : {};
   state.timetable.teacherAssignments = input?.timetable?.teacherAssignments && typeof input.timetable.teacherAssignments === "object" ? input.timetable.teacherAssignments : {};
+  state.timetable.manualOverrides = input?.timetable?.manualOverrides && typeof input.timetable.manualOverrides === "object" ? input.timetable.manualOverrides : {};
   state.timetable.classCounts = input?.timetable?.classCounts && typeof input.timetable.classCounts === "object" ? input.timetable.classCounts : {};
   state.timetable.classTimes = Array.isArray(input?.timetable?.classTimes) ? input.timetable.classTimes : [];
   if (state.timetable.schoolCode === "85318" && state.timetable.schoolName === "공주마이스터고등학교") {
