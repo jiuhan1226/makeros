@@ -6,6 +6,7 @@ const examPage = fs.readFileSync(new URL("../src/pages/ExamPage.jsx", import.met
 const scratchpad = fs.readFileSync(new URL("../src/components/ExamScratchpad.jsx", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const index = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const growthReport = fs.readFileSync(new URL("../src/pages/GrowthReportPage.jsx", import.meta.url), "utf8");
 
 const checks = [
   [index.includes("viewport-fit=cover"), "viewport-fit=cover 메타 태그"],
@@ -23,6 +24,8 @@ const checks = [
   [styles.includes("@media(max-width:480px)"), "소형 휴대폰 중단점"],
   [styles.includes("env(safe-area-inset-bottom)"), "모바일 안전 영역"],
   [styles.includes("prefers-reduced-motion"), "모션 접근성"],
+  [growthReport.includes("report-mastery-head") && styles.includes(".report-mastery-head{display:flex!important"), "취약 개념명 가로 배치"],
+  [styles.includes(".growth-message>p,.growth-message>small{display:block;max-width:100%"), "리포트 문장 화면 내 줄바꿈"],
 ];
 
 const failed = checks.filter(([ok]) => !ok);
