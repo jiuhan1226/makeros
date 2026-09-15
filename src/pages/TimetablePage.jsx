@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { normalizePartnerState } from "../utils/aiPartner";
 import { loadSchoolDataStatus, loadSchoolTimetable, searchSchools } from "../utils/schoolApi";
+import { findTimetableOverride, mergeTimetableOverrides, removeTimetableOverride, saveTimetableOverride } from "../utils/timetableOverrides";
 
 const DAYS = [{ key: "mon", label: "월" }, { key: "tue", label: "화" }, { key: "wed", label: "수" }, { key: "thu", label: "목" }, { key: "fri", label: "금" }];
 const DAY_KEYS = { 1: "mon", 2: "tue", 3: "wed", 4: "thu", 5: "fri" };
@@ -53,13 +54,14 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [editor, setEditor] = useState(null);
+  const [editMode, setEditMode] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState("");
   const [apiStatus, setApiStatus] = useState(null);
   const week = useMemo(() => weekRange(weekCursor), [weekCursor]);
   const schoolIdentity = timetable.schoolCode || `comcigan-${timetable.comciganCode || timetable.schoolName}`;
   const key = cacheKey(schoolIdentity, week.from, grade, classNo);
   const record = timetable.schedules?.[key] || { cells: {}, loadedAt: 0 };
-  const schedule = record.cells || {};
+  const schedule = useMemo(() => mergeTimetableOverrides(record.baseCells || record.cells || {}, timetable.manualOverrides, { schoolCode: schoolIdentity, grade, classNo, weekStart: week.from }), [record, timetable.manualOverrides, schoolIdentity, grade, classNo, week.from]);
   const todayKey = DAY_KEYS[new Date().getDay()];
 
   const teacherNames = useMemo(() => [...new Set(Object.values(timetable.schedules || {})
@@ -150,8 +152,10 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
         lessonsByClass.get(groupKey).cells[`${day}-${periodIndex}`] = { ...lesson, teacher, live: result.provider === "comcigan" && result.scheduleMode === "current" && !result.stale, provider: result.provider };
       }
       for (const [groupKey, group] of lessonsByClass.entries()) {
+        const mergedCells = mergeTimetableOverrides(group.cells, timetable.manualOverrides, { schoolCode: schoolIdentity, grade: group.grade, classNo: group.classNo, weekStart: week.from });
         nextSchedules[groupKey] = {
-          cells: group.cells,
+          baseCells: group.cells,
+          cells: mergedCells,
           weekStart: week.from,
           weekEnd: week.to,
           grade: group.grade,
@@ -166,7 +170,7 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
         };
       }
       const selectedGroup = lessonsByClass.get(key);
-      if (!selectedGroup) nextSchedules[key] = { cells: {}, weekStart: week.from, weekEnd: week.to, grade, classNo, schoolCode: schoolIdentity, loadedAt: result.loadedAt || Date.now(), checkedAt: Date.now(), source: result.source, provider: result.provider, scheduleMode: result.scheduleMode };
+      if (!selectedGroup) nextSchedules[key] = { baseCells: {}, cells: mergeTimetableOverrides({}, timetable.manualOverrides, { schoolCode: schoolIdentity, grade, classNo, weekStart: week.from }), weekStart: week.from, weekEnd: week.to, grade, classNo, schoolCode: schoolIdentity, loadedAt: result.loadedAt || Date.now(), checkedAt: Date.now(), source: result.source, provider: result.provider, scheduleMode: result.scheduleMode };
       updateTimetable({
         grade,
         classNo,
@@ -188,13 +192,17 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
 
   function openCell(day, periodIndex) {
     const value = schedule[`${day}-${periodIndex}`] || {};
-    setEditor({ day, periodIndex, subject: value.subject || "", teacher: value.teacher || "", classLabel: `${grade}학년 ${classNo}반` });
+    const override = findTimetableOverride(timetable.manualOverrides, { schoolCode: schoolIdentity, grade, classNo, day, periodIndex, weekStart: week.from });
+    setEditor({ day, periodIndex, subject: value.subject || "", teacher: value.teacher || "", scope: override?.scope || "recurring", previousScope: override?.scope || "", hasOverride: Boolean(override), classLabel: `${grade}학년 ${classNo}반` });
   }
 
   function saveCell() {
     const cellKey = `${editor.day}-${editor.periodIndex}`;
-    const cells = { ...schedule, [cellKey]: { ...(schedule[cellKey] || {}), subject: editor.subject.trim(), teacher: editor.teacher.trim(), manuallyEdited: true } };
-    if (!editor.subject.trim() && !editor.teacher.trim()) delete cells[cellKey];
+    const context = { schoolCode: schoolIdentity, grade, classNo, day: editor.day, periodIndex: editor.periodIndex, weekStart: week.from };
+    const cleanedOverrides = editor.previousScope && editor.previousScope !== editor.scope ? removeTimetableOverride(timetable.manualOverrides, context, editor.previousScope) : timetable.manualOverrides;
+    const manualOverrides = saveTimetableOverride(cleanedOverrides, context, editor);
+    const baseCells = record.baseCells || record.cells || {};
+    const cells = mergeTimetableOverrides(baseCells, manualOverrides, { schoolCode: schoolIdentity, grade, classNo, weekStart: week.from });
     const assignmentId = teacherKey(schoolIdentity, grade, classNo, editor.day, editor.periodIndex);
     const teacherAssignments = { ...timetable.teacherAssignments };
     if (editor.teacher.trim()) teacherAssignments[assignmentId] = editor.teacher.trim(); else delete teacherAssignments[assignmentId];
@@ -202,8 +210,18 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
       grade,
       classNo,
       teacherAssignments,
-      schedules: { ...timetable.schedules, [key]: { ...record, cells, weekStart: week.from, weekEnd: week.to, grade, classNo, schoolCode: schoolIdentity, loadedAt: Date.now() } },
+      manualOverrides,
+      schedules: { ...timetable.schedules, [key]: { ...record, baseCells, cells, weekStart: week.from, weekEnd: week.to, grade, classNo, schoolCode: schoolIdentity, loadedAt: Date.now() } },
     });
+    setEditor(null);
+  }
+
+  function clearCellOverride() {
+    const context = { schoolCode: schoolIdentity, grade, classNo, day: editor.day, periodIndex: editor.periodIndex, weekStart: week.from };
+    const manualOverrides = removeTimetableOverride(timetable.manualOverrides, context, editor.scope);
+    const baseCells = record.baseCells || record.cells || {};
+    const cells = mergeTimetableOverrides(baseCells, manualOverrides, { schoolCode: schoolIdentity, grade, classNo, weekStart: week.from });
+    updateTimetable({ manualOverrides, schedules: { ...timetable.schedules, [key]: { ...record, baseCells, cells } } });
     setEditor(null);
   }
 
@@ -242,20 +260,22 @@ export default function TimetablePage({ state, onChange, onNavigate }) {
         <header className="timetable-toolbar live">
           <div className="timetable-week-control"><button onClick={() => moveWeek(-1)} aria-label="이전 주">‹</button><div><strong>{week.from} ~ {week.to}</strong><small>{record.loadedAt ? `${record.source || "시간표"} · ${new Date(record.checkedAt || record.loadedAt).toLocaleString("ko-KR")}` : "실시간 조회 전"}</small></div><button onClick={() => moveWeek(1)} aria-label="다음 주">›</button></div>
           <div className="timetable-view-tabs"><button className={view === "class" ? "active" : ""} onClick={() => setView("class")}>학급별</button><button className={view === "teacher" ? "active" : ""} onClick={() => setView("teacher")}>선생님별</button></div>
+          {view === "class" && <button type="button" className={`timetable-edit-toggle ${editMode ? "active" : ""}`} onClick={() => setEditMode((current) => !current)}>{editMode ? "수정 종료" : "직접 수정"}</button>}
           {view === "class" ? <><label>학년<select value={grade} onChange={(event) => { setGrade(event.target.value); setClassNo("1"); }}>{grades.map((value) => <option key={value} value={value}>{value}학년</option>)}</select></label><label>반<select value={classNo} onChange={(event) => setClassNo(event.target.value)}>{Array.from({ length: classCount }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}반</option>)}</select></label></> : <label className="teacher-select">선생님<select value={selectedTeacher} onChange={(event) => setSelectedTeacher(event.target.value)}><option value="">선생님 선택</option>{teacherNames.map((name) => <option key={name}>{name}</option>)}</select></label>}
         </header>
         {view === "teacher" && <div className="teacher-data-notice"><strong>선생님별 시간표</strong><span>컴시간에 등록된 교사명을 기준으로 모든 학급의 수업을 자동으로 모았습니다. 별표는 원본에서 마스킹된 이름입니다.</span></div>}
+        {view === "class" && editMode && <div className="manual-timetable-notice"><strong>직접 수정 모드</strong><span>셀을 눌러 이 주만 또는 매주 반복으로 고정할 수 있습니다. 새로고침 후에도 고정한 내용이 우선 표시됩니다.</span></div>}
         {record.scheduleMode === "base" && <div className="base-schedule-notice"><strong>기본 시간표</strong><span>컴시간 원자료를 표시합니다. 선택한 주에 있었던 임시 변경 수업은 포함되지 않습니다.</span></div>}
         {error && <p className="school-api-error" role="alert">{error}</p>}
         <div className="timetable-scroll"><div className="timetable-grid" role="table" aria-label={view === "class" ? `${grade}학년 ${classNo}반 주간 시간표` : `${selectedTeacher || "선생님"} 주간 시간표`}>
           <div className="timetable-corner" role="columnheader">교시</div>{DAYS.map((day) => <div className={`timetable-day ${todayKey === day.key ? "today" : ""}`} role="columnheader" key={day.key}>{day.label}</div>)}
-          {periods.map((periodIndex) => <div className="timetable-row" role="row" key={periodIndex}><div className="timetable-period" role="rowheader"><strong>{periodIndex + 1}교시</strong><small>{timetable.classTimes?.[periodIndex] || "시간 정보 없음"}</small></div>{DAYS.map((day) => { const lesson = visibleSchedule[`${day.key}-${periodIndex}`] || {}; const originalLabel = lesson.changed && lesson.originalSubject ? `기본 ${lesson.originalSubject}${lesson.originalTeacher ? ` · ${lesson.originalTeacher}` : ""}` : ""; return <button type="button" className={`timetable-cell ${lesson.changed ? "changed" : ""}`} style={lesson.subject ? { backgroundColor: colorForSubject(lesson.subject) } : undefined} key={day.key} onClick={() => view === "class" && openCell(day.key, periodIndex)} disabled={view === "teacher"} title={originalLabel} aria-label={`${day.label}요일 ${periodIndex + 1}교시 ${lesson.subject || "빈 교시"}${originalLabel ? `, ${originalLabel}` : ""}`}>{lesson.subject ? <><strong>{lesson.subject}</strong><small>{view === "teacher" ? lesson.classLabel : lesson.teacher || "선생님 정보 없음"}</small>{originalLabel && <span className="change-origin">{originalLabel}</span>}{lesson.changed ? <em className="change-badge">변경</em> : lesson.live && <em className="live-badge">LIVE</em>}</> : <span>{view === "class" ? "＋" : "-"}</span>}</button>; })}</div>)}
+          {periods.map((periodIndex) => <div className="timetable-row" role="row" key={periodIndex}><div className="timetable-period" role="rowheader"><strong>{periodIndex + 1}교시</strong><small>{timetable.classTimes?.[periodIndex] || "시간 정보 없음"}</small></div>{DAYS.map((day) => { const lesson = visibleSchedule[`${day.key}-${periodIndex}`] || {}; const originalLabel = lesson.changed && lesson.originalSubject ? `기본 ${lesson.originalSubject}${lesson.originalTeacher ? ` · ${lesson.originalTeacher}` : ""}` : ""; return <button type="button" className={`timetable-cell ${lesson.changed ? "changed" : ""} ${lesson.locked ? "locked" : ""} ${editMode ? "editable" : ""}`} style={lesson.subject ? { backgroundColor: colorForSubject(lesson.subject) } : undefined} key={day.key} onClick={() => view === "class" && editMode && openCell(day.key, periodIndex)} disabled={view === "teacher"} title={originalLabel || (editMode ? "눌러서 직접 수정" : "직접 수정 버튼을 누르면 편집할 수 있습니다.")} aria-label={`${day.label}요일 ${periodIndex + 1}교시 ${lesson.subject || "빈 교시"}${originalLabel ? `, ${originalLabel}` : ""}`}>{lesson.subject ? <><strong>{lesson.subject}</strong><small>{view === "teacher" ? lesson.classLabel : lesson.teacher || "선생님 정보 없음"}</small>{originalLabel && <span className="change-origin">{originalLabel}</span>}{lesson.locked ? <em className="lock-badge">고정</em> : lesson.changed ? <em className="change-badge">변경</em> : lesson.live && <em className="live-badge">LIVE</em>}</> : <span>{view === "class" && editMode ? "＋" : "-"}</span>}</button>; })}</div>)}
         </div></div>
         {!busy && !Object.keys(visibleSchedule).length && <div className="timetable-empty"><strong>{view === "teacher" ? "표시할 선생님 시간표가 없어요." : "선택한 주의 시간표가 없어요."}</strong><p>{view === "teacher" ? "현재 주의 컴시간 시간표를 먼저 불러와 주세요." : "학년·반을 확인하거나 새로고침해 주세요."}</p></div>}
       </section>
       <aside className="partner-panel timetable-today"><span className="partner-kicker">TODAY CLASS</span><h2>{view === "teacher" ? selectedTeacher || "선생님" : `${grade}학년 ${classNo}반`}</h2><p>오늘 수업만 빠르게 확인하세요.</p><div>{todayLessons.map((lesson) => <article key={lesson.periodIndex}><span>{lesson.periodIndex + 1}교시</span><strong>{lesson.subject}</strong><small>{view === "teacher" ? lesson.classLabel : lesson.teacher}</small></article>)}{!todayLessons.length && <div className="partner-empty compact">오늘 등록된 수업이 없습니다.</div>}</div><button className="partner-primary full" onClick={() => onNavigate("partnerToday")}>오늘 공부 보기</button></aside>
     </section>
 
-    {editor && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditor(null)}><section className="modal timetable-editor" role="dialog" aria-modal="true" aria-labelledby="timetable-editor-title"><button className="modal-close" onClick={() => setEditor(null)} aria-label="닫기">×</button><span className="partner-kicker">CLASS</span><h2 id="timetable-editor-title">{DAYS.find((day) => day.key === editor.day)?.label}요일 {editor.periodIndex + 1}교시</h2><label>과목<input value={editor.subject} onChange={(event) => setEditor({ ...editor, subject: event.target.value })} placeholder="예: 전기기기"/></label><label>선생님<input value={editor.teacher} onChange={(event) => setEditor({ ...editor, teacher: event.target.value })} placeholder="컴시간 교사명을 필요하면 수정하세요." autoFocus/></label><div className="asset-edit-actions"><button className="secondary" onClick={() => setEditor(null)}>취소</button><button className="primary" onClick={saveCell}>저장</button></div></section></div>}
+    {editor && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditor(null)}><section className="modal timetable-editor" role="dialog" aria-modal="true" aria-labelledby="timetable-editor-title"><button className="modal-close" onClick={() => setEditor(null)} aria-label="닫기">×</button><span className="partner-kicker">MANUAL OVERRIDE</span><h2 id="timetable-editor-title">{DAYS.find((day) => day.key === editor.day)?.label}요일 {editor.periodIndex + 1}교시</h2><label>과목<input value={editor.subject} onChange={(event) => setEditor({ ...editor, subject: event.target.value })} placeholder="예: 전기기기"/></label><label>선생님<input value={editor.teacher} onChange={(event) => setEditor({ ...editor, teacher: event.target.value })} placeholder="예: 김○○" autoFocus/></label><fieldset className="timetable-override-scope"><legend>고정 범위</legend><label><input type="radio" name="override-scope" checked={editor.scope === "recurring"} onChange={() => setEditor({ ...editor, scope: "recurring" })}/> 매주 기본 시간표에 적용</label><label><input type="radio" name="override-scope" checked={editor.scope === "week"} onChange={() => setEditor({ ...editor, scope: "week" })}/> {week.from} 주간에만 적용</label></fieldset><p className="modal-helper">과목과 선생님을 모두 비우고 저장하면 해당 교시를 빈 시간으로 고정합니다.</p><div className="asset-edit-actions">{editor.hasOverride && <button className="danger-button" onClick={clearCellOverride}>고정 해제</button>}<button className="secondary" onClick={() => setEditor(null)}>취소</button><button className="primary" onClick={saveCell}>수정 내용 고정</button></div></section></div>}
   </main>;
 }
