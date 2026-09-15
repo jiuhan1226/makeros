@@ -1,160 +1,81 @@
-import React, { useMemo, useState } from "react";
-import BufferedListInput from "../components/BufferedListInput";
+import React, { useState } from "react";
+import { postJson } from "../utils/api";
+import { searchSchools } from "../utils/schoolApi";
 
-const emptyAward = { id: "", title: "", organization: "", result: "", date: "", description: "" };
-const emptyCertification = { id: "", name: "", issuer: "", acquiredDate: "", credentialId: "", description: "" };
-const emptyActivity = { id: "", type: "대외활동", title: "", organization: "", startDate: "", endDate: "", role: "", description: "" };
+const SELF_SECTIONS = [["selfIntro", "자기소개"], ["strengths", "성격의 장단점"], ["motivation", "지원동기"], ["aspiration", "입사 후 포부"]];
+const EMPTY = {
+  award: { title: "", organization: "", result: "", date: "", description: "" },
+  certification: { name: "", issuer: "", acquiredDate: "", credentialId: "" },
+  activity: { type: "대외활동", title: "", organization: "", startDate: "", endDate: "", role: "", description: "" },
+};
+const id = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+const text = (profile, key) => profile?.[key] || "";
+const period = (start, end) => start && end ? `${start} ~ ${end}` : start || end || "";
 
-function makeId(prefix) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+function Field({ label, wide, children }) { return <label className={`invent-field ${wide ? "span-all" : ""}`}><span>{label}</span>{children}</label>; }
+
+function PrintDocument({ profile, awards, certifications, activities }) {
+  const education = Array.isArray(profile.education) ? profile.education : [];
+  const selfPages = [SELF_SECTIONS.slice(0, 2), SELF_SECTIONS.slice(2)];
+  return <section className="official-resume-print" aria-hidden="true">
+    <article className="official-sheet resume-sheet"><h1>이 력 서</h1>
+      <table><tbody><tr><th rowSpan="4" className="photo-cell">{profile.photo ? <img src={profile.photo} alt=""/> : "사진"}</th><th>성명</th><td>{profile.name}</td><th>생년월일</th><td>{profile.birthDate}</td></tr><tr><th>한자</th><td>{profile.hanjaName}</td><th>성별</th><td>{profile.gender}</td></tr><tr><th>주소</th><td colSpan="3">{profile.address}</td></tr><tr><th>연락처</th><td>{profile.phone}</td><th>이메일</th><td>{profile.email}</td></tr></tbody></table>
+      <h2>학력사항</h2><table><thead><tr><th>기간</th><th>학교명</th><th>전공</th><th>졸업 구분</th></tr></thead><tbody>{education.length ? education.map((x) => <tr key={x.id}><td>{period(x.startDate, x.endDate)}</td><td>{x.school}</td><td>{x.major}</td><td>{x.status}</td></tr>) : <tr><td colSpan="4">&nbsp;</td></tr>}</tbody></table>
+      <h2>자격사항</h2><table><thead><tr><th>자격증명</th><th>취득일</th><th>발급기관</th><th>자격번호</th></tr></thead><tbody>{certifications.length ? certifications.map((x) => <tr key={x.id}><td>{x.name}</td><td>{x.acquiredDate}</td><td>{x.issuer}</td><td>{x.credentialId}</td></tr>) : <tr><td colSpan="4">&nbsp;</td></tr>}</tbody></table>
+      <h2>수상경력</h2><table><thead><tr><th>수상명</th><th>수상일</th><th>수여기관</th><th>결과</th></tr></thead><tbody>{awards.length ? awards.map((x) => <tr key={x.id}><td>{x.title}</td><td>{x.date}</td><td>{x.organization}</td><td>{x.result}</td></tr>) : <tr><td colSpan="4">&nbsp;</td></tr>}</tbody></table>
+      <h2>교내외 활동</h2><table><thead><tr><th>기간</th><th>활동명</th><th>기관·역할</th><th>주요 내용</th></tr></thead><tbody>{activities.length ? activities.map((x) => <tr key={x.id}><td>{period(x.startDate, x.endDate)}</td><td>{x.title}</td><td>{[x.organization, x.role].filter(Boolean).join(" · ")}</td><td>{x.description}</td></tr>) : <tr><td colSpan="4">&nbsp;</td></tr>}</tbody></table>
+      <p className="official-declaration">위 기재 사항은 사실과 다름없음을 확인합니다.</p><p className="official-sign">{profile.signatureDate || "　　　년　　월　　일"}<br/>작성자: {profile.name || "　　　　　　　　　"} (서명)</p><strong className="official-school">{profile.school || "학교명"}</strong>
+    </article>
+    {selfPages.map((sections, page) => <article className="official-sheet self-sheet" key={page}><h1>자 기 소 개 서</h1><header><span>지원 분야</span><strong>{profile.desiredRole}</strong><span>성명</span><strong>{profile.name}</strong></header>{sections.map(([key, label]) => <section key={key}><h2>{label}</h2><p>{profile[key]}</p></section>)}<p className="official-sign">{profile.signatureDate || "　　　년　　월　　일"}<br/>작성자: {profile.name || "　　　　　　　　　"} (서명)</p><strong className="official-school">{profile.school || "학교명"}</strong></article>)}
+  </section>;
 }
 
-function dateText(start, end) {
-  if (!start && !end) return "기간 미입력";
-  if (start && end) return `${start} ~ ${end}`;
-  return start || end;
+function List({ items, primaryKey, dateKey, onEdit, onDelete }) {
+  return <section className="portfolio-record-list">{items.map((item) => <article className="maker-card portfolio-record-card" key={item.id}><header><div><span>{item[dateKey] || "날짜 미입력"}</span><h3>{item[primaryKey]}</h3><p>{item.organization || item.issuer || ""}</p></div><div><button onClick={() => onEdit(item)}>수정</button><button className="danger" onClick={() => onDelete(item.id)}>삭제</button></div></header></article>)}{!items.length && <div className="maker-card maker-inline-empty"><h3>아직 등록된 항목이 없습니다.</h3><p>왼쪽 입력란에서 추가해 주세요.</p></div>}</section>;
 }
 
-async function copyText(value, message = "복사했습니다.") {
-  try {
-    if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
-    await navigator.clipboard.writeText(value || "");
-    alert(message);
-  } catch {
-    alert("복사하지 못했습니다.");
-  }
+function RecordForm({ type, draft, setDraft, onSave }) {
+  const configs = {
+    certification: [["name","자격증명"],["issuer","발급기관"],["acquiredDate","취득일","date"],["credentialId","자격번호"]],
+    award: [["title","수상명"],["organization","수여기관"],["result","수상 결과"],["date","수상일","date"],["description","설명","textarea"]],
+    activity: [["type","구분","select"],["title","활동명"],["organization","기관"],["role","역할"],["startDate","시작일","date"],["endDate","종료일","date"],["description","주요 활동 및 성과","textarea"]],
+  };
+  return <section className="maker-card portfolio-editor-card"><header><div><span>{type.toUpperCase()}</span><h2>{draft.id ? "항목 수정" : "새 항목"}</h2></div></header><div className="portfolio-form-grid">{configs[type].map(([key,label,inputType]) => <Field label={label} wide={inputType === "textarea"} key={key}>{inputType === "textarea" ? <textarea rows="4" value={draft[key] || ""} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}/> : inputType === "select" ? <select value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}>{["대외활동","교내활동","교육","동아리","봉사","기타"].map((x) => <option key={x}>{x}</option>)}</select> : <input type={inputType || "text"} value={draft[key] || ""} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}/>}</Field>)}</div><button className="maker-primary maker-wide" onClick={onSave}>저장</button></section>;
 }
 
-function ResumeSection({ title, children, empty }) {
-  return <section className="resume-section"><h2>{title}</h2>{children || <p className="resume-empty-text">{empty}</p>}</section>;
-}
-
-export default function PortfolioPage({
-  inventorProjects = [],
-  buildProjects = [],
-  history = [],
-  assets = {},
-  resumeProfile = {},
-  onChangeResumeProfile,
-  awards = [],
-  onChangeAwards,
-  certifications = [],
-  onChangeCertifications,
-  portfolioItems = [],
-  onChangePortfolioItems,
-}) {
+export default function PortfolioPage({ buildProjects = [], resumeProfile = {}, onChangeResumeProfile, awards = [], onChangeAwards, certifications = [], onChangeCertifications, portfolioItems = [], onChangePortfolioItems, onNavigate }) {
   const [tab, setTab] = useState("resume");
-  const [awardDraft, setAwardDraft] = useState(emptyAward);
-  const [certDraft, setCertDraft] = useState(emptyCertification);
-  const [activityDraft, setActivityDraft] = useState(emptyActivity);
+  const [schoolQuery, setSchoolQuery] = useState(text(resumeProfile, "school")); const [schools, setSchools] = useState([]); const [schoolBusy, setSchoolBusy] = useState(false);
+  const [draftType, setDraftType] = useState("certification"); const [draft, setDraft] = useState({ ...EMPTY.certification });
+  const [aiSection, setAiSection] = useState("selfIntro"); const [aiMode, setAiMode] = useState("draft"); const [aiBusy, setAiBusy] = useState(false); const [aiResult, setAiResult] = useState(null);
+  const education = Array.isArray(resumeProfile.education) ? resumeProfile.education : [];
+  const update = (patch) => onChangeResumeProfile({ ...resumeProfile, ...patch });
 
-  const journals = useMemo(() => buildProjects.flatMap((project) => (project.journals || []).map((entry) => ({ ...entry, projectId: project.id, projectTitle: project.title }))).sort((a, b) => String(b.date || b.createdAt).localeCompare(String(a.date || a.createdAt))), [buildProjects]);
-  const completedProjects = buildProjects.filter((item) => item.status === "done").length;
-  const skills = Array.isArray(resumeProfile.skills) ? resumeProfile.skills : [];
-
-  const autoTimeline = useMemo(() => [
-    ...buildProjects.map((item) => ({ type: "프로젝트", title: item.title, date: item.updatedAt, summary: item.resumeSummary || item.outcome || item.solution || item.problem || "프로젝트 수행 기록", status: item.status === "done" ? "완료" : "진행 중" })),
-    ...inventorProjects.filter((item) => item.stage >= 3).map((item) => ({ type: "발명", title: item.title, date: item.updatedAt, summary: item.solution?.concept || item.problem?.inconvenience || "발명 아이디어 구체화 기록", status: `${item.stage}/7 단계` })),
-    ...history.slice(0, 8).map((item) => ({ type: "학습", title: item.title, date: item.createdAt, summary: `${item.correct || 0}/${item.total || 0}문제 정답`, status: item.passed ? "합격" : "학습" })),
-  ].sort((a, b) => b.date - a.date), [inventorProjects, buildProjects, history]);
-
-  const resumePlainText = useMemo(() => {
-    const lines = [
-      resumeProfile.name || "이름",
-      resumeProfile.desiredRole || "희망 직무",
-      [resumeProfile.email, resumeProfile.phone, resumeProfile.location].filter(Boolean).join(" · "),
-      "",
-      "소개",
-      resumeProfile.introduction || "",
-      "",
-      "기술",
-      skills.join(", "),
-      "",
-      "프로젝트",
-      ...buildProjects.flatMap((project) => [
-        `${project.title} (${dateText(project.startDate, project.endDate)})`,
-        [project.role, project.teamSize].filter(Boolean).join(" · "),
-        project.resumeSummary || project.solution || "",
-        project.outcome || "",
-        project.techStack?.length ? `기술: ${project.techStack.join(", ")}` : "",
-        "",
-      ]),
-      "수상 경력",
-      ...awards.map((item) => `${item.date || ""} ${item.title} · ${item.organization || ""} · ${item.result || ""}\n${item.description || ""}`),
-      "",
-      "자격증",
-      ...certifications.map((item) => `${item.acquiredDate || ""} ${item.name} · ${item.issuer || ""}${item.credentialId ? ` · ${item.credentialId}` : ""}`),
-      "",
-      "대외활동·교육",
-      ...portfolioItems.map((item) => `${dateText(item.startDate, item.endDate)} ${item.title} · ${item.organization || ""}\n${item.description || ""}`),
-    ];
-    return lines.filter((line, index, arr) => line !== "" || arr[index - 1] !== "").join("\n").trim();
-  }, [resumeProfile, skills, buildProjects, awards, certifications, portfolioItems]);
-
-  function saveAward() {
-    if (!awardDraft.title.trim()) return alert("수상명을 입력해 주세요.");
-    const item = { ...awardDraft, id: awardDraft.id || makeId("award") };
-    const exists = awards.some((entry) => entry.id === item.id);
-    onChangeAwards(exists ? awards.map((entry) => entry.id === item.id ? item : entry) : [item, ...awards]);
-    setAwardDraft(emptyAward);
+  async function findSchool() { if (schoolQuery.trim().length < 2) return alert("학교 이름을 두 글자 이상 입력해 주세요."); setSchoolBusy(true); try { setSchools((await searchSchools(schoolQuery.trim())).schools || []); } catch (e) { alert(e.message); } finally { setSchoolBusy(false); } }
+  function loadPhoto(event) { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith("image/")) return alert("이미지 파일을 선택해 주세요."); if (file.size > 2 * 1024 * 1024) return alert("사진은 2MB 이하만 사용할 수 있습니다."); const reader = new FileReader(); reader.onload = () => update({ photo: String(reader.result || "") }); reader.readAsDataURL(file); }
+  function selectType(type) { setDraftType(type); setDraft({ ...EMPTY[type] }); }
+  function storeRecord() {
+    const maps = { certification: [certifications,onChangeCertifications,"name"], award: [awards,onChangeAwards,"title"], activity: [portfolioItems,onChangePortfolioItems,"title"] };
+    const [items,setter,required] = maps[draftType]; if (!String(draft[required] || "").trim()) return alert(`${required === "name" ? "자격증명" : "항목명"}을 입력해 주세요.`);
+    const item = { ...draft, id: draft.id || id(draftType) }; setter(items.some((x) => x.id === item.id) ? items.map((x) => x.id === item.id ? item : x) : [item, ...items]); setDraft({ ...EMPTY[draftType] });
   }
-
-  function saveCertification() {
-    if (!certDraft.name.trim()) return alert("자격증명을 입력해 주세요.");
-    const item = { ...certDraft, id: certDraft.id || makeId("cert") };
-    const exists = certifications.some((entry) => entry.id === item.id);
-    onChangeCertifications(exists ? certifications.map((entry) => entry.id === item.id ? item : entry) : [item, ...certifications]);
-    setCertDraft(emptyCertification);
-  }
-
-  function saveActivity() {
-    if (!activityDraft.title.trim()) return alert("활동명을 입력해 주세요.");
-    const item = { ...activityDraft, id: activityDraft.id || makeId("activity") };
-    const exists = portfolioItems.some((entry) => entry.id === item.id);
-    onChangePortfolioItems(exists ? portfolioItems.map((entry) => entry.id === item.id ? item : entry) : [item, ...portfolioItems]);
-    setActivityDraft(emptyActivity);
-  }
+  async function askAi() { setAiBusy(true); setAiResult(null); try { setAiResult(await postJson("/api/resume/assist", { section: aiSection, mode: aiMode, currentText: text(resumeProfile, aiSection), desiredRole: text(resumeProfile,"desiredRole"), targetCompany: text(resumeProfile,"targetCompany"), profile: { school: text(resumeProfile,"school"), major: text(resumeProfile,"major") }, evidence: { projects: buildProjects.slice(0,8), awards: awards.slice(0,8), certifications: certifications.slice(0,8), activities: portfolioItems.slice(0,8) } }, "자소서 작성을 돕지 못했습니다.")); } catch (e) { setAiResult({ error: e.message }); } finally { setAiBusy(false); } }
+  const recordMap = { certification: { items: certifications, setter: onChangeCertifications, primary: "name", date: "acquiredDate" }, award: { items: awards, setter: onChangeAwards, primary: "title", date: "date" }, activity: { items: portfolioItems, setter: onChangePortfolioItems, primary: "title", date: "startDate" } };
+  const currentRecord = recordMap[draftType];
 
   return <main className="maker-page portfolio-page portfolio-resume-page">
-    <section className="maker-page-head portfolio-page-head"><div><span>SHOWCASE</span><h1>포트폴리오 · 이력서</h1><p>수상, 자격증, 프로젝트와 과정 기록을 한곳에 모아 바로 제출할 수 있는 이력서 형태로 정리합니다.</p></div><div className="portfolio-head-actions"><button className="maker-ghost" onClick={() => copyText(resumePlainText, "이력서 내용을 복사했습니다.")}>텍스트 복사</button><button className="maker-primary" onClick={() => window.print()}>PDF로 저장·인쇄</button></div></section>
-
-    <section className="portfolio-summary portfolio-summary-v2"><article><strong>{buildProjects.length}</strong><span>프로젝트</span></article><article><strong>{completedProjects}</strong><span>완료 프로젝트</span></article><article><strong>{awards.length}</strong><span>수상 경력</span></article><article><strong>{certifications.length}</strong><span>자격증</span></article><article><strong>{journals.length}</strong><span>프로젝트 일지</span></article></section>
-
-    <nav className="portfolio-tabs"><button className={tab === "resume" ? "active" : ""} onClick={() => setTab("resume")}>이력서</button><button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>기본 정보</button><button className={tab === "projects" ? "active" : ""} onClick={() => setTab("projects")}>프로젝트</button><button className={tab === "awards" ? "active" : ""} onClick={() => setTab("awards")}>수상</button><button className={tab === "certifications" ? "active" : ""} onClick={() => setTab("certifications")}>자격증</button><button className={tab === "activities" ? "active" : ""} onClick={() => setTab("activities")}>활동</button><button className={tab === "timeline" ? "active" : ""} onClick={() => setTab("timeline")}>성장 기록</button></nav>
-
-    {tab === "resume" && <section className="resume-paper maker-card" id="makeros-resume">
-      <header className="resume-header"><div><span>{resumeProfile.desiredRole || "희망 직무를 입력하세요"}</span><h1>{resumeProfile.name || "이름을 입력하세요"}</h1><p>{[resumeProfile.school, resumeProfile.major, resumeProfile.grade].filter(Boolean).join(" · ") || "학교·전공 정보를 입력하세요"}</p></div><address>{resumeProfile.email && <a href={`mailto:${resumeProfile.email}`}>{resumeProfile.email}</a>}{resumeProfile.phone && <span>{resumeProfile.phone}</span>}{resumeProfile.location && <span>{resumeProfile.location}</span>}</address></header>
-      <ResumeSection title="PROFILE" empty="기본 정보 탭에서 한 줄 소개를 입력하세요.">{resumeProfile.introduction && <p className="resume-introduction">{resumeProfile.introduction}</p>}</ResumeSection>
-      <ResumeSection title="SKILLS" empty="사용할 수 있는 기술을 등록하세요.">{skills.length > 0 && <div className="resume-skill-list">{skills.map((skill) => <span key={skill}>{skill}</span>)}</div>}</ResumeSection>
-      <ResumeSection title="PROJECTS" empty="Build에서 프로젝트를 만들고 이력서용 요약을 작성하세요.">{buildProjects.length > 0 && <div className="resume-entry-list">{buildProjects.map((project) => <article className="resume-entry" key={project.id}><header><div><h3>{project.title}</h3><p>{[project.role, project.teamSize].filter(Boolean).join(" · ")}</p></div><time>{dateText(project.startDate, project.endDate)}</time></header><p>{project.resumeSummary || project.solution || project.problem || "프로젝트 설명을 입력하세요."}</p>{project.outcome && <p className="resume-result"><b>성과</b> {project.outcome}</p>}{!!project.techStack?.length && <footer>{project.techStack.map((tech) => <span key={tech}>{tech}</span>)}</footer>}</article>)}</div>}</ResumeSection>
-      <div className="resume-two-column">
-        <ResumeSection title="AWARDS" empty="수상 경력을 등록하세요.">{awards.length > 0 && <div className="resume-compact-list">{awards.map((item) => <article key={item.id}><time>{item.date || "날짜 미입력"}</time><div><h3>{item.title}</h3><p>{[item.organization, item.result].filter(Boolean).join(" · ")}</p>{item.description && <small>{item.description}</small>}</div></article>)}</div>}</ResumeSection>
-        <ResumeSection title="CERTIFICATIONS" empty="자격증을 등록하세요.">{certifications.length > 0 && <div className="resume-compact-list">{certifications.map((item) => <article key={item.id}><time>{item.acquiredDate || "날짜 미입력"}</time><div><h3>{item.name}</h3><p>{item.issuer}{item.credentialId ? ` · ${item.credentialId}` : ""}</p>{item.description && <small>{item.description}</small>}</div></article>)}</div>}</ResumeSection>
-      </div>
-      <ResumeSection title="ACTIVITIES" empty="대외활동·교육·동아리 기록을 등록하세요.">{portfolioItems.length > 0 && <div className="resume-entry-list compact">{portfolioItems.map((item) => <article className="resume-entry" key={item.id}><header><div><h3>{item.title}</h3><p>{[item.type, item.organization, item.role].filter(Boolean).join(" · ")}</p></div><time>{dateText(item.startDate, item.endDate)}</time></header>{item.description && <p>{item.description}</p>}</article>)}</div>}</ResumeSection>
-    </section>}
-
-    {tab === "profile" && <section className="maker-card portfolio-editor-card"><header><div><span>RESUME PROFILE</span><h2>기본 정보</h2><p>입력한 내용은 이력서 미리보기에 즉시 반영됩니다.</p></div></header><div className="portfolio-form-grid">
-      <label className="invent-field"><span>이름</span><input value={resumeProfile.name || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, name: e.target.value })}/></label>
-      <label className="invent-field"><span>희망 직무</span><input value={resumeProfile.desiredRole || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, desiredRole: e.target.value })} placeholder="예: AI·소프트웨어 개발자"/></label>
-      <label className="invent-field"><span>학교</span><input value={resumeProfile.school || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, school: e.target.value })}/></label>
-      <label className="invent-field"><span>전공</span><input value={resumeProfile.major || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, major: e.target.value })}/></label>
-      <label className="invent-field"><span>학년</span><input value={resumeProfile.grade || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, grade: e.target.value })}/></label>
-      <label className="invent-field"><span>지역</span><input value={resumeProfile.location || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, location: e.target.value })}/></label>
-      <label className="invent-field"><span>이메일</span><input type="email" value={resumeProfile.email || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, email: e.target.value })}/></label>
-      <label className="invent-field"><span>연락처</span><input value={resumeProfile.phone || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, phone: e.target.value })}/></label>
-      <label className="invent-field span-all"><span>한 줄 소개</span><textarea rows="5" value={resumeProfile.introduction || ""} onChange={(e) => onChangeResumeProfile({ ...resumeProfile, introduction: e.target.value })} placeholder="관심 분야, 강점, 경험을 2~4문장으로 정리하세요."/></label>
-      <label className="invent-field span-all"><span>보유 기술</span><small>쉼표로 구분해 입력하세요.</small><BufferedListInput value={skills} onCommit={(items) => onChangeResumeProfile({ ...resumeProfile, skills: items })} placeholder="Python, Kotlin, PLC, Raspberry Pi, React"/></label>
-    </div></section>}
-
-    {tab === "projects" && <section className="portfolio-projects-grid">{buildProjects.length ? buildProjects.map((project) => <article className="maker-card portfolio-project-card" key={project.id}><header><div><span>{project.status === "done" ? "완료" : project.status === "paused" ? "보류" : "진행 중"}</span><h2>{project.title}</h2><p>{dateText(project.startDate, project.endDate)}</p></div><b>{project.journals?.length || 0}<small>일지</small></b></header><div className="portfolio-project-meta"><span>{project.role || "역할 미입력"}</span><span>{project.teamSize || "팀 규모 미입력"}</span></div><p>{project.resumeSummary || project.solution || "Build의 개요 탭에서 이력서용 프로젝트 요약을 입력하세요."}</p>{project.outcome && <aside><strong>성과</strong><p>{project.outcome}</p></aside>}<footer>{(project.techStack || []).map((tech) => <span key={tech}>{tech}</span>)}</footer></article>) : <div className="maker-card maker-inline-empty"><h3>등록된 프로젝트가 없어요</h3><p>Build에서 프로젝트를 만들면 자동으로 표시됩니다.</p></div>}</section>}
-
-    {tab === "awards" && <section className="portfolio-management-layout"><section className="maker-card portfolio-editor-card"><header><div><span>AWARD</span><h2>{awardDraft.id ? "수상 경력 수정" : "수상 경력 등록"}</h2></div>{awardDraft.id && <button className="maker-ghost" onClick={() => setAwardDraft(emptyAward)}>새 항목</button>}</header><div className="portfolio-form-grid"><label className="invent-field span-all"><span>수상명</span><input value={awardDraft.title} onChange={(e) => setAwardDraft({ ...awardDraft, title: e.target.value })}/></label><label className="invent-field"><span>주최·수여기관</span><input value={awardDraft.organization} onChange={(e) => setAwardDraft({ ...awardDraft, organization: e.target.value })}/></label><label className="invent-field"><span>수상 결과</span><input value={awardDraft.result} onChange={(e) => setAwardDraft({ ...awardDraft, result: e.target.value })} placeholder="대상, 최우수상, 장려상 등"/></label><label className="invent-field"><span>수상일</span><input type="date" value={awardDraft.date} onChange={(e) => setAwardDraft({ ...awardDraft, date: e.target.value })}/></label><label className="invent-field span-all"><span>설명·기여 내용</span><textarea rows="4" value={awardDraft.description} onChange={(e) => setAwardDraft({ ...awardDraft, description: e.target.value })}/></label></div><button className="maker-primary maker-wide" onClick={saveAward}>저장</button></section><section className="portfolio-record-list">{awards.map((item) => <article className="maker-card portfolio-record-card" key={item.id}><header><div><span>{item.date || "날짜 미입력"}</span><h3>{item.title}</h3><p>{[item.organization, item.result].filter(Boolean).join(" · ")}</p></div><div><button onClick={() => setAwardDraft(item)}>수정</button><button className="danger" onClick={() => window.confirm(`‘${item.title}’을 삭제할까요?`) && onChangeAwards(awards.filter((entry) => entry.id !== item.id))}>삭제</button></div></header>{item.description && <p>{item.description}</p>}</article>)}{!awards.length && <div className="maker-card maker-inline-empty"><h3>수상 경력을 등록해 보세요</h3><p>공모전·교내대회·해커톤 등의 기록을 이력서에 바로 반영할 수 있습니다.</p></div>}</section></section>}
-
-    {tab === "certifications" && <section className="portfolio-management-layout"><section className="maker-card portfolio-editor-card"><header><div><span>CERTIFICATION</span><h2>{certDraft.id ? "자격증 수정" : "자격증 등록"}</h2></div>{certDraft.id && <button className="maker-ghost" onClick={() => setCertDraft(emptyCertification)}>새 항목</button>}</header><div className="portfolio-form-grid"><label className="invent-field span-all"><span>자격증명</span><input value={certDraft.name} onChange={(e) => setCertDraft({ ...certDraft, name: e.target.value })}/></label><label className="invent-field"><span>발급기관</span><input value={certDraft.issuer} onChange={(e) => setCertDraft({ ...certDraft, issuer: e.target.value })}/></label><label className="invent-field"><span>취득일</span><input type="date" value={certDraft.acquiredDate} onChange={(e) => setCertDraft({ ...certDraft, acquiredDate: e.target.value })}/></label><label className="invent-field span-all"><span>자격번호</span><input value={certDraft.credentialId} onChange={(e) => setCertDraft({ ...certDraft, credentialId: e.target.value })}/></label><label className="invent-field span-all"><span>비고</span><textarea rows="3" value={certDraft.description} onChange={(e) => setCertDraft({ ...certDraft, description: e.target.value })}/></label></div><button className="maker-primary maker-wide" onClick={saveCertification}>저장</button></section><section className="portfolio-record-list">{certifications.map((item) => <article className="maker-card portfolio-record-card" key={item.id}><header><div><span>{item.acquiredDate || "취득일 미입력"}</span><h3>{item.name}</h3><p>{item.issuer}{item.credentialId ? ` · ${item.credentialId}` : ""}</p></div><div><button onClick={() => setCertDraft(item)}>수정</button><button className="danger" onClick={() => window.confirm(`‘${item.name}’을 삭제할까요?`) && onChangeCertifications(certifications.filter((entry) => entry.id !== item.id))}>삭제</button></div></header>{item.description && <p>{item.description}</p>}</article>)}{!certifications.length && <div className="maker-card maker-inline-empty"><h3>자격증 정보를 등록해 보세요</h3><p>취득일과 발급기관을 입력하면 이력서에 자동 정렬됩니다.</p></div>}</section></section>}
-
-    {tab === "activities" && <section className="portfolio-management-layout"><section className="maker-card portfolio-editor-card"><header><div><span>ACTIVITY</span><h2>{activityDraft.id ? "활동 수정" : "활동 등록"}</h2></div>{activityDraft.id && <button className="maker-ghost" onClick={() => setActivityDraft(emptyActivity)}>새 항목</button>}</header><div className="portfolio-form-grid"><label className="invent-field"><span>구분</span><select value={activityDraft.type} onChange={(e) => setActivityDraft({ ...activityDraft, type: e.target.value })}><option>대외활동</option><option>교육</option><option>동아리</option><option>봉사</option><option>창업</option><option>기타</option></select></label><label className="invent-field"><span>활동명</span><input value={activityDraft.title} onChange={(e) => setActivityDraft({ ...activityDraft, title: e.target.value })}/></label><label className="invent-field"><span>기관</span><input value={activityDraft.organization} onChange={(e) => setActivityDraft({ ...activityDraft, organization: e.target.value })}/></label><label className="invent-field"><span>역할</span><input value={activityDraft.role} onChange={(e) => setActivityDraft({ ...activityDraft, role: e.target.value })}/></label><label className="invent-field"><span>시작일</span><input type="date" value={activityDraft.startDate} onChange={(e) => setActivityDraft({ ...activityDraft, startDate: e.target.value })}/></label><label className="invent-field"><span>종료일</span><input type="date" value={activityDraft.endDate} onChange={(e) => setActivityDraft({ ...activityDraft, endDate: e.target.value })}/></label><label className="invent-field span-all"><span>주요 활동 및 성과</span><textarea rows="5" value={activityDraft.description} onChange={(e) => setActivityDraft({ ...activityDraft, description: e.target.value })}/></label></div><button className="maker-primary maker-wide" onClick={saveActivity}>저장</button></section><section className="portfolio-record-list">{portfolioItems.map((item) => <article className="maker-card portfolio-record-card" key={item.id}><header><div><span>{item.type} · {dateText(item.startDate, item.endDate)}</span><h3>{item.title}</h3><p>{[item.organization, item.role].filter(Boolean).join(" · ")}</p></div><div><button onClick={() => setActivityDraft(item)}>수정</button><button className="danger" onClick={() => window.confirm(`‘${item.title}’을 삭제할까요?`) && onChangePortfolioItems(portfolioItems.filter((entry) => entry.id !== item.id))}>삭제</button></div></header>{item.description && <p>{item.description}</p>}</article>)}{!portfolioItems.length && <div className="maker-card maker-inline-empty"><h3>활동 기록을 등록해 보세요</h3><p>교육, 동아리, 대외활동, 봉사, 창업 경험을 이력서에 연결할 수 있습니다.</p></div>}</section></section>}
-
-    {tab === "timeline" && <section className="portfolio-timeline-grid"><section className="maker-card portfolio-timeline"><header className="timeline-section-head"><div><span>AUTO TIMELINE</span><h2>성장 기록</h2></div><small>학습·발명·프로젝트에서 자동 수집</small></header>{autoTimeline.length ? autoTimeline.map((item, index) => <article key={`${item.type}-${item.title}-${index}`}><i/><div><span>{item.type} · {new Date(item.date).toLocaleDateString("ko-KR")}</span><h3>{item.title}</h3><p>{item.summary}</p><small>{item.status}</small></div></article>) : <div className="maker-inline-empty"><h3>아직 기록이 없어요</h3><p>학습을 완료하거나 Invent 아이디어를 프로젝트로 전환하면 자동으로 쌓입니다.</p></div>}</section><section className="project-journal-list portfolio-journal-list"><header className="timeline-section-head"><div><span>PROJECT EVIDENCE</span><h2>프로젝트 일지</h2></div><small>{journals.length}개</small></header>{journals.length ? journals.map((entry) => <article className="maker-card project-journal-card" key={`${entry.projectId}-${entry.id}`}><header><div><span>{entry.projectTitle} · {entry.date || "날짜 미입력"}</span><h3>{entry.title}</h3></div></header>{entry.content && <p>{entry.content}</p>}{entry.progress && <div className="journal-highlight"><strong>진행 결과</strong><p>{entry.progress}</p></div>}</article>) : <div className="maker-card maker-inline-empty"><h3>프로젝트 일지가 없어요</h3><p>Build의 프로젝트 일지 탭에서 과정과 배운 점을 기록하세요.</p></div>}</section></section>}
+    <section className="maker-page-head portfolio-page-head"><div><span>RESUME STUDIO</span><h1>이력서 · 자기소개서</h1><p>기본 정보와 경험을 입력하면 학교 제출 양식으로 바로 인쇄할 수 있습니다.</p></div><button className="maker-primary" onClick={() => window.print()}>PDF로 저장·인쇄</button></section>
+    <nav className="portfolio-tabs">{[["resume","이력서 작성"],["self","자기소개서"],["ai","AI 작성 도움"],["records","경력 자료"]].map(([key,label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>{label}</button>)}<button onClick={() => onNavigate?.("opportunities")}>공모전·대외활동 찾기</button></nav>
+    {tab === "resume" && <div className="resume-workspace"><section className="maker-card portfolio-editor-card"><header><div><span>BASIC INFORMATION</span><h2>기본 정보</h2><p>예시 데이터 없이 직접 입력한 내용만 저장됩니다.</p></div></header><div className="portfolio-form-grid">
+      <Field label="증명사진"><div className="resume-photo-input">{resumeProfile.photo && <img src={resumeProfile.photo} alt="등록한 증명사진"/>}<input type="file" accept="image/*" onChange={loadPhoto}/>{resumeProfile.photo && <button type="button" onClick={() => update({ photo: "" })}>삭제</button>}</div></Field>
+      {[["name","성명"],["hanjaName","한자 성명"],["birthDate","생년월일","date"],["address","주소"],["phone","연락처"],["email","이메일","email"],["desiredRole","희망 직무"],["targetCompany","지원 기업"],["signatureDate","작성일","date"]].map(([key,label,type]) => <Field label={label} wide={key === "address"} key={key}><input type={type || "text"} value={text(resumeProfile,key)} onChange={(e) => update({ [key]: e.target.value })}/></Field>)}
+      <Field label="성별"><select value={text(resumeProfile,"gender")} onChange={(e) => update({ gender: e.target.value })}><option value="">선택 안 함</option><option>남</option><option>여</option><option>기재하지 않음</option></select></Field>
+    </div></section>
+    <section className="maker-card portfolio-editor-card"><header><div><span>SCHOOL</span><h2>학교 선택</h2><p>검색으로 선택하거나 학교명을 직접 수정할 수 있습니다.</p></div></header><div className="school-resume-search"><input value={schoolQuery} onChange={(e) => { setSchoolQuery(e.target.value); update({ school: e.target.value }); }} onKeyDown={(e) => e.key === "Enter" && findSchool()} placeholder="학교 이름 입력"/><button className="maker-primary" onClick={findSchool} disabled={schoolBusy}>{schoolBusy ? "검색 중…" : "학교 검색"}</button></div>{schools.length > 0 && <div className="school-search-results">{schools.map((school) => <button key={`${school.officeCode}:${school.schoolCode}`} onClick={() => { setSchoolQuery(school.schoolName); update({ school: school.schoolName }); setSchools([]); }}><strong>{school.schoolName}</strong><span>{school.region} · {school.schoolKind}</span></button>)}</div>}<div className="portfolio-form-grid resume-school-meta"><Field label="전공"><input value={text(resumeProfile,"major")} onChange={(e) => update({ major: e.target.value })}/></Field><Field label="학년"><input value={text(resumeProfile,"grade")} onChange={(e) => update({ grade: e.target.value })}/></Field></div></section>
+    <section className="maker-card portfolio-editor-card"><header><div><span>EDUCATION</span><h2>학력사항</h2></div><button className="maker-ghost" onClick={() => update({ education: [...education,{ id:id("edu"), startDate:"",endDate:"",school:"",major:"",status:"졸업예정" }] })}>+ 학력 추가</button></header><div className="resume-row-list">{education.map((item) => <article key={item.id}>{[["startDate","date","입학일"],["endDate","date","졸업일"],["school","text","학교명"],["major","text","전공"]].map(([key,type,label]) => <input key={key} type={type} aria-label={label} placeholder={label} value={item[key]} onChange={(e) => update({ education: education.map((x) => x.id === item.id ? { ...x,[key]:e.target.value } : x) })}/>)}<select value={item.status} onChange={(e) => update({ education: education.map((x) => x.id === item.id ? { ...x,status:e.target.value } : x) })}><option>재학</option><option>졸업예정</option><option>졸업</option></select><button className="maker-danger-ghost" onClick={() => update({ education: education.filter((x) => x.id !== item.id) })}>삭제</button></article>)}{!education.length && <div className="maker-inline-empty"><h3>학력사항을 추가해 주세요</h3><p>기간과 학교명을 입력하면 인쇄 양식에 반영됩니다.</p></div>}</div></section></div>}
+    {tab === "self" && <section className="self-intro-editor-grid">{SELF_SECTIONS.map(([key,label]) => <article className="maker-card portfolio-editor-card" key={key}><header><div><span>SELF INTRODUCTION</span><h2>{label}</h2></div><small>{text(resumeProfile,key).length}자</small></header><textarea rows="12" value={text(resumeProfile,key)} onChange={(e) => update({ [key]: e.target.value })} placeholder={`${label} 내용을 작성하세요.`}/></article>)}</section>}
+    {tab === "ai" && <section className="maker-card resume-ai-studio"><div className="resume-ai-settings"><span>AI WRITING COACH</span><h2>내 경험으로 자소서 쓰기</h2><p>입력한 이력만 사용해 제안합니다. 확인 후 원하는 문항에 적용하세요.</p><Field label="문항"><select value={aiSection} onChange={(e) => { setAiSection(e.target.value); setAiResult(null); }}>{SELF_SECTIONS.map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label="도움 방식"><select value={aiMode} onChange={(e) => setAiMode(e.target.value)}><option value="draft">초안 만들기</option><option value="improve">현재 글 다듬기</option><option value="shorten">간결하게 줄이기</option></select></Field><button className="maker-primary maker-wide" disabled={aiBusy} onClick={askAi}>{aiBusy ? "경험을 정리하는 중…" : "AI에게 제안 받기"}</button></div><div className="resume-ai-output">{aiResult?.error ? <p className="maker-error">{aiResult.error}</p> : aiResult ? <><span>AI 제안</span><textarea rows="15" readOnly value={aiResult.draft || ""}/>{aiResult.note && <p>{aiResult.note}</p>}{aiResult.questions?.length > 0 && <aside><strong>더 좋아지려면</strong>{aiResult.questions.map((q) => <p key={q}>· {q}</p>)}</aside>}<button className="maker-primary" disabled={!aiResult.draft} onClick={() => { update({ [aiSection]:aiResult.draft }); setTab("self"); }}>이 문항에 적용</button></> : <div className="maker-inline-empty"><h3>문항을 선택해 시작하세요</h3><p>프로젝트, 자격증, 수상, 활동 기록이 많을수록 구체적으로 제안합니다.</p></div>}</div></section>}
+    {tab === "records" && <><nav className="record-type-tabs">{[["certification",`자격증 ${certifications.length}`],["award",`수상 ${awards.length}`],["activity",`교내외 활동 ${portfolioItems.length}`]].map(([key,label]) => <button key={key} className={draftType === key ? "active" : ""} onClick={() => selectType(key)}>{label}</button>)}</nav><section className="portfolio-management-layout"><RecordForm type={draftType} draft={draft} setDraft={setDraft} onSave={storeRecord}/><List items={currentRecord.items} primaryKey={currentRecord.primary} dateKey={currentRecord.date} onEdit={setDraft} onDelete={(itemId) => currentRecord.setter(currentRecord.items.filter((x) => x.id !== itemId))}/></section></>}
+    <PrintDocument profile={resumeProfile} awards={awards} certifications={certifications} activities={portfolioItems}/>
   </main>;
 }
