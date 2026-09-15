@@ -43,6 +43,7 @@ import MakerHomePage from "./pages/MakerHomePage";
 import InventPage from "./pages/InventPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import PortfolioPage from "./pages/PortfolioPage";
+import OpportunitiesPage from "./pages/OpportunitiesPage";
 import CareerPage from "./pages/CareerPage";
 import PartnerTodayPage from "./pages/PartnerTodayPage";
 import PartnerPlanPage from "./pages/PartnerPlanPage";
@@ -1233,7 +1234,8 @@ function App() {
       {page === "makerHome" && <MakerHomePage onNavigate={navigate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} />}
       {page === "invent" && <InventPage projects={inventorProjects} onChangeProjects={setInventorProjects} onCreateBuildProject={createBuildProject} />}
       {page === "projects" && <ProjectsPage projects={buildProjects} inventorProjects={inventorProjects} onChangeProjects={setBuildProjects} onOpenInvent={() => setPage("invent")} />}
-      {page === "portfolio" && <PortfolioPage inventorProjects={inventorProjects} buildProjects={buildProjects} history={history} assets={assets} resumeProfile={resumeProfile} onChangeResumeProfile={setResumeProfile} awards={awards} onChangeAwards={setAwards} certifications={certifications} onChangeCertifications={setCertifications} portfolioItems={portfolioItems} onChangePortfolioItems={setPortfolioItems} />}
+      {page === "portfolio" && <PortfolioPage inventorProjects={inventorProjects} buildProjects={buildProjects} history={history} assets={assets} resumeProfile={resumeProfile} onChangeResumeProfile={setResumeProfile} awards={awards} onChangeAwards={setAwards} certifications={certifications} onChangeCertifications={setCertifications} portfolioItems={portfolioItems} onChangePortfolioItems={setPortfolioItems} onNavigate={navigate} />}
+      {page === "opportunities" && <OpportunitiesPage portfolioItems={portfolioItems} onChangePortfolioItems={setPortfolioItems} />}
       {page === "career" && <CareerPage assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} pdfLibrary={pdfLibrary} history={history} awards={awards} certifications={certifications} onNavigate={navigate} />}
       {page === "catalog" && <CatalogPage certificates={certificates} onSelect={selectCertificate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} onNavigate={navigate} />}
       {page === "certificate" && <CertificateHomePage certificate={certificate} exams={exams} history={certificateHistory} practiceHistory={certificatePracticeHistory} wrongNotes={certificateWrongNotes} learningProgress={certificateLearningProgress} plan={plan} pdfLibrary={pdfLibrary} loadQuestions={getExamQuestions} onNavigate={navigate} onOpenExam={openExam} onStartRecommended={startRecommended} />}
