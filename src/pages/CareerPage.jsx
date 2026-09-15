@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { postJson } from "../utils/api";
 
 const dimensions = [
   { key: "software", name: "AI·소프트웨어", regex: /ai|인공지능|소프트웨어|코딩|프로그래밍|앱|서버|웹|데이터|firebase|python|kotlin|react/i },
@@ -35,6 +36,9 @@ export default function CareerPage({
   history = [],
   awards = [],
   certifications = [],
+  portfolioItems = [],
+  careerProfile = {},
+  onChangeCareerProfile,
   onNavigate,
 }) {
   const analysis = useMemo(() => {
@@ -118,6 +122,56 @@ export default function CareerPage({
   };
   const jobs = jobMap[analysis.top?.key] || jobMap.software;
   const [selectedJob, setSelectedJob] = useState(jobs[0]);
+  const [tab, setTab] = useState("roadmap");
+  const [recordBusy, setRecordBusy] = useState(false);
+  const [recordError, setRecordError] = useState("");
+  const [recordForm, setRecordForm] = useState({ section: "진로활동", activity: "", role: "", action: "", result: "", learning: "", nextStep: "" });
+  const [milestoneForm, setMilestoneForm] = useState({ phase: "이번 학기", title: "", deadline: "", evidence: "" });
+  const roadmapMilestones = Array.isArray(careerProfile.roadmapMilestones) ? careerProfile.roadmapMilestones : [];
+  const studentRecordDrafts = Array.isArray(careerProfile.studentRecordDrafts) ? careerProfile.studentRecordDrafts : [];
+
+  function updateCareer(patch) {
+    onChangeCareerProfile?.({ ...careerProfile, ...patch, updatedAt: Date.now() });
+  }
+
+  function addMilestone() {
+    if (!milestoneForm.title.trim()) return;
+    updateCareer({ roadmapMilestones: [...roadmapMilestones, { ...milestoneForm, id: `career-step-${Date.now()}`, title: milestoneForm.title.trim(), evidence: milestoneForm.evidence.trim(), done: false }] });
+    setMilestoneForm({ phase: milestoneForm.phase, title: "", deadline: "", evidence: "" });
+  }
+
+  function patchMilestone(id, patch) {
+    updateCareer({ roadmapMilestones: roadmapMilestones.map((item) => item.id === id ? { ...item, ...patch } : item) });
+  }
+
+  async function generateStudentRecord() {
+    if (!recordForm.activity.trim() || !recordForm.action.trim()) {
+      setRecordError("무엇을 했는지와 실제 행동을 먼저 입력해 주세요.");
+      return;
+    }
+    setRecordBusy(true); setRecordError("");
+    try {
+      const result = await postJson("/api/career/student-record-assist", {
+        section: recordForm.section,
+        facts: recordForm,
+        career: { targetRole: careerProfile.targetRole || selectedJob, targetCompany: careerProfile.targetCompany || "" },
+        evidence: {
+          projects: buildProjects.slice(0, 12).map((item) => ({ title: item.title, role: item.role, outcome: item.outcome, resumeSummary: item.resumeSummary })),
+          awards: awards.slice(0, 12),
+          certifications: certifications.slice(0, 12),
+          activities: portfolioItems.slice(0, 12),
+        },
+      }, "생기부 활동 기록 초안을 만들지 못했습니다.");
+      setRecordForm((current) => ({ ...current, draft: result.draft || "", missingFacts: result.missingFacts || [], caution: result.caution || "" }));
+    } catch (error) { setRecordError(error.message); }
+    finally { setRecordBusy(false); }
+  }
+
+  function saveStudentRecord() {
+    if (!recordForm.draft?.trim()) return;
+    updateCareer({ studentRecordDrafts: [{ id: `student-record-${Date.now()}`, ...recordForm, createdAt: Date.now() }, ...studentRecordDrafts] });
+    setRecordForm({ section: recordForm.section, activity: "", role: "", action: "", result: "", learning: "", nextStep: "" });
+  }
 
   useEffect(() => {
     if (!jobs.includes(selectedJob)) setSelectedJob(jobs[0]);
@@ -155,7 +209,20 @@ export default function CareerPage({
   }, [analysis.top?.key]);
 
   return <main className="maker-page career-page">
-    <section className="maker-page-head"><div><span>GROW</span><h1>진로 로드맵</h1><p>지금까지의 활동을 바탕으로 강점과 다음 진로 준비 단계를 확인하세요.</p></div></section>
+    <section className="maker-page-head"><div><span>GROW</span><h1>진로 로드맵</h1><p>희망 직무를 정하고, 활동 근거와 다음 행동을 졸업 전까지 이어서 관리하세요.</p></div><button className="maker-ghost" onClick={() => onNavigate?.("opportunities")}>참여할 활동 찾기</button></section>
+    <nav className="career-workspace-tabs" aria-label="진로 화면"><button className={tab === "roadmap" ? "active" : ""} onClick={() => setTab("roadmap")}>진로 로드맵</button><button className={tab === "record" ? "active" : ""} onClick={() => setTab("record")}>생기부 활동 정리</button></nav>
+
+    {tab === "roadmap" && <>
+    <section className="maker-card career-goal-editor">
+      <header><div><span>MY CAREER GOAL</span><h2>희망 진로와 도달 시점</h2></div><small>입력한 목표는 아래 준비 단계와 연결됩니다.</small></header>
+      <div><label>희망 직무<input value={careerProfile.targetRole || ""} onChange={(event) => updateCareer({ targetRole: event.target.value })} placeholder="예: 자동화설비 기술자"/></label><label>희망 기업·분야<input value={careerProfile.targetCompany || ""} onChange={(event) => updateCareer({ targetCompany: event.target.value })} placeholder="예: 반도체 장비·스마트팩토리"/></label><label>목표 시점<input type="date" value={careerProfile.targetDate || ""} onChange={(event) => updateCareer({ targetDate: event.target.value })}/></label></div>
+    </section>
+
+    <section className="maker-card personal-milestones">
+      <header><div><span>STAR PROJECT ROADMAP</span><h2>활동을 역량 근거로 연결하기</h2><p>자격증·수업·프로젝트·대회를 ‘한 일 → 증거 → 배운 점’으로 남깁니다.</p></div></header>
+      <div className="milestone-input-row"><select value={milestoneForm.phase} onChange={(event) => setMilestoneForm({ ...milestoneForm, phase: event.target.value })}><option>이번 달</option><option>이번 학기</option><option>졸업 전</option><option>입사 준비</option></select><input value={milestoneForm.title} onChange={(event) => setMilestoneForm({ ...milestoneForm, title: event.target.value })} placeholder="예: PLC 제어 미니 프로젝트 완성"/><input type="date" value={milestoneForm.deadline} onChange={(event) => setMilestoneForm({ ...milestoneForm, deadline: event.target.value })}/><input value={milestoneForm.evidence} onChange={(event) => setMilestoneForm({ ...milestoneForm, evidence: event.target.value })} placeholder="남길 증거: 영상, 회로도, 보고서"/><button className="primary" onClick={addMilestone}>단계 추가</button></div>
+      <div className="personal-milestone-list">{roadmapMilestones.map((item) => <article key={item.id} className={item.done ? "done" : ""}><label><input type="checkbox" checked={Boolean(item.done)} onChange={(event) => patchMilestone(item.id, { done: event.target.checked })}/><span>{item.phase}</span></label><div><strong>{item.title}</strong><small>{item.deadline || "날짜 미정"} · {item.evidence || "증거를 정해 주세요"}</small></div><button onClick={() => updateCareer({ roadmapMilestones: roadmapMilestones.filter((entry) => entry.id !== item.id) })}>삭제</button></article>)}{!roadmapMilestones.length && <div className="maker-inline-empty compact"><strong>직접 정한 준비 단계가 아직 없습니다.</strong><p>이번 학기에 끝낼 한 가지부터 추가해 보세요.</p></div>}</div>
+    </section>
 
     <section className="career-type-card maker-card">
       <div className="career-type-summary">
@@ -189,5 +256,12 @@ export default function CareerPage({
     </section>
 
     <section className="maker-card career-evidence-card"><span>분석에 사용된 실제 기록</span><ol><li>AI 노트 {analysis.counts.notes}개 · 개념카드 {analysis.counts.cards}개</li><li>완료 작업 {analysis.counts.completedTasks}개 · 프로젝트 일지 {analysis.counts.journals}개</li><li>자격증 {analysis.counts.certifications}개 · 수상 경력 {analysis.counts.awards}개</li></ol></section>
+    </>}
+
+    {tab === "record" && <section className="student-record-workspace">
+      <article className="maker-card student-record-form"><header><span>FACT FIRST</span><h2>활동 사실 먼저 적기</h2><p>AI는 입력한 사실만 문장으로 정리하며 없는 성과나 평가를 만들지 않습니다.</p></header><label>기록 영역<select value={recordForm.section} onChange={(event) => setRecordForm({ ...recordForm, section: event.target.value })}><option>진로활동</option><option>자율활동</option><option>동아리활동</option><option>봉사활동</option><option>세부능력 및 특기사항</option></select></label><label>활동명<input value={recordForm.activity} onChange={(event) => setRecordForm({ ...recordForm, activity: event.target.value })} placeholder="예: PLC 기반 컨베이어 제어 프로젝트"/></label><label>내 역할<input value={recordForm.role} onChange={(event) => setRecordForm({ ...recordForm, role: event.target.value })} placeholder="예: 센서 배선과 제어 로직 담당"/></label><label>실제로 한 행동<textarea rows="4" value={recordForm.action} onChange={(event) => setRecordForm({ ...recordForm, action: event.target.value })} placeholder="관찰 가능한 행동을 구체적으로 적어 주세요."/></label><div className="student-record-two"><label>결과·증거<textarea rows="3" value={recordForm.result} onChange={(event) => setRecordForm({ ...recordForm, result: event.target.value })} placeholder="완성물, 측정값, 보고서, 발표 등"/></label><label>배운 점·다음 행동<textarea rows="3" value={`${recordForm.learning}${recordForm.nextStep ? `\n${recordForm.nextStep}` : ""}`} onChange={(event) => setRecordForm({ ...recordForm, learning: event.target.value, nextStep: "" })} placeholder="무엇을 이해했고 다음에 무엇을 개선할지"/></label></div>{recordError && <p className="maker-error">{recordError}</p>}<button className="primary" onClick={generateStudentRecord} disabled={recordBusy}>{recordBusy ? "사실을 확인하며 정리 중…" : "AI로 교사 전달용 초안 만들기"}</button></article>
+      <article className="maker-card student-record-output"><header><span>REVIEW</span><h2>교사에게 전달할 활동 정리</h2><p>공식 학교생활기록부 문구는 담당 교사가 확인하고 작성합니다.</p></header><textarea rows="15" value={recordForm.draft || ""} onChange={(event) => setRecordForm({ ...recordForm, draft: event.target.value })} placeholder="왼쪽에 활동 사실을 입력하면 과장 없는 참고 초안을 제안합니다."/>{recordForm.missingFacts?.length > 0 && <aside><strong>더 있으면 좋은 근거</strong><ul>{recordForm.missingFacts.map((item) => <li key={item}>{item}</li>)}</ul></aside>}{recordForm.caution && <small>{recordForm.caution}</small>}<button className="secondary" onClick={saveStudentRecord} disabled={!recordForm.draft?.trim()}>내 기록에 저장</button></article>
+      <section className="maker-card student-record-saved"><header><span>SAVED</span><h2>저장한 활동 기록</h2></header>{studentRecordDrafts.map((item) => <article key={item.id}><div><span>{item.section}</span><strong>{item.activity}</strong><p>{item.draft}</p></div><button onClick={() => updateCareer({ studentRecordDrafts: studentRecordDrafts.filter((entry) => entry.id !== item.id) })}>삭제</button></article>)}{!studentRecordDrafts.length && <div className="maker-inline-empty compact">저장한 활동 기록이 없습니다.</div>}</section>
+    </section>}
   </main>;
 }
