@@ -26,6 +26,7 @@ const PAGE_TO_PATH = {
   invent: "invent",
   projects: "projects",
   portfolio: "portfolio",
+  opportunities: "opportunities",
   career: "career",
   mode: "exam-mode",
   exam: "exam",
