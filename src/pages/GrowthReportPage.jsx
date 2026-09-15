@@ -75,12 +75,12 @@ export default function GrowthReportPage({
       </section>
 
       <section className="dashboard-grid">
-        <article className="panel">
+        <article className="panel report-mastery-panel">
           <h2>취약 개념 숙련도</h2>
           {weak.length ? weak.map((item) => (
-            <div className="weakness-row" key={item.tag}>
-              <div><b>{item.tag}</b><span>{item.mastery}%</span></div>
-              <div className="weakness-bar"><i style={{ width: `${item.mastery}%` }} /></div>
+            <div className="report-mastery-row" key={item.tag}>
+              <div className="report-mastery-head"><strong>{item.tag}</strong><span>{item.mastery}%</span></div>
+              <div className="report-mastery-track"><i style={{ width: `${item.mastery}%` }} /></div>
             </div>
           )) : <p className="muted">문제를 풀고 자기평가를 남기면 숙련도가 표시돼요.</p>}
         </article>
