@@ -27,6 +27,7 @@ import {
   signExplanationRecord,
   verifyExplanationRecordSignature,
 } from "./cbtExplanation.mjs";
+import { collectOpportunities, OPPORTUNITY_SOURCES } from "./opportunityAggregator.mjs";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -51,13 +52,14 @@ const guestAiTrialDailyLimit = Math.max(1, Number(process.env.GUEST_AI_TRIAL_DAI
 const neisApiKey = String(process.env.NEIS_API_KEY || "").trim();
 const comciganEnabled = String(process.env.COMCIGAN_ENABLED || "true").toLowerCase() !== "false";
 const neisCache = new Map();
+let opportunityCache = null;
 const neisRequestHeaders = {
   accept: "application/json,text/plain,*/*",
   "accept-language": "ko-KR,ko;q=0.9,en;q=0.7",
   "cache-control": "no-cache",
   pragma: "no-cache",
   referer: "https://open.neis.go.kr/portal/mainPage.do",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.21",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.23",
 };
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
@@ -240,6 +242,7 @@ const protectedAiPaths = [
   "/api/cbt-learning-coach",
   "/api/invent/coach",
   "/api/resume/assist",
+  "/api/career/student-record-assist",
   "/api/partner/plan",
   "/api/partner/cbt-diagnostic",
 ];
@@ -552,29 +555,16 @@ app.get("/api/school-data/status", (req, res) => res.json({
 }));
 
 app.get("/api/opportunities", async (req, res) => {
-  const sourceUrl = "https://www.wevity.com/?c=find&cidx=30&gub=2&s=1";
   try {
-    const response = await fetch(sourceUrl, {
-      headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.21" },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const items = parseYouthOpportunities(await response.text());
-    if (!items.length) throw new Error("공고 형식을 읽지 못했습니다.");
-    return res.json({ items, source: "WEVITY 청소년 공모전", sourceUrl, checkedAt: Date.now() });
+    const force = String(req.query?.force || "") === "1";
+    if (!force && opportunityCache && Date.now() - opportunityCache.checkedAt < 15 * 60 * 1000) return res.json({ ...opportunityCache, cached: true });
+    const result = await collectOpportunities(fetch);
+    if (result.items.length) opportunityCache = result;
+    if (!result.items.length && opportunityCache && Date.now() - opportunityCache.checkedAt < 24 * 60 * 60 * 1000) return res.json({ ...opportunityCache, cached: true, stale: true, warning: "공개 출처 연결이 지연되어 최근 수집한 공고를 표시합니다." });
+    return res.json(result);
   } catch (error) {
     console.warn(`[MakerOS Opportunities] ${error.message}`);
-    const verifiedFallback = Date.now() <= Date.parse("2026-09-27T23:59:59+09:00") ? [{
-      id: "wevity-110530",
-      title: "제5회 2026 대한민국 고등학생 AI·SW 개발 공모전",
-      categories: "웹·모바일·IT, 게임·소프트웨어, 과학·공학",
-      organization: "한국인공지능·소프트웨어산업협회",
-      dday: "9월 27일 마감",
-      status: "접수중",
-      deadline: "2026-09-27",
-      url: "https://www.wevity.com/?c=find&s=1&gub=1&cidx=20&gbn=viewok&gp=1&ix=110530",
-    }] : [];
-    return res.json({ items: verifiedFallback, source: "최근 확인된 WEVITY 공고", sourceUrl, stale: true, warning: "실시간 목록 연결이 지연되어 최근 확인된 공고만 표시합니다." });
+    return res.json({ items: [], sources: OPPORTUNITY_SOURCES.map((source) => ({ ...source, ok: false, count: 0 })), warning: "공개 공고 출처 연결이 지연되고 있습니다. 출처 버튼에서 직접 확인해 주세요.", checkedAt: Date.now() });
   }
 });
 
@@ -1202,7 +1192,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.21",
+    version: "3.1.23",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
@@ -2249,6 +2239,43 @@ app.post("/api/resume/assist", async (req, res) => {
     return res.json({ draft: String(parsed.draft || "").slice(0, 4000), note: String(parsed.note || "AI가 제안한 문장은 사실관계를 확인한 뒤 본인 표현으로 수정해 주세요.").slice(0, 240), questions: Array.isArray(parsed.questions) ? parsed.questions.map((x) => String(x).slice(0, 180)).slice(0, 4) : [], model: generated.model });
   } catch (error) {
     console.error("[MakerOS Resume Assist Error]", error);
+    const friendly = friendlyError(error);
+    return res.status(friendly.status).json({ error: friendly.message });
+  }
+});
+
+app.post("/api/career/student-record-assist", async (req, res) => {
+  try {
+    if (!apiKey || !ai) return res.status(503).json({ error: "서버에 GEMINI_API_KEY가 설정되지 않았습니다." });
+    const allowedSections = ["진로활동", "자율활동", "동아리활동", "봉사활동", "세부능력 및 특기사항"];
+    const section = allowedSections.includes(req.body?.section) ? req.body.section : "진로활동";
+    const facts = req.body?.facts && typeof req.body.facts === "object" ? req.body.facts : {};
+    const compact = JSON.stringify({ section, facts, career: req.body?.career || {}, evidence: req.body?.evidence || {} }).slice(0, 22000);
+    if (normalize(facts.activity || "").length < 2 || normalize(facts.action || "").length < 5) return res.status(400).json({ error: "활동명과 실제 행동을 조금 더 구체적으로 입력해 주세요." });
+    const generated = await generateStudyMapJson({ prompt: `당신은 마이스터고 학생이 교사에게 전달할 활동 사실을 정리하도록 돕는 기록 코치입니다.
+기록 영역: ${section}
+
+중요 원칙:
+1. 이것은 공식 학교생활기록부 문구가 아니라 담당 교사에게 전달할 학생의 활동 사실 정리 초안입니다.
+2. 입력에 없는 수치, 성과, 역할, 태도, 능력, 교사의 평가를 절대 만들지 않습니다.
+3. 학생이 실제로 한 행동과 확인 가능한 결과를 중심으로 350~600자 이내의 자연스러운 한국어 문장으로 정리합니다.
+4. '탁월함', '우수함'처럼 관찰 근거가 없는 평가 표현을 사용하지 않습니다.
+5. 정보가 부족한 부분은 문장으로 채우지 말고 missingFacts에 짧은 질문으로 남깁니다.
+6. evidenceUsed에는 초안에 실제 반영한 입력 사실만 짧게 나열합니다.
+7. JSON 객체 하나만 반환합니다.
+
+형식: {"draft":"교사 전달용 활동 사실 정리","missingFacts":["추가로 확인할 사실"],"evidenceUsed":["반영한 사실"],"caution":"공식 기록은 담당 교사가 확인·작성한다는 안내"}
+입력(JSON): ${compact}`, maxOutputTokens: 3200 });
+    const parsed = generated.parsed || {};
+    return res.json({
+      draft: String(parsed.draft || "").slice(0, 5000),
+      missingFacts: Array.isArray(parsed.missingFacts) ? parsed.missingFacts.map((item) => String(item).slice(0, 180)).slice(0, 6) : [],
+      evidenceUsed: Array.isArray(parsed.evidenceUsed) ? parsed.evidenceUsed.map((item) => String(item).slice(0, 180)).slice(0, 12) : [],
+      caution: String(parsed.caution || "공식 학교생활기록부 내용은 담당 교사가 사실을 확인한 뒤 작성합니다.").slice(0, 260),
+      model: generated.model,
+    });
+  } catch (error) {
+    console.error("[MakerOS Student Record Assist Error]", error);
     const friendly = friendlyError(error);
     return res.status(friendly.status).json({ error: friendly.message });
   }
