@@ -1,7 +1,7 @@
 {
   "name": "makeros-product-final",
   "private": true,
-  "version": "3.1.21",
+  "version": "3.1.23",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"node --watch server/server.mjs\"",
@@ -16,7 +16,7 @@
     "test:explanation": "node scripts/explanation-safety-test.mjs",
     "test:maintenance": "node scripts/learning-maintenance-test.mjs",
     "test:dedup": "node scripts/question-dedup-test.mjs",
-    "test": "npm run test:partner && npm run test:checkpoint && npm run test:pdf-source && npm run test:experience && npm run test:diagnostic && npm run test:routing && npm run test:calendar && npm run test:flashcards && npm run test:school-data && npm run test:resume && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:dedup && npm run test:copy && npm run test:submission && npm run test:responsive",
+    "test": "npm run test:partner && npm run test:checkpoint && npm run test:pdf-source && npm run test:experience && npm run test:diagnostic && npm run test:routing && npm run test:calendar && npm run test:flashcards && npm run test:school-data && npm run test:timetable-overrides && npm run test:opportunities && npm run test:resume && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:dedup && npm run test:copy && npm run test:submission && npm run test:responsive",
     "test:checkpoint": "node scripts/exam-checkpoint-test.mjs",
     "test:pdf-source": "node scripts/pdf-source-test.mjs",
     "test:copy": "node scripts/copy-audit.mjs",
@@ -31,7 +31,9 @@
     "test:calendar": "node scripts/calendar-layout-test.mjs",
     "test:flashcards": "node scripts/flashcard-learning-test.mjs",
     "test:school-data": "node scripts/school-data-test.mjs",
-    "test:resume": "node scripts/resume-opportunities-test.mjs"
+    "test:resume": "node scripts/resume-opportunities-test.mjs",
+    "test:timetable-overrides": "node scripts/timetable-overrides-test.mjs",
+    "test:opportunities": "node scripts/opportunity-aggregator-test.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
