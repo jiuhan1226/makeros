@@ -10,6 +10,7 @@ function activeModule(active) {
   if (active === "invent") return "invent";
   if (active === "projects") return "projects";
   if (active === "portfolio") return "portfolio";
+  if (active === "opportunities") return "opportunities";
   if (active === "career") return "career";
   if (active === "makerHome") return "legacy";
   return "partner";
@@ -42,7 +43,7 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
     ["graph", "개념 트리"],
     ["tutor", "AI 튜터"],
   ];
-  const legacyItems = [["makerHome", "기존 MakerOS 홈"], ["invent", "발명"], ["projects", "프로젝트"], ["portfolio", "포트폴리오"], ["career", "기존 진로"]];
+  const legacyItems = [["makerHome", "기존 MakerOS 홈"], ["invent", "발명"], ["projects", "프로젝트"], ["portfolio", "이력서"], ["opportunities", "공모전·대외활동"], ["career", "기존 진로"]];
   const currentSubItems = module === "certificateLearn" ? certificateItems : module === "schoolLearn" ? schoolItems : [];
 
   function isMainActive(item) {
@@ -129,7 +130,8 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
                 <button type="button" onClick={() => navigate("makerHome")}>MakerOS 홈</button>
                 <button type="button" onClick={() => navigate("invent")}>발명</button>
                 <button type="button" onClick={() => navigate("projects")}>프로젝트</button>
-                <button type="button" onClick={() => navigate("portfolio")}>포트폴리오</button>
+                <button type="button" onClick={() => navigate("portfolio")}>이력서·자소서</button>
+                <button type="button" onClick={() => navigate("opportunities")}>공모전·대외활동</button>
                 <button type="button" onClick={() => navigate("career")}>진로</button>
               </nav>
             </div>
