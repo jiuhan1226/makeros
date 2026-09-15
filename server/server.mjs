@@ -57,7 +57,7 @@ const neisRequestHeaders = {
   "cache-control": "no-cache",
   pragma: "no-cache",
   referer: "https://open.neis.go.kr/portal/mainPage.do",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.20",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.21",
 };
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
@@ -239,6 +239,7 @@ const protectedAiPaths = [
   "/api/ai-tutor",
   "/api/cbt-learning-coach",
   "/api/invent/coach",
+  "/api/resume/assist",
   "/api/partner/plan",
   "/api/partner/cbt-diagnostic",
 ];
@@ -250,6 +251,40 @@ function normalize(text = "") {
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .trim();
+}
+
+function decodeWebText(value = "") {
+  return String(value)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&bull;|&#8226;/g, "•")
+    .replace(/&nbsp;|&#160;/g, " ")
+    .replace(/&#(\d+);/g, (_, number) => String.fromCharCode(Number(number)))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseYouthOpportunities(html = "") {
+  const items = [];
+  const seen = new Set();
+  const anchorPattern = /<a[^>]+href=["']([^"']*gbn=viewok[^"']*ix=(\d+)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = anchorPattern.exec(html)) && items.length < 30) {
+    const itemId = match[2];
+    const title = decodeWebText(match[3]).replace(/\s*(SPECIAL|신규|마감임박)\s*$/i, "").trim();
+    if (seen.has(itemId) || title.length < 8 || /전체|스페셜|신규|마감임박|접수중|접수예정/.test(title)) continue;
+    const context = decodeWebText(html.slice(match.index, match.index + 1900));
+    const dday = context.match(/D[+-]\s*\d+/i)?.[0]?.replace(/\s/g, "") || "";
+    const status = context.match(/마감임박|접수중|접수예정|마감/)?.[0] || "공고 확인";
+    const categories = context.match(/분야\s*:\s*(.+?)(?=\s{2,}|D[+-]\d+|접수중|접수예정|마감|조회)/)?.[1]?.slice(0, 180) || "분야는 상세 공고에서 확인";
+    const href = match[1].replace(/&amp;/g, "&");
+    const url = href.startsWith("http") ? href : `https://www.wevity.com/${href.replace(/^\/?/, "")}`;
+    items.push({ id: itemId, title, categories, organization: "", dday, status, deadline: "", url });
+    seen.add(itemId);
+  }
+  return items;
 }
 
 function neisRows(payload, dataset) {
@@ -515,6 +550,33 @@ app.get("/api/school-data/status", (req, res) => res.json({
   serverProxy: true,
   neisApiKeyConfigured: Boolean(neisApiKey),
 }));
+
+app.get("/api/opportunities", async (req, res) => {
+  const sourceUrl = "https://www.wevity.com/?c=find&cidx=30&gub=2&s=1";
+  try {
+    const response = await fetch(sourceUrl, {
+      headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.21" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const items = parseYouthOpportunities(await response.text());
+    if (!items.length) throw new Error("공고 형식을 읽지 못했습니다.");
+    return res.json({ items, source: "WEVITY 청소년 공모전", sourceUrl, checkedAt: Date.now() });
+  } catch (error) {
+    console.warn(`[MakerOS Opportunities] ${error.message}`);
+    const verifiedFallback = Date.now() <= Date.parse("2026-09-27T23:59:59+09:00") ? [{
+      id: "wevity-110530",
+      title: "제5회 2026 대한민국 고등학생 AI·SW 개발 공모전",
+      categories: "웹·모바일·IT, 게임·소프트웨어, 과학·공학",
+      organization: "한국인공지능·소프트웨어산업협회",
+      dday: "9월 27일 마감",
+      status: "접수중",
+      deadline: "2026-09-27",
+      url: "https://www.wevity.com/?c=find&s=1&gub=1&cidx=20&gbn=viewok&gp=1&ix=110530",
+    }] : [];
+    return res.json({ items: verifiedFallback, source: "최근 확인된 WEVITY 공고", sourceUrl, stale: true, warning: "실시간 목록 연결이 지연되어 최근 확인된 공고만 표시합니다." });
+  }
+});
 
 app.get("/api/school-data/schools", async (req, res) => {
   const query = normalize(req.query?.q || "");
@@ -1140,7 +1202,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.20",
+    version: "3.1.21",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
@@ -2152,6 +2214,41 @@ JSON 형식:
     return res.json({ ...normalizeLearningCoachResult(generated.parsed), model: generated.model });
   } catch (error) {
     console.error("[MakerOS CBT Learning Coach Error]", error);
+    const friendly = friendlyError(error);
+    return res.status(friendly.status).json({ error: friendly.message });
+  }
+});
+
+app.post("/api/resume/assist", async (req, res) => {
+  try {
+    if (!apiKey || !ai) return res.status(503).json({ error: "서버에 GEMINI_API_KEY가 설정되지 않았습니다." });
+    const labels = { selfIntro: "자기소개", strengths: "성격의 장단점", motivation: "지원동기", aspiration: "입사 후 포부" };
+    const section = labels[req.body?.section] ? req.body.section : "selfIntro";
+    const mode = ["draft", "improve", "shorten"].includes(req.body?.mode) ? req.body.mode : "draft";
+    const context = JSON.stringify({
+      desiredRole: normalize(req.body?.desiredRole || "").slice(0, 120),
+      targetCompany: normalize(req.body?.targetCompany || "").slice(0, 120),
+      currentText: String(req.body?.currentText || "").slice(0, 3000),
+      profile: req.body?.profile || {},
+      evidence: req.body?.evidence || {},
+    }).slice(0, 18000);
+    const generated = await generateStudyMapJson({ prompt: `당신은 마이스터고 학생의 자기소개서 작성 코치입니다.
+문항: ${labels[section]}
+작업: ${mode === "improve" ? "현재 글을 구체적이고 자연스럽게 다듬기" : mode === "shorten" ? "핵심 근거를 유지하며 간결하게 줄이기" : "입력된 경험으로 500자 안팎의 초안 제안"}
+
+원칙:
+1. 입력에 없는 회사명, 역할, 수치, 수상, 기술, 감정을 절대 만들어내지 않습니다.
+2. 근거가 부족하면 일반적인 문장으로 채우지 말고 questions에 학생이 답할 질문을 넣습니다.
+3. 학생다운 자연스러운 한국어와 구체적인 행동-과정-배움 순서로 씁니다.
+4. AI 작성물은 반드시 학생이 사실관계를 확인해야 한다는 짧은 note를 제공합니다.
+5. JSON 하나만 반환합니다.
+
+형식: {"draft":"제안문","note":"확인 안내","questions":["추가 질문"]}
+학생 입력(JSON): ${context}`, maxOutputTokens: 2600 });
+    const parsed = generated.parsed || {};
+    return res.json({ draft: String(parsed.draft || "").slice(0, 4000), note: String(parsed.note || "AI가 제안한 문장은 사실관계를 확인한 뒤 본인 표현으로 수정해 주세요.").slice(0, 240), questions: Array.isArray(parsed.questions) ? parsed.questions.map((x) => String(x).slice(0, 180)).slice(0, 4) : [], model: generated.model });
+  } catch (error) {
+    console.error("[MakerOS Resume Assist Error]", error);
     const friendly = friendlyError(error);
     return res.status(friendly.status).json({ error: friendly.message });
   }
