@@ -16,7 +16,7 @@ function activeModule(active) {
   return "partner";
 }
 
-export default function AppHeader({ active, onNavigate, certificateName, certificateShortcuts = [], onOpenCertificateGoal, onStartCertificateGoal, user, onLogin, onTutorial, isAdmin }) {
+export default function AppHeader({ active, onNavigate, certificateName, certificateShortcuts = [], onOpenCertificateGoal, onStartCertificateGoal, user, onLogin, onTutorial, isAdmin, syncStatus = "device" }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const moreMenuRef = useRef(null);
   const module = activeModule(active);
@@ -43,7 +43,8 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
     ["graph", "개념 트리"],
     ["tutor", "AI 튜터"],
   ];
-  const legacyItems = [["makerHome", "기존 MakerOS 홈"], ["invent", "발명"], ["projects", "프로젝트"], ["portfolio", "이력서"], ["opportunities", "공모전·대외활동"], ["career", "기존 진로"]];
+  const legacyItems = [["makerHome", "성장 홈"], ["invent", "발명"], ["projects", "프로젝트"], ["portfolio", "이력서"], ["opportunities", "공모전·대외활동"], ["career", "진로 로드맵"]];
+  const syncLabels = { device: "이 기기에 저장", loading: "계정 불러오는 중", saving: "저장 중", synced: "계정에 저장됨", error: "동기화 확인 필요" };
   const currentSubItems = module === "certificateLearn" ? certificateItems : module === "schoolLearn" ? schoolItems : [];
 
   function isMainActive(item) {
@@ -105,6 +106,7 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
           {mainItems.map((item) => <button key={`${item.key}:${item.label}`} className={isMainActive(item) ? "active" : ""} onClick={() => navigate(item.key)}>{item.label}</button>)}
         </nav>
         <div className="maker-header-actions">
+          <span className={`maker-sync-status ${syncStatus}`} title={user ? "로그인 계정의 학습·성장 기록 동기화 상태" : "로그인하면 다른 기기에서도 기록을 이어갈 수 있습니다."}>{syncLabels[syncStatus] || syncLabels.device}</span>
           <button className="maker-help-button" onClick={onTutorial}>사용법</button>
           <button className="maker-search-button" onClick={() => navigate("knowledge")}>검색</button>
           <details className="maker-more-menu" ref={moreMenuRef}>
@@ -119,7 +121,7 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
                   </div>)}
                 </div>
               </>}
-              <span>다른 기능</span>
+              <span>학교·학습 도구</span>
               <nav>
                 <button type="button" onClick={() => navigate("catalog")}>전체 자격증</button>
                 <button type="button" onClick={() => navigate("timetable")}>학교 시간표</button>
@@ -127,12 +129,15 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
                 <button type="button" onClick={() => navigate("tutor")}>AI 튜터</button>
                 {certificateName && <button type="button" onClick={() => navigate("learning")}>자격증 AI 추천</button>}
                 {certificateName && <button type="button" onClick={() => navigate("planner")}>자격증 시험 계획</button>}
-                <button type="button" onClick={() => navigate("makerHome")}>MakerOS 홈</button>
+              </nav>
+              <span>성장 기록 도구</span>
+              <nav>
+                <button type="button" onClick={() => navigate("makerHome")}>성장 홈</button>
                 <button type="button" onClick={() => navigate("invent")}>발명</button>
                 <button type="button" onClick={() => navigate("projects")}>프로젝트</button>
                 <button type="button" onClick={() => navigate("portfolio")}>이력서·자소서</button>
                 <button type="button" onClick={() => navigate("opportunities")}>공모전·대외활동</button>
-                <button type="button" onClick={() => navigate("career")}>진로</button>
+                <button type="button" onClick={() => navigate("career")}>진로 로드맵</button>
               </nav>
             </div>
           </details>
