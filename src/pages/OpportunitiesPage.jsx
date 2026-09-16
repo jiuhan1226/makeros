@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-const KEY = "makeros-opportunity-bookmarks-v2";
-const readSaved = () => { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; } };
 function fieldOf(value = "") {
   if (/AI|SW|소프트웨어|게임|웹|모바일|코딩|데이터/i.test(value)) return "IT·소프트웨어";
   if (/과학|공학|로봇|전기|전자|기계|환경|에너지/i.test(value)) return "과학·공학";
@@ -10,7 +8,7 @@ function fieldOf(value = "") {
   return "기타";
 }
 
-export default function OpportunitiesPage({ portfolioItems = [], onChangePortfolioItems, onAddGoal }) {
+export default function OpportunitiesPage({ portfolioItems = [], onChangePortfolioItems, savedIds = [], onChangeSavedIds, onAddGoal }) {
   const [items, setItems] = useState([]);
   const [sources, setSources] = useState([]);
   const [busy, setBusy] = useState(true);
@@ -21,7 +19,8 @@ export default function OpportunitiesPage({ portfolioItems = [], onChangePortfol
   const [kind, setKind] = useState("전체 유형");
   const [sort, setSort] = useState("마감순");
   const [savedOnly, setSavedOnly] = useState(false);
-  const [saved, setSaved] = useState(readSaved);
+  const [checkedAt, setCheckedAt] = useState(0);
+  const saved = Array.isArray(savedIds) ? savedIds : [];
 
   async function load(force = false) {
     setBusy(true); setError(""); setWarning("");
@@ -29,13 +28,12 @@ export default function OpportunitiesPage({ portfolioItems = [], onChangePortfol
       const response = await fetch(`/api/opportunities${force ? "?force=1" : ""}`);
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "공고를 불러오지 못했습니다.");
-      setItems(body.items || []); setSources(body.sources || []); setWarning(body.warning || "");
+      setItems(body.items || []); setSources(body.sources || []); setWarning(body.warning || ""); setCheckedAt(Number(body.checkedAt || Date.now()));
     } catch (caught) { setError(caught.message); }
     finally { setBusy(false); }
   }
 
   useEffect(() => { load(); }, []);
-  useEffect(() => { localStorage.setItem(KEY, JSON.stringify(saved)); }, [saved]);
   const visible = useMemo(() => items.filter((item) => {
     const text = `${item.title} ${item.categories} ${item.organization} ${item.source}`;
     const queryMatches = !query.trim() || text.toLowerCase().includes(query.toLowerCase());
@@ -64,7 +62,7 @@ export default function OpportunitiesPage({ portfolioItems = [], onChangePortfol
     <section className="maker-page-head"><div><span>OPPORTUNITIES</span><h1>공모전 · 대외활동</h1><p>여러 공개 공고 출처에서 고등학생·청소년 참여 대상이 확인된 항목을 모아봅니다.</p></div><button className="maker-ghost" onClick={() => load(true)}>새로고침</button></section>
 
     <section className="maker-card opportunity-source-health">
-      <header><div><span>연결 출처</span><strong>{sources.filter((source) => source.ok).length}/{sources.length || 4}곳 수집</strong></div><small>같은 공고는 제목을 비교해 한 번만 표시합니다.</small></header>
+      <header><div><span>연결 출처</span><strong>{sources.filter((source) => source.ok).length}/{sources.length || 4}곳 수집</strong></div><small>{checkedAt ? `${new Date(checkedAt).toLocaleString("ko-KR")} 확인` : "수집 상태 확인 중"} · 같은 공고는 한 번만 표시</small></header>
       <div>{sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer" className={source.ok ? "connected" : "delayed"}><i>{source.ok ? "●" : "○"}</i><span>{source.name}</span><b>{source.ok ? `${source.count}건` : "지연"}</b></a>)}</div>
     </section>
 
@@ -77,7 +75,7 @@ export default function OpportunitiesPage({ portfolioItems = [], onChangePortfol
     {warning && <p className="opportunity-warning" role="status">{warning}</p>}
     {error && <section className="maker-error opportunity-error"><strong>{error}</strong><button type="button" onClick={() => load(true)}>다시 시도</button></section>}
     {busy ? <div className="maker-card maker-inline-empty"><h3>공개 공고를 모으는 중…</h3></div> : <section className="opportunity-grid">
-      {visible.map((item) => { const bookmarked = saved.includes(item.id); return <article className="maker-card opportunity-card" key={item.id}><header><span>{fieldOf(`${item.title} ${item.categories}`)} · {item.categories || item.sourceType}</span><b>{item.dday || "마감일 확인"}</b></header><h2>{item.title}</h2><p>{item.organization || item.source || "주최기관 상세 확인"}</p><div className="opportunity-audience"><span>참여 대상 근거</span><strong>{item.audienceEvidence || "공고 상세에서 확인 필요"}</strong></div><small>{item.source}에서 확인 · {item.deadline || "마감일 상세 확인"}</small><footer><button className={bookmarked ? "saved" : ""} onClick={() => setSaved(bookmarked ? saved.filter((savedId) => savedId !== item.id) : [...saved, item.id])}>{bookmarked ? "★ 저장됨" : "☆ 관심 저장"}</button><button onClick={() => addGoal(item)}>목표에 추가</button><button onClick={() => addActivity(item)}>이력서에 저장</button><a href={item.url} target="_blank" rel="noreferrer">공식 공고 확인</a></footer></article>; })}
+      {visible.map((item) => { const bookmarked = saved.includes(item.id); return <article className="maker-card opportunity-card" key={item.id}><header><span>{fieldOf(`${item.title} ${item.categories}`)} · {item.categories || item.sourceType}</span><b>{item.dday || "마감일 확인"}</b></header><h2>{item.title}</h2><p>{item.organization || item.source || "주최기관 상세 확인"}</p><div className="opportunity-audience"><span>자동 확인된 참여 대상 근거</span><strong>{item.audienceEvidence || "공고 상세에서 확인 필요"}</strong></div><small>{item.source}에서 자동 수집 · {item.deadline || "마감일 상세 확인"} · 지원 전 원문 확인 필수</small><footer><button className={bookmarked ? "saved" : ""} onClick={() => onChangeSavedIds?.(bookmarked ? saved.filter((savedId) => savedId !== item.id) : [...saved, item.id])}>{bookmarked ? "★ 저장됨" : "☆ 관심 저장"}</button><button onClick={() => addGoal(item)}>목표에 추가</button><button onClick={() => addActivity(item)}>이력서에 저장</button><a href={item.url} target="_blank" rel="noreferrer">공식 공고 확인</a></footer></article>; })}
       {!visible.length && !error && <div className="maker-card maker-inline-empty"><h3>조건에 맞는 공고가 없습니다.</h3><p>검색어나 분야를 바꾸거나 연결 출처에서 직접 확인해 주세요.</p></div>}
     </section>}
     <footer className="opportunity-source">MakerOS는 공개 목록을 정리해 보여주며 공고를 주최하거나 지원 자격을 보증하지 않습니다.</footer>
