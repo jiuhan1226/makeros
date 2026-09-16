@@ -38,6 +38,7 @@ export function readMakerState() {
         ? { ...defaultResumeProfile, ...parsed.resumeProfile }
         : { ...defaultResumeProfile },
       careerProfile: parsed.careerProfile && typeof parsed.careerProfile === "object" ? parsed.careerProfile : {},
+      opportunityBookmarks: Array.isArray(parsed.opportunityBookmarks) ? parsed.opportunityBookmarks : [],
     };
   } catch {
     return {
@@ -48,6 +49,7 @@ export function readMakerState() {
       certifications: [],
       resumeProfile: { ...defaultResumeProfile },
       careerProfile: {},
+      opportunityBookmarks: [],
     };
   }
 }
@@ -61,6 +63,7 @@ export function saveMakerState(state) {
     certifications: state.certifications || [],
     resumeProfile: { ...defaultResumeProfile, ...(state.resumeProfile || {}) },
     careerProfile: state.careerProfile || {},
+    opportunityBookmarks: state.opportunityBookmarks || [],
   }));
   window.dispatchEvent(new CustomEvent("makeros:state"));
 }
