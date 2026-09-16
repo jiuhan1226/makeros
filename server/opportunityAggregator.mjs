@@ -145,7 +145,7 @@ export function dedupeOpportunities(items = []) {
 export async function collectOpportunities(fetchImpl = fetch) {
   const checks = await Promise.all(OPPORTUNITY_SOURCES.map(async (source) => {
     try {
-      const response = await fetchImpl(source.url, { headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.23" }, redirect: "follow", signal: AbortSignal.timeout(11000) });
+      const response = await fetchImpl(source.url, { headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.24" }, redirect: "follow", signal: AbortSignal.timeout(11000) });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const items = parseOpportunityHtml(await response.text(), source);
       if (!items.length) throw new Error("참여 대상이 확인된 공고를 찾지 못함");
