@@ -46,6 +46,12 @@ export default function UnifiedSearchPage({ searchCbt, pdfLibrary, wrongNotes, b
   async function run() {
     const searchTerm = query.trim();
     if (!searchTerm) return;
+    const exactShortcut = shortcuts.some((item) => normalizeText(item.title) === normalizeText(searchTerm));
+    if (type === "바로가기" || exactShortcut) {
+      setRemote([]);
+      setRemoteQuery(searchTerm);
+      return;
+    }
     setBusy(true);
     try {
       const cbt = await searchCbt(searchTerm);
