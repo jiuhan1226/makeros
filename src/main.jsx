@@ -8,9 +8,12 @@ import {
   listCertificates,
   listExams,
   loadCloudState,
+  loadCloudWorkspace,
   listUserAttemptEvents,
   onAuthStateChanged,
   saveCloudState,
+  saveCloudWorkspace,
+  saveCloudPdfLibrary,
   saveQuestionProgress,
   replaceCloudLearningProgress,
   clearCloudLearningData,
@@ -53,7 +56,7 @@ import MealPage from "./pages/MealPage";
 import PartnerGoalsPage from "./pages/PartnerGoalsPage";
 import { shuffle } from "./utils/exam";
 import { useExamSession } from "./hooks/useExamSession";
-import { assetId, readPdfLibrary, readStudyAssets, saveStudyAssets } from "./utils/studyPlatform";
+import { assetId, readPdfLibrary, readStudyAssets, savePdfLibrary, saveStudyAssets } from "./utils/studyPlatform";
 import { createBuildProject as makeBuildProject, readMakerState, saveMakerState } from "./utils/makerPlatform";
 import { generateStudyAssetsFromPages } from "./utils/aiStudyAssets";
 import { postJson } from "./utils/api";
@@ -186,7 +189,9 @@ function App() {
   const [certifications, setCertifications] = useState(makerInitial.certifications || []);
   const [resumeProfile, setResumeProfile] = useState(makerInitial.resumeProfile || {});
   const [careerProfile, setCareerProfile] = useState(makerInitial.careerProfile || {});
+  const [opportunityBookmarks, setOpportunityBookmarks] = useState(makerInitial.opportunityBookmarks || []);
   const [partnerState, setPartnerState] = useState(() => readPartnerLocal());
+  const [workspaceSyncStatus, setWorkspaceSyncStatus] = useState("device");
   const [partnerBusy, setPartnerBusy] = useState(false);
   const [partnerLearningAction, setPartnerLearningAction] = useState({ itemId: "", status: "idle", message: "" });
   const [planFocusGoalId, setPlanFocusGoalId] = useState("");
@@ -273,14 +278,16 @@ function App() {
     };
   }, []);
   useEffect(() => {
-    if (!user) { setCloudLoadedForUid(""); setCloudReady(true); return; }
+    if (!user) { setCloudLoadedForUid(""); setCloudReady(true); setWorkspaceSyncStatus("device"); return; }
     setCloudLoadedForUid("");
     setCloudReady(false);
+    setWorkspaceSyncStatus("loading");
     Promise.all([
       loadCloudState(user.uid),
       listUserAttemptEvents(user.uid).catch(() => []),
+      loadCloudWorkspace(user.uid).catch(() => null),
     ])
-      .then(([data, cloudAttempts]) => {
+      .then(([data, cloudAttempts, workspace]) => {
         if (data) {
           const migrated = migrateLearningState(data);
           setHistory(migrated.history || []);
@@ -296,10 +303,24 @@ function App() {
           if (data.partnerState) setPartnerState(normalizePartnerState(data.partnerState));
         }
         if (cloudAttempts.length) setAttemptEvents(cloudAttempts);
+        if (workspace?.makerState) {
+          const maker = workspace.makerState;
+          setInventorProjects(maker.inventorProjects || []);
+          setBuildProjects(maker.buildProjects || []);
+          setPortfolioItems(maker.portfolioItems || []);
+          setAwards(maker.awards || []);
+          setCertifications(maker.certifications || []);
+          setResumeProfile(maker.resumeProfile || {});
+          setCareerProfile(maker.careerProfile || {});
+          setOpportunityBookmarks(maker.opportunityBookmarks || []);
+        }
+        if (workspace?.studyAssets) saveStudyAssets(workspace.studyAssets);
+        if (workspace) savePdfLibrary(workspace.pdfLibrary || []);
         setCloudLoadedForUid(user.uid);
         setCloudReady(true);
+        setWorkspaceSyncStatus("synced");
       })
-      .catch(() => { setCloudLoadedForUid(user.uid); setCloudReady(true); });
+      .catch(() => { setCloudLoadedForUid(user.uid); setCloudReady(true); setWorkspaceSyncStatus("error"); });
   }, [user]);
   useEffect(() => {
     if (!activeCertificateId || !certificates.length) return;
@@ -330,8 +351,22 @@ function App() {
     return undefined;
   }, [history, practiceHistory, wrongNotes, learningProgress, studyEvents, attemptEvents, plan, questionBookmarks, pdfQuizHistory, pdfQuizWrongNotes, activeCertificateId, certificate?.id, partnerState, user, cloudReady, cloudLoadedForUid]);
   useEffect(() => {
-    saveMakerState({ inventorProjects, buildProjects, portfolioItems, awards, certifications, resumeProfile, careerProfile });
-  }, [inventorProjects, buildProjects, portfolioItems, awards, certifications, resumeProfile, careerProfile]);
+    const makerState = { inventorProjects, buildProjects, portfolioItems, awards, certifications, resumeProfile, careerProfile, opportunityBookmarks };
+    saveMakerState(makerState);
+    if (user && cloudReady && cloudLoadedForUid === user.uid) {
+      setWorkspaceSyncStatus("saving");
+      const id = setTimeout(() => {
+        Promise.all([
+          saveCloudWorkspace(user.uid, { makerState, studyAssets: assets }),
+          saveCloudPdfLibrary(user.uid, pdfLibrary),
+        ])
+          .then(() => setWorkspaceSyncStatus("synced"))
+          .catch(() => setWorkspaceSyncStatus("error"));
+      }, 900);
+      return () => clearTimeout(id);
+    }
+    return undefined;
+  }, [inventorProjects, buildProjects, portfolioItems, awards, certifications, resumeProfile, careerProfile, opportunityBookmarks, assets, pdfLibrary, user, cloudReady, cloudLoadedForUid]);
   useEffect(() => {
     localStorage.setItem(PARTNER_KEY, JSON.stringify(partnerState));
   }, [partnerState]);
@@ -1224,7 +1259,7 @@ function App() {
 
   return (
     <div className="app">
-      <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} certificateShortcuts={certificateShortcuts} onOpenCertificateGoal={openPartnerCertificateGoal} onStartCertificateGoal={startPartnerCertificateGoal} user={user} onLogin={() => setShowAuth(true)} onTutorial={() => setShowTutorial(true)} isAdmin={isAdminUser(user)} />
+      <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} certificateShortcuts={certificateShortcuts} onOpenCertificateGoal={openPartnerCertificateGoal} onStartCertificateGoal={startPartnerCertificateGoal} user={user} onLogin={() => setShowAuth(true)} onTutorial={() => setShowTutorial(true)} isAdmin={isAdminUser(user)} syncStatus={workspaceSyncStatus} />
       {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} onOpenPlanItem={openPartnerPlan} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onAdjustItem={adjustTodayPartnerItem} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
       {page === "partnerPlan" && <PartnerPlanPage state={partnerState} focusGoalId={planFocusGoalId} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
       {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
@@ -1235,7 +1270,7 @@ function App() {
       {page === "invent" && <InventPage projects={inventorProjects} onChangeProjects={setInventorProjects} onCreateBuildProject={createBuildProject} />}
       {page === "projects" && <ProjectsPage projects={buildProjects} inventorProjects={inventorProjects} onChangeProjects={setBuildProjects} onOpenInvent={() => setPage("invent")} />}
       {page === "portfolio" && <PortfolioPage inventorProjects={inventorProjects} buildProjects={buildProjects} history={history} assets={assets} resumeProfile={resumeProfile} onChangeResumeProfile={setResumeProfile} awards={awards} onChangeAwards={setAwards} certifications={certifications} onChangeCertifications={setCertifications} portfolioItems={portfolioItems} onChangePortfolioItems={setPortfolioItems} onNavigate={navigate} />}
-      {page === "opportunities" && <OpportunitiesPage portfolioItems={portfolioItems} onChangePortfolioItems={setPortfolioItems} onAddGoal={(item) => setPartnerState((previous) => { const current = normalizePartnerState(previous); const id = `activity-${Date.now()}`; const activity = { id, title: item.title, deadline: item.deadline || "", role: "", sourceUrl: item.url, source: item.source }; return { ...current, activities: [activity, ...current.activities], goals: [{ id, type: "activity", title: item.title, deadline: item.deadline || "", details: `${item.source || "공개 공고"} · 참가 대상 재확인 필요` }, ...current.goals], lastUpdatedAt: Date.now() }; })} />}
+      {page === "opportunities" && <OpportunitiesPage portfolioItems={portfolioItems} onChangePortfolioItems={setPortfolioItems} savedIds={opportunityBookmarks} onChangeSavedIds={setOpportunityBookmarks} onAddGoal={(item) => setPartnerState((previous) => { const current = normalizePartnerState(previous); const id = `activity-${Date.now()}`; const activity = { id, title: item.title, deadline: item.deadline || "", role: "", sourceUrl: item.url, source: item.source }; return { ...current, activities: [activity, ...current.activities], goals: [{ id, type: "activity", title: item.title, deadline: item.deadline || "", details: `${item.source || "공개 공고"} · 참가 대상 재확인 필요` }, ...current.goals], lastUpdatedAt: Date.now() }; })} />}
       {page === "career" && <CareerPage assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} pdfLibrary={pdfLibrary} history={history} awards={awards} certifications={certifications} portfolioItems={portfolioItems} careerProfile={careerProfile} onChangeCareerProfile={setCareerProfile} onNavigate={navigate} />}
       {page === "catalog" && <CatalogPage certificates={certificates} onSelect={selectCertificate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} onNavigate={navigate} />}
       {page === "certificate" && <CertificateHomePage certificate={certificate} exams={exams} history={certificateHistory} practiceHistory={certificatePracticeHistory} wrongNotes={certificateWrongNotes} learningProgress={certificateLearningProgress} plan={plan} pdfLibrary={pdfLibrary} loadQuestions={getExamQuestions} onNavigate={navigate} onOpenExam={openExam} onStartRecommended={startRecommended} />}
