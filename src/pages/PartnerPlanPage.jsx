@@ -47,6 +47,10 @@ export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPendin
     {!shown && <section className="partner-panel partner-empty"><strong>아직 계획 버전이 없습니다.</strong><p>목표와 가능한 시간을 입력한 뒤 첫 계획을 생성해 주세요.</p></section>}
 
     {shown && <>
+      {!!shown.warnings?.length && <details className="partner-plan-warnings">
+        <summary>시간이 부족하거나 조정된 주 {shown.warnings.length}건</summary>
+        <ul>{shown.warnings.slice(0, 8).map((warning, index) => <li key={`${warning}:${index}`}>{warning}</li>)}</ul>
+      </details>}
       <nav className="partner-plan-tabs" aria-label="계획 종류 선택">
         {["all", "certificate", "academic", ...(planCounts.other ? ["other"] : [])].map((key) => <button type="button" key={key} className={planView === key ? "active" : ""} aria-pressed={planView === key} onClick={() => setPlanView(key)}><span>{planViewLabels[key]}</span><small>{planCounts[key]}</small></button>)}
       </nav>
