@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { postJson } from "../utils/api";
+import { evidenceLabel } from "../utils/trustLabels";
 
 const dimensions = [
   { key: "software", name: "AI·소프트웨어", regex: /ai|인공지능|소프트웨어|코딩|프로그래밍|앱|서버|웹|데이터|firebase|python|kotlin|react/i },
@@ -100,6 +101,7 @@ export default function CareerPage({
 
     return {
       tendencies,
+      maxEvidence: Math.max(1, ...tendencies.map((item) => item.evidence)),
       axes,
       code,
       typeName,
@@ -226,21 +228,20 @@ export default function CareerPage({
 
     <section className="career-type-card maker-card">
       <div className="career-type-summary">
-        <span>MAKER TYPE</span>
-        <strong>{analysis.code}</strong>
+        <span>ACTIVITY PATTERN</span>
         <h2>{analysis.typeName}</h2>
-        <p>저장된 학습·발명·프로젝트 기록을 바탕으로 한 참고용 성장 분석입니다.</p>
+        <p>검사 결과가 아니라 저장된 활동에서 자주 나타난 방향을 정리한 참고 정보입니다.</p>
         <div className="career-evidence-line">PDF {analysis.counts.pdfs} · 발명 {analysis.counts.inventions} · 프로젝트 {analysis.counts.projects} · 일지 {analysis.counts.journals}</div>
       </div>
       <div className="career-axis-list">{analysis.axes.map((axis) => <div key={`${axis.leftCode}${axis.rightCode}`}>
-        <header><strong className={axis.selected === axis.leftCode ? "active" : ""}>{axis.leftCode} {axis.left}</strong><span>{axis.leftValue}% : {axis.rightValue}%</span><strong className={axis.selected === axis.rightCode ? "active" : ""}>{axis.right} {axis.rightCode}</strong></header>
+        <header><strong className={axis.selected === axis.leftCode ? "active" : ""}>{axis.left}</strong><span>{axis.selected === axis.leftCode ? axis.left : axis.right} 기록이 더 많음</span><strong className={axis.selected === axis.rightCode ? "active" : ""}>{axis.right}</strong></header>
         <i><b style={{ width: `${axis.leftValue}%` }} /></i>
       </div>)}</div>
     </section>
 
     <section className="career-hero maker-card">
-      <div><span>성장 성향 분포</span><h2>{analysis.top?.name}</h2><p>활동이 쌓일수록 강점과 성장 방향이 더 선명하게 나타나요.</p></div>
-      <div className="career-radar">{analysis.tendencies.map((skill) => <div key={skill.name}><span>{skill.name}</span><i><b style={{ width: `${skill.score}%` }} /></i><strong>{skill.score}%</strong></div>)}</div>
+      <div><span>활동 근거 분포</span><h2>{analysis.top?.name}</h2><p>저장한 학습·제작 기록에서 확인된 키워드 수를 비교합니다.</p></div>
+      <div className="career-radar">{analysis.tendencies.map((skill) => <div key={skill.name}><span>{skill.name}</span><i><b style={{ width: `${Math.round((skill.evidence / analysis.maxEvidence) * 100)}%` }} /></i><strong>{evidenceLabel(skill.evidence)}</strong></div>)}</div>
     </section>
 
     <section className="career-roadmap maker-card">
