@@ -85,6 +85,130 @@ export async function saveCloudState(uid, state) {
   );
 }
 
+function firestoreSafe(value, fallback) {
+  try { return JSON.parse(JSON.stringify(value)); }
+  catch { return fallback; }
+}
+
+async function commitFirestoreOperations(operations = []) {
+  for (let start = 0; start < operations.length; start += 400) {
+    const batch = writeBatch(db);
+    for (const operation of operations.slice(start, start + 400)) {
+      if (operation.type === "delete") batch.delete(operation.ref);
+      else batch.set(operation.ref, operation.data, operation.options || {});
+    }
+    await batch.commit();
+  }
+}
+
+export async function loadCloudWorkspace(uid) {
+  if (!db) return null;
+  const [workspaceSnapshot, pdfSnapshot, assetSnapshot] = await Promise.all([
+    getDoc(doc(db, "users", uid, "workspace", "state")),
+    getDocs(collection(db, "users", uid, "pdfLibrary")),
+    getDocs(collection(db, "users", uid, "studyAssets")),
+  ]);
+  const pdfLibrary = await Promise.all(pdfSnapshot.docs.map(async (pdfDocument) => {
+    const pagesSnapshot = await getDocs(collection(db, "users", uid, "pdfLibrary", pdfDocument.id, "pages"));
+    const pages = pagesSnapshot.docs
+      .map((pageDocument) => pageDocument.data())
+      .sort((a, b) => Number(a.page || 0) - Number(b.page || 0));
+    return { id: pdfDocument.id, ...pdfDocument.data(), pages };
+  }));
+  if (!workspaceSnapshot.exists() && !pdfLibrary.length && !assetSnapshot.docs.length) return null;
+  const workspace = workspaceSnapshot.exists() ? workspaceSnapshot.data() : {};
+  const splitAssets = assetSnapshot.docs.reduce((result, assetDocument) => {
+    const data = assetDocument.data();
+    const assetType = data.assetType === "cards" ? "cards" : "notes";
+    const { assetType: _assetType, syncVersion: _syncVersion, ...asset } = data;
+    result[assetType].push({ id: assetDocument.id, ...asset });
+    return result;
+  }, { notes: [], cards: [] });
+  return {
+    makerState: workspace.makerState && typeof workspace.makerState === "object" ? workspace.makerState : null,
+    studyAssets: assetSnapshot.docs.length
+      ? splitAssets
+      : workspace.studyAssets && typeof workspace.studyAssets === "object" ? workspace.studyAssets : null,
+    pdfLibrary,
+    updatedAt: workspace.updatedAt || null,
+  };
+}
+
+export async function saveCloudWorkspace(uid, { makerState = {}, studyAssets = {} } = {}) {
+  if (!db) return;
+  await setDoc(
+    doc(db, "users", uid, "workspace", "state"),
+    {
+      makerState: firestoreSafe(makerState, {}),
+      schemaVersion: 1,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+  const assetRoot = collection(db, "users", uid, "studyAssets");
+  const existing = await getDocs(assetRoot);
+  const currentItems = [
+    ...(studyAssets.notes || []).map((item) => ({ ...item, assetType: "notes" })),
+    ...(studyAssets.cards || []).map((item) => ({ ...item, assetType: "cards" })),
+  ].filter((item) => item?.id && !String(item.id).includes("/"));
+  const currentIds = new Set(currentItems.map((item) => String(item.id)));
+  const existingById = new Map(existing.docs.map((item) => [item.id, item]));
+  const operations = [];
+  existing.docs.filter((item) => !currentIds.has(item.id)).forEach((item) => operations.push({ type: "delete", ref: item.ref }));
+  for (const item of currentItems) {
+    const syncVersion = Number(item.updatedAt || item.createdAt || 0);
+    if (Number(existingById.get(String(item.id))?.data()?.syncVersion || 0) === syncVersion) continue;
+    operations.push({
+      type: "set",
+      ref: doc(db, "users", uid, "studyAssets", String(item.id)),
+      data: { ...firestoreSafe(item, {}), syncVersion },
+    });
+  }
+  await commitFirestoreOperations(operations);
+}
+
+export async function saveCloudPdfLibrary(uid, pdfLibrary = []) {
+  if (!db) return;
+  const root = collection(db, "users", uid, "pdfLibrary");
+  const existingSnapshot = await getDocs(root);
+  const existing = new Map(existingSnapshot.docs.map((item) => [item.id, item]));
+  const localIds = new Set(pdfLibrary.map((item) => String(item.id || "")).filter(Boolean));
+  const operations = [];
+
+  for (const remote of existingSnapshot.docs) {
+    if (localIds.has(remote.id)) continue;
+    const pages = await getDocs(collection(db, "users", uid, "pdfLibrary", remote.id, "pages"));
+    pages.docs.forEach((item) => operations.push({ type: "delete", ref: item.ref }));
+    operations.push({ type: "delete", ref: remote.ref });
+  }
+
+  for (const source of pdfLibrary) {
+    const id = String(source?.id || "").trim();
+    if (!id || id.includes("/")) continue;
+    const pages = Array.isArray(source.pages) ? source.pages : [];
+    const current = existing.get(id)?.data() || {};
+    const updatedAt = Number(source.updatedAt || source.createdAt || 0);
+    if (Number(current.updatedAt || 0) === updatedAt && Number(current.pageCount || 0) === pages.length) continue;
+
+    if (existing.has(id)) {
+      const oldPages = await getDocs(collection(db, "users", uid, "pdfLibrary", id, "pages"));
+      oldPages.docs.forEach((item) => operations.push({ type: "delete", ref: item.ref }));
+    }
+    const { pages: _pages, ...metadata } = source;
+    operations.push({
+      type: "set",
+      ref: doc(db, "users", uid, "pdfLibrary", id),
+      data: { ...firestoreSafe(metadata, {}), id, pageCount: pages.length, updatedAt },
+    });
+    pages.forEach((page, index) => operations.push({
+      type: "set",
+      ref: doc(db, "users", uid, "pdfLibrary", id, "pages", String(Number(page.page || index + 1)).padStart(5, "0")),
+      data: firestoreSafe({ page: Number(page.page || index + 1), text: String(page.text || "") }, { page: index + 1, text: "" }),
+    }));
+  }
+  await commitFirestoreOperations(operations);
+}
+
 export async function listCertificates() {
   if (!db) return [];
   const snapshot = await getDocs(query(collection(db, "certificates"), orderBy("name")));
