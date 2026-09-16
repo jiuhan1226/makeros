@@ -6,6 +6,7 @@ import {
   estimatePassProjection,
   getDueReviews,
 } from "../utils/learningEngine";
+import { passProjectionDisplay } from "../utils/trustLabels";
 
 export default function GrowthReportPage({
   certificate,
@@ -39,6 +40,7 @@ export default function GrowthReportPage({
   const due = useMemo(() => getDueReviews(learningProgress), [learningProgress]);
   const difficulties = useMemo(() => difficultySummary(learningProgress), [learningProgress]);
   const practiceSolved = practiceHistory.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const projectionDisplay = passProjectionDisplay(projection);
 
   return (
     <main className="page-shell">
@@ -53,7 +55,7 @@ export default function GrowthReportPage({
       <section className="stats-grid">
         <article className="stat-card"><span>실전 풀이</span><strong>{report.total}문제</strong><small>실전 시험과 모의고사</small></article>
         <article className="stat-card"><span>연습 풀이</span><strong>{practiceSolved}문제</strong><small>과목·주제·복습 학습</small></article>
-        <article className="stat-card"><span>합격 가능성</span><strong>{projection.probability === null ? "분석 전" : `${projection.probability}%`}</strong><small>{projection.label}</small></article>
+        <article className="stat-card"><span>최근 합격선 상태</span><strong>{projectionDisplay.value}</strong><small>{projectionDisplay.detail}</small></article>
         <article className="stat-card"><span>오늘 복습 대기</span><strong>{due.length}문제</strong><small>반복 오답 {repeated.length}문제</small></article>
       </section>
 
@@ -98,9 +100,11 @@ export default function GrowthReportPage({
       <section className="panel growth-message">
         <h2>이번 리포트</h2>
         <p>
-          {projection.expectedScore !== null
-            ? `최근 실전 기록을 바탕으로 예상 점수는 ${projection.expectedScore}점, 합격 가능성은 ${projection.probability}%로 분석됐어요. `
-            : "실전 기록이 더 쌓이면 예상 점수와 합격 가능성을 확인할 수 있어요. "}
+          {projectionDisplay.reliable
+            ? `최근 실전 ${projection.sampleSize}회의 가중 점수는 ${projection.expectedScore}점이며 현재 상태는 ‘${projection.label}’입니다. `
+            : projection.sampleSize
+              ? `실전 기록이 ${projection.sampleSize}회라 아직 합격 상태를 판단하기 어렵습니다. `
+              : "실전 기록이 더 쌓이면 합격선과의 거리를 확인할 수 있어요. "}
           {report.delta > 0
             ? `최근 점수가 ${report.delta}점 상승했습니다.`
             : report.delta < 0
@@ -108,7 +112,7 @@ export default function GrowthReportPage({
               : "최근 점수 변화는 크지 않습니다."}
           {wrongNotes.length ? ` 지금 복습할 오답이 ${wrongNotes.length}문제 있어요.` : " 현재 복습할 오답은 없어요."}
         </p>
-        <small>예상 점수와 합격 가능성은 학습 계획을 돕기 위한 참고 지표입니다.</small>
+        <small>이 표시는 최근 풀이 기록을 정리한 참고값이며 실제 시험 합격을 예측하거나 보장하지 않습니다.</small>
       </section>
     </main>
   );
