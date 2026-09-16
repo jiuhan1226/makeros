@@ -74,6 +74,21 @@ assert.equal(availableMinutesForDate(constrained.profile, '2026-09-15'), 0, '0�
 const zeroDayPlan = buildDeterministicPlan(constrained, { today: '2026-09-15' });
 assert.equal(zeroDayPlan.today.availableMinutes, 0);
 assert.deepEqual(zeroDayPlan.today.items, [], '0분인 날에는 기본 안내 행동도 배치하면 안 됩니다.');
+const noCapacity = createDefaultPartnerState();
+noCapacity.profile.dailyAvailableMinutes = { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 };
+noCapacity.goals = [{ id: 'no-capacity', type: 'academic', title: '시간 없는 목표', startDate: '2026-09-14', deadline: '2026-09-20' }];
+const noCapacityPlan = buildDeterministicPlan(noCapacity, { today: '2026-09-14' });
+assert.ok(noCapacityPlan.warnings.some((warning) => warning.includes('배치할 수 있는 시간이 없습니다')), '목표 기간에 가능한 시간이 없으면 이유와 조정 방법을 알려야 합니다.');
+
+const overloaded = createDefaultPartnerState();
+overloaded.profile.dailyAvailableMinutes = { mon: 20, tue: 20, wed: 20, thu: 20, fri: 20, sat: 20, sun: 20 };
+overloaded.goals = [
+  { id: 'over-a', type: 'academic', title: '전기기기 시험', startDate: '2026-09-14', deadline: '2026-09-20' },
+  { id: 'over-b', type: 'activity', title: '대회 제출', startDate: '2026-09-14', deadline: '2026-09-20' },
+];
+const overloadedPlan = buildDeterministicPlan(overloaded, { today: '2026-09-14' });
+assert.ok(overloadedPlan.warnings.some((warning) => warning.includes('부족해')), '요청 분량이 가능 시간을 넘으면 부족 시간을 알려야 합니다.');
+assert.ok(overloadedPlan.weeks.every((week) => week.totalMinutes <= week.availableMinutes), '과부하 경고가 있어도 계획은 가능 시간을 넘으면 안 됩니다.');
 
 const calendar = normalizePartnerState({
   ...base,
