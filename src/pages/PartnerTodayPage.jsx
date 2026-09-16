@@ -10,12 +10,25 @@ function ActionButton({ item, onNavigate, onQuickAction, learningAction }) {
   return <button className="partner-mini-action" disabled={working} onClick={() => onQuickAction ? onQuickAction(item) : onNavigate(target)}>{label}</button>;
 }
 
+function TodayTask({ item, index, onNavigate, onQuickAction, onOpenPlanItem, learningAction, onToggleItem, onAdjustItem }) {
+  return <article className={`partner-task ${item.status === "completed" ? "done" : ""}`}>
+    <button className="partner-check" aria-label="완료 상태 변경" onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
+    <button type="button" className="partner-task-content" onClick={() => onOpenPlanItem?.(item.goalId)}><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><p>{item.reason}</p><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "일정"}</small></button>
+    <div className="partner-task-actions">
+      <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction} learningAction={learningAction}/>
+      {item.status !== "completed" && <details><summary>조정</summary><div><button type="button" onClick={() => onAdjustItem?.(item.id, "reduce")}>15분 줄이기</button><button type="button" onClick={() => onAdjustItem?.(item.id, "defer")}>내일로 이동</button><button type="button" onClick={() => onAdjustItem?.(item.id, "skip")}>오늘은 건너뛰기</button></div></details>}
+    </div>
+  </article>;
+}
+
 export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onOpenPlanItem, learningAction, onToggleItem, onAdjustItem, onGeneratePlan, onConfirmPending, busy = false }) {
   const normalized = useMemo(() => normalizePartnerState(state), [state]);
   const active = getActivePartnerPlan(normalized);
   const pending = getPendingPartnerPlan(normalized);
   const diff = pending && active ? planDiff(active, pending) : null;
   const items = active?.today?.items || [];
+  const focusItems = items.slice(0, 2);
+  const extraItems = items.slice(2);
   const done = items.filter((item) => item.status === "completed").length;
   const goals = [
     ...normalized.goals.map((item) => ({ id: item.id, title: item.title, date: item.deadline })),
@@ -55,17 +68,11 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onO
 
     <section className="partner-two-column">
       <div className="partner-panel">
-        <div className="partner-section-title"><div><span>오늘의 행동</span><h2>최대 5개만, 실행 가능한 크기로</h2></div><button className="partner-link" onClick={() => onNavigate("partnerPlan")}>전체 계획</button></div>
+        <div className="partner-section-title"><div><span>오늘의 핵심 행동</span><h2>먼저 할 일 {Math.min(2, items.length)}개</h2></div><button className="partner-link" onClick={() => onNavigate("partnerPlan")}>전체 계획</button></div>
         {!items.length && <div className="partner-empty"><strong>아직 확정된 오늘 계획이 없습니다.</strong><p>프로필을 입력하고 첫 계획을 만들어 보세요.</p></div>}
         <div className="partner-task-list">
-          {items.map((item, index) => <article key={item.id} className={`partner-task ${item.status === "completed" ? "done" : ""}`}>
-            <button className="partner-check" aria-label="완료 상태 변경" onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
-            <button type="button" className="partner-task-content" onClick={() => onOpenPlanItem?.(item.goalId)}><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><p>{item.reason}</p><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "일정"}</small></button>
-            <div className="partner-task-actions">
-              <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction} learningAction={learningAction}/>
-              {item.status !== "completed" && <details><summary>조정</summary><div><button type="button" onClick={() => onAdjustItem?.(item.id, "reduce")}>15분 줄이기</button><button type="button" onClick={() => onAdjustItem?.(item.id, "defer")}>내일로 이동</button><button type="button" onClick={() => onAdjustItem?.(item.id, "skip")}>오늘은 건너뛰기</button></div></details>}
-            </div>
-          </article>)}
+          {focusItems.map((item, index) => <TodayTask key={item.id} item={item} index={index} onNavigate={onNavigate} onQuickAction={onQuickAction} onOpenPlanItem={onOpenPlanItem} learningAction={learningAction} onToggleItem={onToggleItem} onAdjustItem={onAdjustItem}/>)}
+          {!!extraItems.length && <details className="partner-extra-tasks"><summary>그다음 할 일 {extraItems.length}개</summary><div>{extraItems.map((item, index) => <TodayTask key={item.id} item={item} index={index + 2} onNavigate={onNavigate} onQuickAction={onQuickAction} onOpenPlanItem={onOpenPlanItem} learningAction={learningAction} onToggleItem={onToggleItem} onAdjustItem={onAdjustItem}/>)}</div></details>}
         </div>
       </div>
 
