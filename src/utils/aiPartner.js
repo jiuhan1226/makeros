@@ -492,6 +492,7 @@ export function buildDeterministicPlan(state, options = {}) {
   const roadmap = [];
   const allocations = weeks.map(() => []);
   const weekLimit = weeklyAvailableMinutes(normalized, today);
+  const warnings = [];
 
   for (const goal of goals) {
     const templates = milestoneTemplates(goal);
@@ -534,6 +535,11 @@ export function buildDeterministicPlan(state, options = {}) {
     }
   }
 
+  for (const goal of goals) {
+    const hasCapacity = allocations.some((week) => week.some((item) => item.goal.goalId === goal.goalId));
+    if (!hasCapacity) warnings.push(`${goal.title}은 입력한 준비 기간 안에 배치할 수 있는 시간이 없습니다. 가능한 시간이나 목표일을 조정해 주세요.`);
+  }
+
   for (const week of weeks) {
     const weekIndex = week.weekIndex;
     const availableMinutes = Math.max(0, weekAvailability(week, normalized, today));
@@ -541,6 +547,12 @@ export function buildDeterministicPlan(state, options = {}) {
     const requestedTotal = allocations[weekIndex].reduce((sum, item) => sum + item.requestedMinutes, 0);
     const studyBudget = Math.floor((availableMinutes * 0.88) / 5) * 5;
     const scale = requestedTotal > studyBudget && requestedTotal > 0 ? studyBudget / requestedTotal : 1;
+    if (requestedTotal > studyBudget && allocations[weekIndex].length) {
+      const shortageMinutes = Math.ceil((requestedTotal - studyBudget) / 5) * 5;
+      week.capacityShortageMinutes = shortageMinutes;
+      const affectedGoals = allocations[weekIndex].map((item) => item.goal.title).slice(0, 2).join("·");
+      warnings.push(`${week.startsAt} 주간은 목표 분량보다 ${shortageMinutes}분 부족해 ${affectedGoals}${allocations[weekIndex].length > 2 ? " 외 목표" : ""}를 가능한 시간에 맞춰 축소했습니다.`);
+    }
     for (const allocation of allocations[weekIndex]) {
       const plannedMinutes = Math.max(20, Math.round((allocation.requestedMinutes * scale) / 5) * 5);
       const sessions = splitStudyMinutes(plannedMinutes);
@@ -621,7 +633,7 @@ export function buildDeterministicPlan(state, options = {}) {
       fixedSchedules: normalized.profile.fixedSchedules,
       sleepProtected: normalized.profile.sleepProtected !== false,
     },
-    warnings: [],
+    warnings: warnings.slice(0, 8),
   };
   return validatePartnerPlan(plan, normalized);
 }
