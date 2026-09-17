@@ -13,7 +13,7 @@ function ActionButton({ item, onNavigate, onQuickAction, learningAction }) {
 function TodayTask({ item, index, onNavigate, onQuickAction, onOpenPlanItem, learningAction, onToggleItem, onAdjustItem }) {
   return <article className={`partner-task ${item.status === "completed" ? "done" : ""}`}>
     <button className="partner-check" aria-label="완료 상태 변경" onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
-    <button type="button" className="partner-task-content" onClick={() => onOpenPlanItem?.(item.goalId)}><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><p>{item.reason}</p><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "일정"}</small></button>
+    <div className="partner-task-content"><button type="button" className="partner-task-open" onClick={() => onOpenPlanItem?.(item.goalId)}><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "일정"}</small></button>{item.reason && <details className="partner-task-reason"><summary>왜 이 일부터?</summary><p>{item.reason}</p></details>}</div>
     <div className="partner-task-actions">
       <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction} learningAction={learningAction}/>
       {item.status !== "completed" && <details><summary>조정</summary><div><button type="button" onClick={() => onAdjustItem?.(item.id, "reduce")}>15분 줄이기</button><button type="button" onClick={() => onAdjustItem?.(item.id, "defer")}>내일로 이동</button><button type="button" onClick={() => onAdjustItem?.(item.id, "skip")}>오늘은 건너뛰기</button></div></details>}
@@ -26,6 +26,9 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onO
   const active = getActivePartnerPlan(normalized);
   const pending = getPendingPartnerPlan(normalized);
   const diff = pending && active ? planDiff(active, pending) : null;
+  const pendingReason = pending?.basedOnEventId
+    ? normalized.changeEvents.find((event) => event.id === pending.basedOnEventId)?.label
+    : "";
   const items = active?.today?.items || [];
   const focusItems = items.slice(0, 2);
   const extraItems = items.slice(2);
@@ -56,7 +59,7 @@ export default function PartnerTodayPage({ state, onNavigate, onQuickAction, onO
     </section>
 
     {pending && <section className="partner-replan-banner">
-      <div><span>새 재계획안이 준비됐어요</span><strong>{diff?.summary || "변경안을 확인해 주세요"}</strong><p>기존 계획은 아직 유지되고 있습니다. 변경 이유와 차이를 확인한 뒤 적용할 수 있어요.</p></div>
+      <div><span>새 재계획안이 준비됐어요</span><strong>{diff?.summary || "변경안을 확인해 주세요"}</strong><p>{pendingReason || "최근 목표·학습 결과를 반영했습니다."} 기존 계획은 확인 전까지 유지됩니다.</p></div>
       <div><button className="partner-secondary" onClick={() => onNavigate("partnerPlan")}>차이 보기</button><button className="partner-primary" onClick={onConfirmPending}>새 계획 적용</button></div>
     </section>}
 
