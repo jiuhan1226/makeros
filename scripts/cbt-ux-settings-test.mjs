@@ -44,7 +44,7 @@ assert.match(settingsSource, /화면 배치/);
 assert.match(settingsSource, /화면 크기/);
 assert.match(settingsSource, /계속 보임/);
 assert.match(cssSource, /\.exam-scroll-area\{min-width:0;min-height:0\}/);
-assert.match(cssSource, /grid-template-rows:auto minmax\(0,1fr\) auto/);
+assert.match(cssSource, /grid-template-rows:auto minmax\(0,1fr\) 78px/);
 assert.match(cssSource, /\.answer-sheet-scroll\{height:auto!important;min-height:0;flex:1;overflow-y:auto/);
 
 console.log("CBT UX settings test passed");
