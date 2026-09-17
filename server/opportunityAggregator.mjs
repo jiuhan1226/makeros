@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 
 export const OPPORTUNITY_SOURCES = [
-  { id: "contestkorea", name: "콘테스트코리아", url: "https://www.contestkorea.com/sub/list.php?int_gbn=1", type: "공모전" },
-  { id: "allforyoung", name: "요즘것들", url: "https://www.allforyoung.com/posts/contest", type: "공모전·대외활동" },
-  { id: "youth", name: "청소년활동정보서비스", url: "https://www.youth.go.kr/youth/act/actSearch/actSearchLst.yt", type: "청소년 활동" },
-  { id: "wevity", name: "WEVITY 청소년", url: "https://www.wevity.com/?c=find&cidx=30&gub=2&s=1", type: "공모전" },
+  { id: "contestkorea", name: "콘테스트코리아", url: "https://www.contestkorea.com/sub/list.php?int_gbn=1", type: "공모전", kind: "aggregator" },
+  { id: "wevity", name: "WEVITY 청소년", url: "https://www.wevity.com/?c=find&cidx=30&gub=2&s=1", type: "공모전", kind: "aggregator", audienceDefault: "청소년" },
+  { id: "sen-career", name: "서울특별시교육청 진로교육", url: "https://www.sen.go.kr/user/bbs/BD_selectBbsList.do?q_bbsSn=1450", type: "교육청 공고", kind: "official" },
+  { id: "goe-notice", name: "경기도교육청 공지사항", url: "https://www.goe.go.kr/goe/na/ntt/selectNttList.do?mi=10961", type: "교육청 공고", kind: "official" },
+  { id: "cne-notice", name: "충청남도교육청", url: "https://www.cne.go.kr/", type: "교육청 공고", kind: "official" },
+  { id: "moe-business", name: "교육부 사업공고", url: "https://www.moe.go.kr/boardCnts/listRenew.do?boardID=72755&m=031302&opType=N", type: "교육부 공고", kind: "official" },
 ];
 
 function decode(value = "") {
@@ -26,6 +28,7 @@ function canonicalTitle(value = "") {
   return decode(value)
     .replace(/\s*(?:NEW|신규|마감임박|접수중|접수예정)\s*$/gi, "")
     .replace(/^\[[^\]]{1,18}\]\s*/, "")
+    .replace(/^\d+[.)]\s*/, "")
     .trim();
 }
 
@@ -33,34 +36,51 @@ function titleKey(value = "") {
   return canonicalTitle(value).toLowerCase().replace(/(?:19|20)\d{2}/g, "").replace(/제\s*\d+\s*회/g, "").replace(/[^가-힣a-z0-9]/g, "");
 }
 
-function audienceEvidence(context = "") {
-  const positive = context.match(/(?:고등학생|중·?고등학생|청소년|중학생|초·?중·?고|만\s*1[3-9]세|학생 누구나|전 국민|전국민|누구나|연령 제한 없음)/i)?.[0] || "";
-  const exclusiveCollege = /(?:대학생만|대학\(원\)생만|대학생\s*대상|대학원생\s*대상)/i.test(context)
-    && !/(?:고등학생|청소년|중학생|누구나|전국민|전 국민)/i.test(context);
-  return { eligible: Boolean(positive) && !exclusiveCollege, evidence: positive || "상세 공고에서 참가 대상을 확인하세요." };
+const CONTEST_WORDS = /(?:공모전|경진대회|경연대회|기능경기대회|해커톤|아이디어\s*(?:대회|공모)|콘테스트|챌린지|올림피아드|작품\s*공모|영상\s*공모|UCC\s*공모|발명품\s*(?:대회|경진))/i;
+const ANNOUNCEMENT_WORDS = /(?:모집|접수|응모|참가|신청|출품|제출|개최|공고|공모전|경진대회|경연대회|해커톤|콘테스트|챌린지|올림피아드)/i;
+const NON_ANNOUNCEMENT_WORDS = /(?:찾는\s*(?:법|방법)|전체\s*(?:현황|보기)|(?:대회[·ㆍ]?공모전|공모전[·ㆍ]?대회)\s*전체|바로가기|요약|분석\s*결과|과거\s*수상작|수상작\s*(?:발표|분석)|심사\s*결과|선정\s*결과|결과\s*발표|후기|전략\s*참고|가이드|일정\s*모음|뉴스|인터뷰|공지사항$)/i;
+
+function audienceEvidence(context = "", source = {}) {
+  const positive = context.match(/(?:고등학생|중[·ㆍ]?고등학생|청소년|중학생|초[·ㆍ]?중[·ㆍ]?고|초중고|학생\s*(?:누구나|대상)|만\s*1[3-9]세|전\s*국민|전국민|누구나|연령\s*제한\s*없음)/i)?.[0] || source.audienceDefault || "";
+  const exclusiveCollege = /(?:대학생만|대학\(원\)생만|대학생\s*(?:전용|대상)|대학원생\s*대상)/i.test(context)
+    && !/(?:고등학생|청소년|중학생|누구나|전국민|전\s*국민)/i.test(context);
+  return { eligible: Boolean(positive) && !exclusiveCollege, evidence: positive };
 }
 
 function dateParts(text = "") {
-  const matches = [...text.matchAll(/(?:(20\d{2})[.\-/년]\s*)?(\d{1,2})[.\-/월]\s*(\d{1,2})\s*일?/g)];
-  if (!matches.length) return { deadline: "", dday: "" };
-  const last = matches.at(-1);
+  const rawText = String(text);
+  const matches = [...rawText.matchAll(/(?:(20\d{2})[.\-/년]\s*)?(\d{1,2})[.\-/월]\s*(\d{1,2})\s*일?/g)];
+  if (!matches.length) return { deadline: "", dday: "", deadlineValid: false };
   const now = new Date();
-  let year = Number(last[1] || now.getFullYear());
-  const month = Number(last[2]);
-  const day = Number(last[3]);
-  if (!last[1] && month < now.getMonth() + 1 - 6) year += 1;
-  const deadlineDate = new Date(year, month - 1, day, 23, 59, 59);
-  if (Number.isNaN(deadlineDate.getTime())) return { deadline: "", dday: "" };
-  const deadline = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  const days = Math.ceil((deadlineDate.getTime() - Date.now()) / 86400000);
-  return { deadline, dday: days >= 0 ? `D-${days}` : "마감" };
+  const future = [];
+  for (const [index, match] of matches.entries()) {
+    let year = Number(match[1] || now.getFullYear());
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (!match[1] && month < now.getMonth() + 1 - 6) year += 1;
+    const value = new Date(year, month - 1, day, 23, 59, 59);
+    if (value.getFullYear() !== year || value.getMonth() !== month - 1 || value.getDate() !== day) continue;
+    const days = Math.ceil((value.getTime() - Date.now()) / 86400000);
+    const previous = matches[index - 1];
+    const between = previous ? rawText.slice(Number(previous.index || 0) + previous[0].length, Number(match.index || 0)) : "";
+    if (days >= 0) future.push({ value, year, month, day, days, rangeEnd: Boolean(previous && /[~〜–—-]/.test(between)) });
+  }
+  if (!future.length) return { deadline: "", dday: "", deadlineValid: false };
+  const rangeEnds = future.filter((item) => item.rangeEnd);
+  const selected = (rangeEnds.length ? rangeEnds.sort((a, b) => a.value - b.value) : future.sort((a, b) => b.value - a.value))[0];
+  return {
+    deadline: `${selected.year}-${String(selected.month).padStart(2, "0")}-${String(selected.day).padStart(2, "0")}`,
+    dday: selected.days === 0 ? "오늘 마감" : `D-${selected.days}`,
+    deadlineValid: true,
+  };
 }
 
 function categoryOf(value = "") {
-  if (/봉사|자원봉사/i.test(value)) return "봉사";
-  if (/캠프|교육|멘토링|체험|연수|아카데미/i.test(value)) return "교육·캠프";
-  if (/서포터|기자단|홍보대사|대외활동/i.test(value)) return "대외활동";
-  return "공모전";
+  if (/해커톤|SW|소프트웨어|코딩|AI|데이터|로봇/i.test(value)) return "IT·소프트웨어";
+  if (/과학|공학|전기|전자|기계|환경|에너지|발명/i.test(value)) return "과학·공학";
+  if (/창업|비즈니스|직무|취업/i.test(value)) return "취업·창업";
+  if (/영상|UCC|사진|디자인|문학|글|슬로건|웹툰/i.test(value)) return "콘텐츠·디자인";
+  return "기타 공모전";
 }
 
 function organizationOf(context = "") {
@@ -77,53 +97,72 @@ function itemContext(html, anchorIndex, anchorLength) {
     const closeAt = tail.toLowerCase().indexOf(`</${selected.tag}>`);
     if (closeAt >= 0) return decode(html.slice(start, anchorIndex + anchorLength + closeAt + selected.tag.length + 3));
   }
-  return decode(html.slice(Math.max(0, anchorIndex - 450), anchorIndex + anchorLength + 950));
+  return decode(html.slice(Math.max(0, anchorIndex - 500), anchorIndex + anchorLength + 1200));
 }
 
-export function parseOpportunityHtml(html = "", source = OPPORTUNITY_SOURCES[0]) {
-  if (source.id === "wevity") {
-    const results = [];
-    const pattern = /<a[^>]+href=["']([^"']*gbn=viewok[^"']*ix=(\d+)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
-    let match;
-    while ((match = pattern.exec(html)) && results.length < 45) {
-      const title = canonicalTitle(match[3]);
-      const context = decode(html.slice(Math.max(0, match.index - 500), match.index + 1800));
-      const audience = audienceEvidence(context || "청소년");
-      if (title.length < 8 || /전체|스페셜|접수중|접수예정$/.test(title)) continue;
-      const date = dateParts(context);
-      results.push({ id: `${source.id}-${match[2]}`, title, url: absoluteUrl(match[1], source.url), source: source.name, sourceUrl: source.url, sourceType: source.type, categories: categoryOf(`${title} ${context}`), organization: organizationOf(context), audienceEvidence: audience.evidence || "청소년", verifiedAudience: true, ...date });
-    }
-    return results;
-  }
+function detailUrlLooksValid(url = "", source = {}) {
+  try {
+    const parsed = new URL(url);
+    if (!/^https?:$/.test(parsed.protocol)) return false;
+    const route = `${parsed.pathname}${parsed.search}`.toLowerCase();
+    if (/\/(?:login|join|search)(?:\.|\/|\?|$)/.test(route)) return false;
+    if (source.id === "wevity") return /gbn=viewok/.test(route) && /(?:\?|&)ix=\d+/.test(route);
+    if (source.id === "contestkorea") return !/\/sub\/list\.php/.test(route) && /(?:view|int_gbn|txt_bcode|no=|idx=)/.test(route);
+    return parsed.pathname !== "/" && !/(?:list|index|main)(?:\.[a-z]+)?(?:\?|$)/.test(route);
+  } catch { return false; }
+}
 
+function candidateFrom({ title, url, context, source }) {
+  const cleanTitle = canonicalTitle(title);
+  if (cleanTitle.length < 8 || cleanTitle.length > 140) return null;
+  if (!CONTEST_WORDS.test(cleanTitle) || NON_ANNOUNCEMENT_WORDS.test(cleanTitle)) return null;
+  if (!ANNOUNCEMENT_WORDS.test(`${cleanTitle} ${context}`) || !detailUrlLooksValid(url, source)) return null;
+  return { title: cleanTitle, url, context, source };
+}
+
+function parseOpportunityCandidates(html = "", source = OPPORTUNITY_SOURCES[0]) {
   const results = [];
   const pattern = /<a\b[^>]*href\s*=\s*["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let match;
-  while ((match = pattern.exec(html)) && results.length < 80) {
-    const title = canonicalTitle(match[2]);
-    if (title.length < 9 || title.length > 120 || /로그인|회원가입|전체보기|더보기|이전|다음|공지사항|이용약관|개인정보|메뉴|검색/.test(title)) continue;
+  while ((match = pattern.exec(html)) && results.length < 60) {
     const url = absoluteUrl(match[1], source.url);
-    if (!url || !/^https?:/.test(url)) continue;
     const context = itemContext(html, match.index, match[0].length);
-    const audience = audienceEvidence(`${title} ${context}`);
-    const titleIsCollegeOnly = /(?:대학생만|대학\(원\)생만|대학생\s*전용|대학생\s*대상)/i.test(title) && !/(?:고등학생|청소년|누구나|전국민)/i.test(title);
-    if (!audience.eligible || titleIsCollegeOnly) continue;
-    const date = dateParts(context);
-    results.push({
-      id: `${source.id}-${crypto.createHash("sha1").update(url || title).digest("hex").slice(0, 12)}`,
-      title,
-      url,
-      source: source.name,
-      sourceUrl: source.url,
-      sourceType: source.type,
-      categories: categoryOf(`${title} ${context}`),
-      organization: organizationOf(context),
-      audienceEvidence: audience.evidence,
-      verifiedAudience: true,
-      ...date,
-    });
+    const candidate = candidateFrom({ title: match[2], url, context, source });
+    if (candidate) results.push(candidate);
   }
   return results;
+}
+
+function verifyCandidate(candidate, detailText = "") {
+  const { source, title, url } = candidate;
+  const context = decode(`${candidate.context || ""} ${detailText || ""}`);
+  if (NON_ANNOUNCEMENT_WORDS.test(title) || !CONTEST_WORDS.test(title) || !ANNOUNCEMENT_WORDS.test(`${title} ${context}`)) return null;
+  const audience = audienceEvidence(`${title} ${context}`, source);
+  if (!audience.eligible) return null;
+  const date = dateParts(context);
+  const ongoing = /(?:상시\s*(?:모집|접수|공모)|마감\s*시까지)/i.test(context);
+  if (!date.deadlineValid && !ongoing) return null;
+  return {
+    id: `${source.id}-${crypto.createHash("sha1").update(url || title).digest("hex").slice(0, 12)}`,
+    title,
+    url,
+    source: source.name,
+    sourceUrl: source.url,
+    sourceType: source.type,
+    sourceKind: source.kind || "aggregator",
+    categories: categoryOf(`${title} ${context}`),
+    organization: organizationOf(context),
+    audienceEvidence: audience.evidence,
+    verifiedAudience: true,
+    verifiedAnnouncement: true,
+    verification: ["공모·대회명", "모집·접수 공고", "학생 참여 대상", ongoing ? "상시 접수" : "유효한 마감일", "상세 페이지"],
+    deadline: ongoing && !date.deadline ? "상시" : date.deadline,
+    dday: ongoing && !date.dday ? "상시 접수" : date.dday,
+  };
+}
+
+export function parseOpportunityHtml(html = "", source = OPPORTUNITY_SOURCES[0]) {
+  return parseOpportunityCandidates(html, source).map((candidate) => verifyCandidate(candidate)).filter(Boolean);
 }
 
 export function dedupeOpportunities(items = []) {
@@ -132,23 +171,53 @@ export function dedupeOpportunities(items = []) {
     const key = titleKey(item.title);
     if (!key || key.length < 5) continue;
     const current = seen.get(key);
-    if (!current || (!current.deadline && item.deadline)) seen.set(key, item);
+    const candidateScore = (item.sourceKind === "official" ? 2 : 0) + (item.deadline && item.deadline !== "상시" ? 1 : 0);
+    const currentScore = current ? (current.sourceKind === "official" ? 2 : 0) + (current.deadline && current.deadline !== "상시" ? 1 : 0) : -1;
+    if (!current || candidateScore > currentScore) seen.set(key, item);
   }
   return [...seen.values()].sort((a, b) => {
+    if (a.deadline === "상시" && b.deadline !== "상시") return 1;
+    if (b.deadline === "상시" && a.deadline !== "상시") return -1;
     if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
-    if (a.deadline) return -1;
-    if (b.deadline) return 1;
     return a.title.localeCompare(b.title, "ko");
   });
+}
+
+async function fetchText(fetchImpl, url, timeout = 9000) {
+  const response = await fetchImpl(url, {
+    headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.27" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(timeout),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.text();
+}
+
+async function verifySourceCandidates(fetchImpl, source, html) {
+  const candidates = parseOpportunityCandidates(html, source);
+  const verified = [];
+  const pending = [];
+  for (const candidate of candidates.slice(0, 18)) {
+    const item = verifyCandidate(candidate);
+    if (item) verified.push(item);
+    else pending.push(candidate);
+  }
+  for (let index = 0; index < pending.length; index += 6) {
+    const batch = await Promise.all(pending.slice(index, index + 6).map(async (candidate) => {
+      try { return verifyCandidate(candidate, await fetchText(fetchImpl, candidate.url, 7000)); }
+      catch { return null; }
+    }));
+    verified.push(...batch.filter(Boolean));
+  }
+  return verified;
 }
 
 export async function collectOpportunities(fetchImpl = fetch) {
   const checks = await Promise.all(OPPORTUNITY_SOURCES.map(async (source) => {
     try {
-      const response = await fetchImpl(source.url, { headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.25" }, redirect: "follow", signal: AbortSignal.timeout(11000) });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const items = parseOpportunityHtml(await response.text(), source);
-      if (!items.length) throw new Error("참여 대상이 확인된 공고를 찾지 못함");
+      const html = await fetchText(fetchImpl, source.url, 11000);
+      const items = await verifySourceCandidates(fetchImpl, source, html);
+      if (!items.length) throw new Error("검증 조건을 모두 통과한 진행 중 공고가 없음");
       return { source, ok: true, count: items.length, items };
     } catch (error) {
       return { source, ok: false, count: 0, items: [], error: String(error?.message || error) };
@@ -157,8 +226,10 @@ export async function collectOpportunities(fetchImpl = fetch) {
   const items = dedupeOpportunities(checks.flatMap((check) => check.items));
   return {
     items: items.slice(0, 80),
-    sources: checks.map((check) => ({ id: check.source.id, name: check.source.name, url: check.source.url, ok: check.ok, count: check.count })),
-    warning: checks.every((check) => !check.ok) ? "공개 공고 출처가 모두 지연되고 있습니다. 아래 출처 버튼에서 직접 확인해 주세요." : checks.some((check) => !check.ok) ? "일부 공고 출처가 지연되어 연결된 출처의 결과만 표시합니다." : "",
+    sources: checks.map((check) => ({ id: check.source.id, name: check.source.name, url: check.source.url, kind: check.source.kind, ok: check.ok, count: check.count })),
+    warning: checks.every((check) => !check.ok)
+      ? "현재 검증을 통과한 진행 중 공고를 찾지 못했습니다. 출처의 새 공고가 확인되면 표시됩니다."
+      : checks.some((check) => !check.ok) ? "일부 출처가 지연되었거나 검증을 통과한 진행 중 공고가 없어, 확인된 공고만 표시합니다." : "",
     checkedAt: Date.now(),
   };
 }
