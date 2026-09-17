@@ -54,6 +54,7 @@ import PartnerCalendarPage from "./pages/PartnerCalendarPage";
 import TimetablePage from "./pages/TimetablePage";
 import MealPage from "./pages/MealPage";
 import PartnerGoalsPage from "./pages/PartnerGoalsPage";
+import DataManagementPage from "./pages/DataManagementPage";
 import { shuffle } from "./utils/exam";
 import { useExamSession } from "./hooks/useExamSession";
 import { assetId, readPdfLibrary, readStudyAssets, savePdfLibrary, saveStudyAssets } from "./utils/studyPlatform";
@@ -576,7 +577,7 @@ function App() {
         const hasAcademicGoal = next.goals.some((goal) => goal.type === "academic" || /내신|과목|시험|수행평가/.test(`${goal.title || ""} ${goal.details || ""}`));
         if (!hasAcademicGoal || !getActivePartnerPlan(next)) return next;
         const replanned = buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" });
-        return createPlanVersion(next, replanned, { activate: true });
+        return createPlanVersion(next, replanned, { activate: false });
       });
       return;
     }
@@ -658,7 +659,7 @@ function App() {
       if (!getActivePartnerPlan(next)) return next;
       const completedPlan = getActivePartnerPlan(next);
       const replanned = transferPlanProgress(completedPlan, buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" }));
-      return createPlanVersion(next, replanned, { activate: true });
+      return createPlanVersion(next, replanned, { activate: false });
     });
 
     if (result.assessmentType === "practice") {
@@ -1208,7 +1209,7 @@ function App() {
       } catch (error) {
         console.warn("[MakerOS AI Partner] AI 계획 생성 실패, 규칙 기반 계획 사용:", error.message);
       }
-      setPartnerState(createPlanVersion(baseState, finalPlan, { activate: true }));
+      setPartnerState(createPlanVersion(baseState, finalPlan, { activate: !getActivePartnerPlan(baseState) }));
       if (destination) setPage(destination);
     } finally {
       setPartnerBusy(false);
@@ -1234,6 +1235,29 @@ function App() {
 
   function rollbackPartnerVersion(versionId) {
     setPartnerState((previous) => rollbackPartnerPlan(previous, versionId));
+  }
+
+  function exportMyData() {
+    const exportedAt = new Date().toISOString();
+    const payload = {
+      schema: "makeros-user-export-v1",
+      exportedAt,
+      learning: { history, practiceHistory, wrongNotes, learningProgress, studyEvents, attemptEvents, plan, questionBookmarks, pdfQuizHistory, pdfQuizWrongNotes },
+      planning: normalizePartnerState(partnerState),
+      school: { pdfLibrary, studyAssets: assets },
+      growth: { inventorProjects, buildProjects, portfolioItems, awards, certifications, resumeProfile, careerProfile, opportunityBookmarks },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `makeros-data-${exportedAt.slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function resetPartnerPlan() {
+    setPartnerState(createDefaultPartnerState());
   }
 
   function changeTodayPartnerItem(itemId, status) {
@@ -1266,6 +1290,7 @@ function App() {
       {page === "timetable" && <TimetablePage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
       {page === "meals" && <MealPage state={partnerState} onNavigate={navigate} />}
       {page === "partnerGoals" && <PartnerGoalsPage value={partnerState} onChange={setPartnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "학생 정보가 변경되어 가능한 시간에 맞춘 계획을 적용했습니다." }, { destination: "partnerToday" })} busy={partnerBusy} />}
+      {page === "data" && <DataManagementPage user={user} syncStatus={workspaceSyncStatus} counts={{ exams: history.length + practiceHistory.length, wrongNotes: wrongNotes.length, bookmarks: questionBookmarks.length, pdfs: pdfLibrary.length, plans: normalizePartnerState(partnerState).planVersions.length }} onExport={exportMyData} onResetLearning={() => resetLearningData("")} onResetPlan={resetPartnerPlan} />}
       {page === "makerHome" && <MakerHomePage onNavigate={navigate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} />}
       {page === "invent" && <InventPage projects={inventorProjects} onChangeProjects={setInventorProjects} onCreateBuildProject={createBuildProject} />}
       {page === "projects" && <ProjectsPage projects={buildProjects} inventorProjects={inventorProjects} onChangeProjects={setBuildProjects} onOpenInvent={() => setPage("invent")} />}
