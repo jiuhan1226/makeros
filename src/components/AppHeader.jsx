@@ -12,6 +12,7 @@ function activeModule(active) {
   if (active === "portfolio") return "portfolio";
   if (active === "opportunities") return "opportunities";
   if (active === "career") return "career";
+  if (active === "data") return "data";
   if (active === "makerHome") return "legacy";
   return "partner";
 }
@@ -43,7 +44,7 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
     ["graph", "개념 트리"],
     ["tutor", "AI 튜터"],
   ];
-  const legacyItems = [["makerHome", "성장 홈"], ["invent", "발명"], ["projects", "프로젝트"], ["portfolio", "이력서"], ["opportunities", "공모전·대외활동"], ["career", "진로 로드맵"]];
+  const legacyItems = [["makerHome", "성장 홈"], ["invent", "발명"], ["projects", "프로젝트"], ["portfolio", "이력서"], ["opportunities", "공모전·대외활동"], ["career", "진로 로드맵"], ["data", "내 데이터"]];
   const syncLabels = { device: "이 기기에 저장", loading: "계정 불러오는 중", saving: "저장 중", synced: "계정에 저장됨", error: "동기화 확인 필요" };
   const currentSubItems = module === "certificateLearn" ? certificateItems : module === "schoolLearn" ? schoolItems : [];
 
@@ -138,6 +139,7 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
                 <button type="button" onClick={() => navigate("portfolio")}>이력서·자소서</button>
                 <button type="button" onClick={() => navigate("opportunities")}>공모전·대외활동</button>
                 <button type="button" onClick={() => navigate("career")}>진로 로드맵</button>
+                <button type="button" onClick={() => navigate("data")}>내 데이터 관리</button>
               </nav>
             </div>
           </details>
