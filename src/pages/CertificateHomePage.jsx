@@ -14,6 +14,7 @@ export default function CertificateHomePage({
   exams = [],
   history = [],
   practiceHistory = [],
+  activeSession = null,
   wrongNotes = [],
   learningProgress = [],
   plan,
@@ -21,6 +22,7 @@ export default function CertificateHomePage({
   loadQuestions,
   onNavigate,
   onOpenExam,
+  onResumeSession,
   onStartRecommended,
 }) {
   const [availableSubjects, setAvailableSubjects] = useState([]);
@@ -89,12 +91,16 @@ export default function CertificateHomePage({
     <section className="panel simple-recent-learning">
       <div className="simple-section-head"><h2>최근 푼 문제</h2><button onClick={() => onNavigate("past")}>기출 전체</button></div>
       <div className="simple-recent-list">
+        {activeSession && <button className="recent-in-progress" onClick={() => onResumeSession?.()}>
+          <span><strong>{activeSession.title}</strong><small>진행 중 · {activeSession.answered}/{activeSession.total}문제 답변 · {activeSession.current}번 문제</small></span>
+          <b>이어풀기</b>
+        </button>}
         {recent.map((item, index) => <article key={item.sessionId || `${item.createdAt}:${index}`}>
           <div><strong>{item.title || "CBT 학습"}</strong><span>{formatDate(item.createdAt)} · {item.total || 0}문제</span></div>
           <b>{Number(item.score || 0)}점</b>
         </article>)}
-        {!recent.length && exams.slice(0, 2).map((exam) => <button key={exam.id} onClick={() => onOpenExam?.(exam)}><span><strong>{exam.title || `${exam.year || ""} 기출문제`}</strong><small>{exam.questionCount || 0}문제</small></span><b>시작</b></button>)}
-        {!recent.length && !exams.length && <p>아직 푼 문제가 없습니다.</p>}
+        {!activeSession && !recent.length && exams.slice(0, 2).map((exam) => <button key={exam.id} onClick={() => onOpenExam?.(exam)}><span><strong>{exam.title || `${exam.year || ""} 기출문제`}</strong><small>{exam.questionCount || 0}문제</small></span><b>시작</b></button>)}
+        {!activeSession && !recent.length && !exams.length && <p>아직 푼 문제가 없습니다.</p>}
       </div>
     </section>
   </main>;
