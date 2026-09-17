@@ -567,6 +567,7 @@ export function buildDeterministicPlan(state, options = {}) {
         const dueAt = allocation.goal.deadline && allocation.goal.deadline < week.endsAt ? allocation.goal.deadline : week.endsAt;
         week.items.push({
           id: partnerId("plan"),
+          taskKey: [allocation.goal.goalId, week.startsAt, baseTitle, count].join("::"),
           goalId: allocation.goal.goalId,
           goalType: allocation.goal.type,
           title,
@@ -607,7 +608,7 @@ export function buildDeterministicPlan(state, options = {}) {
   }
   if (!todayItems.length && todayLimit >= 20) {
     todayItems.push({
-      id: partnerId("today"), goalId: "onboarding", goalType: "system", title: goals.length ? "이번 주 계획 확인" : "첫 목표 입력하기",
+      id: partnerId("today"), taskKey: ["onboarding", isoDate(today), goals.length ? "review" : "setup"].join("::"), goalId: "onboarding", goalType: "system", title: goals.length ? "이번 주 계획 확인" : "첫 목표 입력하기",
       reason: goals.length ? "이번 주 목표와 마감을 확인하고 오늘 가능한 분량부터 시작합니다." : "목표와 날짜를 입력하면 마감일까지의 계획을 만들 수 있습니다.",
       dueAt: isoDate(today), durationMinutes: 20, priority: 1, status: "todo", source: "rules", action: goals.length ? "plan" : "goals",
     });
@@ -785,12 +786,11 @@ export function updateTodayItemStatus(state, itemId, status, result = {}) {
   return { ...normalized, planVersions: versions, lastUpdatedAt: Date.now() };
 }
 
-function normalizedPlanTitle(value = "") {
-  return String(value).replace(/\s*·\s*\d+회차\s*$/, "").trim();
-}
-
 function progressKey(item = {}) {
-  return [item.goalId || "", item.action || "", normalizedPlanTitle(item.title)].join("::");
+  if (item.taskKey) return String(item.taskKey);
+  // 이전 버전 계획에는 taskKey가 없습니다. 회차와 날짜를 포함해야 첫 회차의
+  // 완료 상태가 이후 회차 전체에 전파되지 않습니다.
+  return [item.goalId || "", item.action || "", String(item.title || "").trim(), item.dueAt || ""].join("::");
 }
 
 export function transferPlanProgress(previousPlan, nextPlan) {
@@ -821,14 +821,23 @@ export function rolloverPartnerDay(state, { today = new Date() } = {}) {
   const normalized = normalizePartnerState(state);
   const active = normalized.planVersions.find((item) => item.versionId === normalized.activePlanVersionId);
   const nextDate = isoDate(today);
-  if (!active || !nextDate || active.today?.date === nextDate) return state;
+  if (!active || !nextDate) return state;
+  const sameDate = active.today?.date === nextDate;
+  const canStudyToday = todayAvailableMinutes(normalized, today) >= 20;
+  const shouldRepairEmptyToday = sameDate
+    && !(active.today?.items || []).length
+    && collectGoals(normalized).length > 0
+    && canStudyToday;
+  if (sameDate && !shouldRepairEmptyToday) return state;
 
   const oldItems = (active.today?.items || []).filter((item) => !["completed", "skipped"].includes(item.status));
   const eventId = partnerId("change");
   let next = recordChangeEvent(normalized, {
     id: eventId,
-    type: "daily_plan_refreshed",
-    label: oldItems.length ? `날짜가 바뀌어 미완료 ${oldItems.length}개를 포함한 오늘 계획을 갱신했습니다.` : "날짜가 바뀌어 오늘 계획을 갱신했습니다.",
+    type: shouldRepairEmptyToday ? "daily_plan_repaired" : "daily_plan_refreshed",
+    label: shouldRepairEmptyToday
+      ? "오늘 계획이 비어 있어 입력한 목표와 가능 시간을 기준으로 다시 구성했습니다."
+      : oldItems.length ? `날짜가 바뀌어 미완료 ${oldItems.length}개를 포함한 오늘 계획을 갱신했습니다.` : "날짜가 바뀌어 오늘 계획을 갱신했습니다.",
     before: { date: active.today?.date || "", incompleteCount: oldItems.length },
     after: { date: nextDate },
     actor: "system",
