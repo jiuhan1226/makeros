@@ -129,6 +129,27 @@ const beforeRolloverId = completionState.activePlanVersionId;
 completionState = rolloverPartnerDay(completionState, { today: '2026-09-15' });
 assert.equal(getActivePartnerPlan(completionState).today.date, '2026-09-15', '날짜 변경 시 오늘 계획 날짜가 자동 갱신되어야 합니다.');
 assert.notEqual(completionState.activePlanVersionId, beforeRolloverId, '날짜 변경은 되돌릴 수 있는 새 계획 버전으로 저장되어야 합니다.');
+assert.ok(getActivePartnerPlan(completionState).today.items.length > 0, '첫날 항목을 완료해도 다음 날 할 일이 비어서는 안 됩니다.');
+
+const repeatedState = createDefaultPartnerState();
+repeatedState.profile.dailyAvailableMinutes = { mon: 480, tue: 480, wed: 480, thu: 480, fri: 480, sat: 480, sun: 480 };
+repeatedState.certificateGoals = [{ id: 'repeat-cbt', name: '전기기능사', startDate: '2026-09-14', examDate: '2026-10-31', cbtAccuracy: 30 }];
+repeatedState.certificateGoal = repeatedState.certificateGoals[0];
+let repeatedPlanState = createPlanVersion(repeatedState, buildDeterministicPlan(repeatedState, { today: '2026-09-14' }), { activate: true });
+const repeatedActive = getActivePartnerPlan(repeatedPlanState);
+assert.equal(new Set(repeatedActive.weeks[0].items.map((item) => item.taskKey)).size, repeatedActive.weeks[0].items.length, '반복 학습 회차마다 고유한 진행 키가 있어야 합니다.');
+const repeatedTodayItem = repeatedActive.today.items[0];
+repeatedPlanState = updateTodayItemStatus(repeatedPlanState, repeatedTodayItem.id, 'completed', { score: 90 });
+const repeatedTransferred = transferPlanProgress(getActivePartnerPlan(repeatedPlanState), buildDeterministicPlan(repeatedPlanState, { today: '2026-09-14' }));
+assert.equal(repeatedTransferred.weeks[0].items.filter((item) => item.status === 'completed').length, 1, '한 회차 완료가 같은 제목의 이후 회차까지 완료 처리하면 안 됩니다.');
+
+const brokenActive = getActivePartnerPlan(repeatedPlanState);
+repeatedPlanState = normalizePartnerState({
+  ...repeatedPlanState,
+  planVersions: repeatedPlanState.planVersions.map((version) => version.versionId === brokenActive.versionId ? { ...version, today: { ...version.today, items: [], totalMinutes: 0 } } : version),
+});
+const repairedSameDay = rolloverPartnerDay(repeatedPlanState, { today: '2026-09-14' });
+assert.ok(getActivePartnerPlan(repairedSameDay).today.items.length > 0, '목표와 가능 시간이 있는데 오늘 계획이 비었으면 같은 날에도 자동 복구해야 합니다.');
 
 const legacy = normalizePartnerState({
   schemaVersion: 1,
