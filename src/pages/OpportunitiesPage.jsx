@@ -4,7 +4,7 @@ function fieldOf(value = "") {
   if (/AI|SW|소프트웨어|게임|웹|모바일|코딩|데이터/i.test(value)) return "IT·소프트웨어";
   if (/과학|공학|로봇|전기|전자|기계|환경|에너지/i.test(value)) return "과학·공학";
   if (/취업|창업|아이디어|진로/i.test(value)) return "취업·창업";
-  if (/봉사|서포터|기자단|캠프|멘토링|교육|체험/i.test(value)) return "활동·교육";
+  if (/영상|UCC|사진|디자인|문학|글|슬로건|웹툰/i.test(value)) return "콘텐츠·디자인";
   return "기타";
 }
 
@@ -16,7 +16,6 @@ export default function OpportunitiesPage({ portfolioItems = [], onChangePortfol
   const [warning, setWarning] = useState("");
   const [query, setQuery] = useState("");
   const [field, setField] = useState("전체");
-  const [kind, setKind] = useState("전체 유형");
   const [sort, setSort] = useState("마감순");
   const [savedOnly, setSavedOnly] = useState(false);
   const [checkedAt, setCheckedAt] = useState(0);
@@ -38,18 +37,17 @@ export default function OpportunitiesPage({ portfolioItems = [], onChangePortfol
     const text = `${item.title} ${item.categories} ${item.organization} ${item.source}`;
     const queryMatches = !query.trim() || text.toLowerCase().includes(query.toLowerCase());
     const fieldMatches = field === "전체" || fieldOf(text) === field;
-    const kindMatches = kind === "전체 유형" || item.categories === kind;
     const savedMatches = !savedOnly || saved.includes(item.id);
-    return queryMatches && fieldMatches && kindMatches && savedMatches;
+    return queryMatches && fieldMatches && savedMatches && item.verifiedAnnouncement && item.verifiedAudience;
   }).sort((a, b) => {
     if (sort === "출처순") return String(a.source).localeCompare(String(b.source), "ko");
     if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
     return a.deadline ? -1 : b.deadline ? 1 : a.title.localeCompare(b.title, "ko");
-  }), [items, query, field, kind, savedOnly, saved, sort]);
+  }), [items, query, field, savedOnly, saved, sort]);
 
   function addActivity(item) {
     if (portfolioItems.some((entry) => entry.sourceUrl === item.url)) return alert("이미 이력서 활동에 저장된 공고입니다.");
-    onChangePortfolioItems([{ id: `opportunity-${item.id}`, type: "대외활동", title: item.title, organization: item.organization || item.source || "", startDate: "", endDate: item.deadline || "", role: "", description: "참여 후 맡은 역할, 행동, 결과, 배운 점을 입력하세요.", sourceUrl: item.url }, ...portfolioItems]);
+    onChangePortfolioItems([{ id: `opportunity-${item.id}`, type: "공모전", title: item.title, organization: item.organization || item.source || "", startDate: "", endDate: item.deadline === "상시" ? "" : (item.deadline || ""), role: "", description: "참여 후 맡은 역할, 행동, 결과, 배운 점을 입력하세요.", sourceUrl: item.url }, ...portfolioItems]);
     alert("이력서의 교내외 활동에 저장했습니다.");
   }
 
@@ -59,25 +57,25 @@ export default function OpportunitiesPage({ portfolioItems = [], onChangePortfol
   }
 
   return <main className="maker-page opportunities-page">
-    <section className="maker-page-head"><div><span>OPPORTUNITIES</span><h1>공모전 · 대외활동</h1><p>여러 공개 공고 출처에서 고등학생·청소년 참여 대상이 확인된 항목을 모아봅니다.</p></div><button className="maker-ghost" onClick={() => load(true)}>새로고침</button></section>
+    <section className="maker-page-head"><div><span>VERIFIED CONTESTS</span><h1>공모전 · 대회</h1><p>학생 참여 대상과 접수 기간이 확인된 실제 모집 공고만 보여줍니다.</p></div><button className="maker-ghost" onClick={() => load(true)}>새로고침</button></section>
 
     <section className="maker-card opportunity-source-health">
-      <header><div><span>연결 출처</span><strong>{sources.filter((source) => source.ok).length}/{sources.length || 4}곳 수집</strong></div><small>{checkedAt ? `${new Date(checkedAt).toLocaleString("ko-KR")} 확인` : "수집 상태 확인 중"} · 같은 공고는 한 번만 표시</small></header>
-      <div>{sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer" className={source.ok ? "connected" : "delayed"}><i>{source.ok ? "●" : "○"}</i><span>{source.name}</span><b>{source.ok ? `${source.count}건` : "지연"}</b></a>)}</div>
+      <header><div><span>검증 출처</span><strong>{sources.filter((source) => source.ok).length}/{sources.length || 6}곳 확인</strong></div><small>{checkedAt ? `${new Date(checkedAt).toLocaleString("ko-KR")} 확인` : "수집 상태 확인 중"} · 교육부·교육청 공고 포함</small></header>
+      <div>{sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer" className={source.ok ? "connected" : "delayed"}><i>{source.ok ? "●" : "○"}</i><span>{source.name}</span>{source.kind === "official" && <em>공공기관</em>}<b>{source.ok ? `${source.count}건` : "확인 중"}</b></a>)}</div>
     </section>
 
     <section className="maker-card opportunity-filter">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="대회명, 분야, 주최기관 검색"/>
-      <div>{["전체", "IT·소프트웨어", "과학·공학", "취업·창업", "활동·교육"].map((item) => <button key={item} className={field === item ? "active" : ""} onClick={() => setField(item)}>{item}</button>)}</div>
-      <div className="opportunity-extra-filters"><select value={kind} onChange={(event) => setKind(event.target.value)}><option>전체 유형</option><option>공모전</option><option>대외활동</option><option>교육·캠프</option><option>봉사</option></select><select value={sort} onChange={(event) => setSort(event.target.value)}><option>마감순</option><option>출처순</option></select><label><input type="checkbox" checked={savedOnly} onChange={(event) => setSavedOnly(event.target.checked)}/> 관심 저장만</label></div>
+      <div>{["전체", "IT·소프트웨어", "과학·공학", "취업·창업", "콘텐츠·디자인"].map((item) => <button key={item} className={field === item ? "active" : ""} onClick={() => setField(item)}>{item}</button>)}</div>
+      <div className="opportunity-extra-filters"><select value={sort} onChange={(event) => setSort(event.target.value)}><option>마감순</option><option>출처순</option></select><label><input type="checkbox" checked={savedOnly} onChange={(event) => setSavedOnly(event.target.checked)}/> 관심 저장만</label></div>
     </section>
-    <p className="opportunity-notice">자동 수집은 누락될 수 있습니다. 지원 전 주최기관의 공식 공고에서 참가 대상, 마감, 제출물을 반드시 다시 확인하세요.</p>
+    <p className="opportunity-notice">제목·모집 여부·학생 참가 대상·마감일·상세 페이지를 모두 확인한 공고만 표시합니다. 지원 전 원문에서 제출물과 세부 자격을 마지막으로 확인하세요.</p>
     {warning && <p className="opportunity-warning" role="status">{warning}</p>}
     {error && <section className="maker-error opportunity-error"><strong>{error}</strong><button type="button" onClick={() => load(true)}>다시 시도</button></section>}
     {busy ? <div className="maker-card maker-inline-empty"><h3>공개 공고를 모으는 중…</h3></div> : <section className="opportunity-grid">
-      {visible.map((item) => { const bookmarked = saved.includes(item.id); return <article className="maker-card opportunity-card" key={item.id}><header><span>{fieldOf(`${item.title} ${item.categories}`)} · {item.categories || item.sourceType}</span><b>{item.dday || "마감일 확인"}</b></header><h2>{item.title}</h2><p>{item.organization || item.source || "주최기관 상세 확인"}</p><div className="opportunity-audience"><span>자동 확인된 참여 대상 근거</span><strong>{item.audienceEvidence || "공고 상세에서 확인 필요"}</strong></div><small>{item.source}에서 자동 수집 · {item.deadline || "마감일 상세 확인"} · 지원 전 원문 확인 필수</small><footer><button className={bookmarked ? "saved" : ""} onClick={() => onChangeSavedIds?.(bookmarked ? saved.filter((savedId) => savedId !== item.id) : [...saved, item.id])}>{bookmarked ? "★ 저장됨" : "☆ 관심 저장"}</button><button onClick={() => addGoal(item)}>목표에 추가</button><button onClick={() => addActivity(item)}>이력서에 저장</button><a href={item.url} target="_blank" rel="noreferrer">공식 공고 확인</a></footer></article>; })}
+      {visible.map((item) => { const bookmarked = saved.includes(item.id); return <article className="maker-card opportunity-card" key={item.id}><header><span>{fieldOf(`${item.title} ${item.categories}`)}{item.sourceKind === "official" ? " · 공공기관 원문" : " · 검증된 공고"}</span><b>{item.dday}</b></header><h2>{item.title}</h2><p>{item.organization || item.source || "주최기관 원문 확인"}</p><div className="opportunity-audience"><span>확인된 참가 대상</span><strong>{item.audienceEvidence}</strong></div><div className="opportunity-verification">{(item.verification || []).map((entry) => <span key={entry}>✓ {entry}</span>)}</div><small>{item.source} · {item.deadline === "상시" ? "상시 접수" : `${item.deadline} 마감`}</small><footer><button className={bookmarked ? "saved" : ""} onClick={() => onChangeSavedIds?.(bookmarked ? saved.filter((savedId) => savedId !== item.id) : [...saved, item.id])}>{bookmarked ? "★ 저장됨" : "☆ 관심 저장"}</button><button onClick={() => addGoal(item)}>목표에 추가</button><button onClick={() => addActivity(item)}>이력서에 저장</button><a href={item.url} target="_blank" rel="noreferrer">{item.sourceKind === "official" ? "공공기관 원문" : "공고 원문"}</a></footer></article>; })}
       {!visible.length && !error && <div className="maker-card maker-inline-empty"><h3>조건에 맞는 공고가 없습니다.</h3><p>검색어나 분야를 바꾸거나 연결 출처에서 직접 확인해 주세요.</p></div>}
     </section>}
-    <footer className="opportunity-source">MakerOS는 공개 목록을 정리해 보여주며 공고를 주최하거나 지원 자격을 보증하지 않습니다.</footer>
+    <footer className="opportunity-source">MakerOS는 공개된 진행 중 공고를 검증해 정리하며, 최종 지원 자격은 각 주최기관 원문을 기준으로 합니다.</footer>
   </main>;
 }
