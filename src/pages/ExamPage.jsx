@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import AnswerSheet from "../components/AnswerSheet";
+import CbtSettingsPanel from "../components/CbtSettingsPanel";
+import ExamMiniNavigator from "../components/ExamMiniNavigator";
 import { circled, formatTime } from "../utils/exam";
+import { readCbtSettings, saveCbtSettings, shouldIgnoreExamShortcut } from "../utils/cbtPreferences";
 import {
   explanationFingerprint,
   hasQuestionImages,
@@ -98,6 +101,8 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
   const [explanationState, setExplanationState] = useState({ status: "idle" });
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [cbtSettings, setCbtSettings] = useState(() => readCbtSettings());
 
   useEffect(() => {
     document.body.classList.add("makeros-exam-mode");
@@ -118,6 +123,24 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
     exam?.year ? `${exam.year}년` : "",
     exam?.round ? `${exam.round}회` : "",
   ].filter(Boolean).join(" · ");
+
+  useEffect(() => {
+    saveCbtSettings(cbtSettings);
+  }, [cbtSettings]);
+
+  useEffect(() => {
+    if (!cbtSettings.keyboardNavigation || settingsOpen) return undefined;
+    function handleExamKeydown(event) {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || shouldIgnoreExamShortcut(event.target)) return;
+      const next = event.key === "ArrowLeft" ? current - 1 : current + 1;
+      if (next < 0 || next >= questions.length) return;
+      event.preventDefault();
+      moveTo(next);
+    }
+    window.addEventListener("keydown", handleExamKeydown);
+    return () => window.removeEventListener("keydown", handleExamKeydown);
+  }, [cbtSettings.keyboardNavigation, current, questions.length, settingsOpen]);
 
   useEffect(() => {
     let alive = true;
@@ -164,7 +187,9 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
 
   function moveTo(index) {
     session.setCurrent(Math.max(0, Math.min(questions.length - 1, index)));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const scroller = document.querySelector(".exam-main");
+    if (scroller?.scrollTo) scroller.scrollTo({ top: 0, behavior: "smooth" });
+    else window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function choiceClass(index) {
@@ -267,7 +292,7 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
   }
 
   return (
-    <main className="exam-page qnet-exam-layout">
+    <main className={`exam-page qnet-exam-layout cbt-layout-${cbtSettings.layout} cbt-scale-${cbtSettings.contentScale} cbt-answer-${cbtSettings.answerSheet}`}>
       <header className="exam-device-header">
         <button type="button" className="exam-device-exit" onClick={onExit} aria-label="시험 나가기">←</button>
         <div className="exam-device-title">
@@ -279,6 +304,7 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
             <small>{mode === "실전모드" ? "남은 시간" : "풀이 현황"}</small>
             <strong>{mode === "실전모드" ? formatTime(remaining) : `${answeredCount}/${questions.length}`}</strong>
           </div>
+          <button type="button" className="exam-settings-button" onClick={() => setSettingsOpen(true)} aria-label="CBT 설정 열기">⚙ <span>설정</span></button>
           <button type="button" onClick={handleDeviceSubmit}>{submitted ? "종료" : isPracticeAssessment ? "결과" : "제출"}</button>
         </div>
       </header>
@@ -300,6 +326,8 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
             <div className="timer-block"><span>풀이 상태</span><strong>{answers[current] !== undefined ? "응답 완료" : "미응답"}</strong></div>
           )}
         </header>
+
+        <div className="exam-scroll-area">
 
         {session.checkpointStatus !== "idle" && <div className={`exam-checkpoint-status ${session.checkpointStatus}`} role="status">
           {session.checkpointStatus === "saving" ? "진행 상태 저장 중…" : session.checkpointStatus === "error" ? "자동 저장에 실패했습니다. 브라우저 저장 권한을 확인해 주세요." : "이 기기에 진행 상태가 안전하게 저장되었습니다."}
@@ -515,6 +543,7 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
             </>
           )}
         </article>
+        </div>
 
         <footer className="exam-navigation-bar">
           <button type="button" className="nav-move nav-prev" onClick={() => moveTo(current - 1)} disabled={isFirst}><span aria-hidden="true">←</span><b>이전 문제</b></button>
@@ -542,6 +571,25 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
         onAnswer={session.answer}
         onToggleReviewCheck={session.toggleReviewCheck}
         revealAnswers={submitted || mode === "연습모드"}
+      />
+
+      {cbtSettings.miniNavigator && (
+        <ExamMiniNavigator
+          current={current}
+          total={questions.length}
+          size={cbtSettings.navigatorSize}
+          onPrevious={() => moveTo(current - 1)}
+          onNext={() => moveTo(current + 1)}
+          onHide={() => setCbtSettings((previous) => ({ ...previous, miniNavigator: false }))}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      )}
+
+      <CbtSettingsPanel
+        open={settingsOpen}
+        settings={cbtSettings}
+        onChange={setCbtSettings}
+        onClose={() => setSettingsOpen(false)}
       />
     </main>
   );
