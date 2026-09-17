@@ -28,6 +28,7 @@ const PAGE_TO_PATH = {
   portfolio: "portfolio",
   opportunities: "opportunities",
   career: "career",
+  data: "data",
   mode: "exam-mode",
   exam: "exam",
   mock: "mock-exam",
