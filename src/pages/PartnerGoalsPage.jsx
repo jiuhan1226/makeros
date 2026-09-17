@@ -116,20 +116,36 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
     commit({ goals: state.goals.map((item) => item.id === id ? { ...item, ...patch } : item) });
   }
 
+  function handleGeneratePlan() {
+    const targets = [
+      ...state.certificateGoals.map((item) => ({ title: item.name, start: item.startDate, end: item.examDate })),
+      ...state.goals.map((item) => ({ title: item.title, start: item.startDate, end: item.deadline })),
+    ];
+    if (!targets.length) return setFormMessage("먼저 자격증이나 해야 할 일을 하나 추가해 주세요.");
+    const incomplete = targets.find((item) => !item.start || !item.end);
+    if (incomplete) return setFormMessage(`‘${incomplete.title || "목표"}’의 시작일과 목표일을 입력해 주세요.`);
+    setFormMessage("");
+    onGeneratePlan?.();
+  }
+
   return <main className="partner-page partner-simple-goals">
     <section className="partner-page-head">
       <div><span className="partner-kicker">SIMPLE SETUP</span><h1>할 일만 알려주세요</h1><p>마감과 가능한 시간만 입력하면 AI가 공부 순서와 하루 분량을 자동으로 나눕니다.</p></div>
-      <button className="partner-primary partner-plan-cta" disabled={busy} onClick={onGeneratePlan}>{busy ? "시간에 맞춰 배분 중…" : "AI에게 계획 맡기기"}</button>
     </section>
+
+    <div className="partner-setup-steps" aria-label="계획 만들기 순서"><span className="done">1 목표 입력</span><span>2 기간 입력</span><span>3 공부 시간 선택</span></div>
 
     {saved && <div className="partner-inline-notice">입력 내용이 저장되었습니다. 계획 만들기를 누르면 AI가 가능한 시간에 맞춰 바로 적용합니다.</div>}
     {formMessage && <div className="partner-form-message" role="alert">{formMessage}</div>}
 
     <section className="partner-panel partner-simple-section partner-quick-setup">
-      <div className="partner-form-grid two partner-basic-fields">
-        <Field label="학년"><select value={state.profile.grade || ""} onChange={(event) => patchProfile({ grade: event.target.value })}><option value="">선택</option><option>1학년</option><option>2학년</option><option>3학년</option></select></Field>
-        <Field label="전공"><input value={state.profile.major || ""} onChange={(event) => patchProfile({ major: event.target.value })} placeholder="예: 전기전자과, 스마트팩토리과" /></Field>
-      </div>
+      <details className="partner-optional-profile">
+        <summary><span>학년·전공</span><small>선택 입력</small></summary>
+        <div className="partner-form-grid two partner-basic-fields">
+          <Field label="학년"><select value={state.profile.grade || ""} onChange={(event) => patchProfile({ grade: event.target.value })}><option value="">선택 안 함</option><option>1학년</option><option>2학년</option><option>3학년</option></select></Field>
+          <Field label="전공"><input value={state.profile.major || ""} onChange={(event) => patchProfile({ major: event.target.value })} placeholder="예: 전기전자과" /></Field>
+        </div>
+      </details>
       <div className="partner-time-row"><strong>공부 시간 <b>{state.profile.weeklyAvailableHours || 0}시간/주</b></strong></div>
       <div className="partner-simple-presets four">
         <button type="button" className={Number(state.profile.weeklyAvailableHours) === 9 && !customTimeOpen ? "active" : ""} onClick={() => { setCustomTimeOpen(false); applyTimePreset(60, 120); }}>여유롭게<small>평일 1시간 · 주말 2시간</small></button>
@@ -221,6 +237,6 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
       </details>}
     </section>
 
-    <section className="partner-submit-bar"><div><strong>입력이 끝났나요?</strong><span>AI가 모든 목표를 가능한 시간 안에 자동으로 나눕니다.</span></div><button className="partner-primary" disabled={busy} onClick={onGeneratePlan}>{busy ? "계획 만드는 중…" : "내 계획 자동으로 만들기"}</button></section>
+    <section className="partner-submit-bar"><div><strong>목표와 기간을 확인했나요?</strong><span>세부 순서와 하루 분량은 AI가 정리합니다.</span></div><button className="partner-primary" disabled={busy} onClick={handleGeneratePlan}>{busy ? "계획 만드는 중…" : "내 계획 자동으로 만들기"}</button></section>
   </main>;
 }
