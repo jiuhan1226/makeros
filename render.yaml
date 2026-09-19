@@ -16,8 +16,6 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.5-flash-lite
-      - key: DAILY_REQUEST_LIMIT
-        value: 100
       - key: MAX_QUESTIONS_PER_REQUEST
         value: 20
       - key: MAX_SOURCE_CHARS
@@ -48,7 +46,3 @@ services:
         value: false
       - key: EXPLANATION_SIGNING_SECRET
         sync: false
-      - key: AI_EXPLANATION_USER_DAILY_LIMIT
-        value: 30
-      - key: AI_EXPLANATION_FORCE_RETRY_DAILY_LIMIT
-        value: 2
