@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   auth,
@@ -17,6 +17,7 @@ import {
   saveQuestionProgress,
   replaceCloudLearningProgress,
   clearCloudLearningData,
+  deleteMyAccountAndData,
 } from "./firebase";
 import AppHeader from "./components/AppHeader";
 import AuthModal from "./components/AuthModal";
@@ -28,7 +29,6 @@ import ModeSelectPage from "./pages/ModeSelectPage";
 import ExamPage from "./pages/ExamPage";
 import MockExamPage from "./pages/MockExamPage";
 import BookmarkPage from "./pages/BookmarkPage";
-import AdminPage from "./pages/AdminPage";
 import SearchPage from "./pages/SearchPage";
 import PlannerPage from "./pages/PlannerPage";
 import LearningCenterPage from "./pages/LearningCenterPage";
@@ -36,23 +36,11 @@ import AllQuestionsPage from "./pages/AllQuestionsPage";
 import SavedBookmarksPage from "./pages/SavedBookmarksPage";
 import SubjectStudyPage from "./pages/SubjectStudyPage";
 import UnifiedSearchPage from "./pages/UnifiedSearchPage";
-import PdfLibraryPage from "./pages/PdfLibraryPage";
-import PdfStudyPage from "./pages/PdfStudyPage";
-import NotesCardsPage from "./pages/NotesCardsPage";
 import GrowthReportPage from "./pages/GrowthReportPage";
-import AiTutorPage from "./pages/AiTutorPage";
-import KnowledgeGraphPage from "./pages/KnowledgeGraphPage";
 import MakerHomePage from "./pages/MakerHomePage";
-import InventPage from "./pages/InventPage";
-import ProjectsPage from "./pages/ProjectsPage";
-import PortfolioPage from "./pages/PortfolioPage";
-import OpportunitiesPage from "./pages/OpportunitiesPage";
-import CareerPage from "./pages/CareerPage";
 import PartnerTodayPage from "./pages/PartnerTodayPage";
 import PartnerPlanPage from "./pages/PartnerPlanPage";
 import PartnerCalendarPage from "./pages/PartnerCalendarPage";
-import TimetablePage from "./pages/TimetablePage";
-import MealPage from "./pages/MealPage";
 import PartnerGoalsPage from "./pages/PartnerGoalsPage";
 import DataManagementPage from "./pages/DataManagementPage";
 import { shuffle } from "./utils/exam";
@@ -75,6 +63,7 @@ import {
   rollbackPartnerPlan,
   adjustTodayPlanItem,
   rolloverPartnerDay,
+  setPartnerDayOff,
   transferPlanProgress,
   updateTodayItemStatus,
 } from "./utils/aiPartner";
@@ -110,6 +99,30 @@ import {
 } from "./utils/certificateRouting";
 import { deduplicateQuestions, questionContentKey, removeQuestionFromList } from "./utils/questionDedup";
 import "./styles.css";
+
+const AdminPage = lazy(() => import("./pages/AdminPage"));
+const PdfLibraryPage = lazy(() => import("./pages/PdfLibraryPage"));
+const PdfStudyPage = lazy(() => import("./pages/PdfStudyPage"));
+const NotesCardsPage = lazy(() => import("./pages/NotesCardsPage"));
+const AiTutorPage = lazy(() => import("./pages/AiTutorPage"));
+const KnowledgeGraphPage = lazy(() => import("./pages/KnowledgeGraphPage"));
+const InventPage = lazy(() => import("./pages/InventPage"));
+const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
+const PortfolioPage = lazy(() => import("./pages/PortfolioPage"));
+const OpportunitiesPage = lazy(() => import("./pages/OpportunitiesPage"));
+const CareerPage = lazy(() => import("./pages/CareerPage"));
+const TimetablePage = lazy(() => import("./pages/TimetablePage"));
+const MealPage = lazy(() => import("./pages/MealPage"));
+
+class PageErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("MakerOS page error", error, info); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <main className="loading-page"><section className="maker-error route-error"><strong>화면을 불러오지 못했습니다.</strong><p>입력한 내용은 저장되어 있습니다. 화면만 다시 불러와 주세요.</p><button type="button" onClick={() => window.location.reload()}>다시 불러오기</button></section></main>;
+  }
+}
 
 const LOCAL_KEY = "studylock-v3-state";
 const LEGACY_PDF_KEY = "studylock-v1.5-state";
@@ -197,7 +210,7 @@ function App() {
   const [partnerLearningAction, setPartnerLearningAction] = useState({ itemId: "", status: "idle", message: "" });
   const [planFocusGoalId, setPlanFocusGoalId] = useState("");
   const knownPartnerCertificateGoalIds = useRef(null);
-  const session = useExamSession();
+  const session = useExamSession({ userId: user?.uid || "" });
   const partnerCertificateGoals = useMemo(() => normalizePartnerState(partnerState).certificateGoals, [partnerState]);
   const certificateShortcuts = useMemo(
     () => buildCertificateShortcuts(partnerCertificateGoals, certificates),
@@ -430,6 +443,12 @@ function App() {
       mode: session.mode,
     };
   }, [certificate?.id, certificateExamIds, session.answers, session.current, session.exam, session.lastSavedAt, session.mode, session.questions.length, session.resumable, session.startedAt]);
+  const certificateDraftSessions = useMemo(() => session.drafts.filter((item) => sameCertificate(item, certificate?.id, certificateExamIds)), [certificate?.id, certificateExamIds, session.drafts]);
+
+  async function resumeExamDraft(checkpointKey) {
+    const resumed = await session.resumeDraft(checkpointKey);
+    if (resumed) setPage("exam");
+  }
 
   async function selectCertificate(nextCertificate) {
     setCertificate(nextCertificate);
@@ -445,14 +464,14 @@ function App() {
   async function startExam(mode) {
     const questions = await getExamQuestions(selectedExam.id);
     const practice = mode === "연습모드";
-    session.start({
+    const started = session.start({
       ...selectedExam,
       assessmentType: practice ? "practice" : "exam",
       studyScope: practice ? "exam-practice" : "exam",
       learningType: practice ? "examPractice" : "exam",
       returnPage: "past",
     }, questions, mode);
-    setPage("exam");
+    if (started !== false) setPage("exam");
   }
 
   function enrichLearningPayload(payload) {
@@ -1274,6 +1293,19 @@ function App() {
     setPartnerState(createDefaultPartnerState());
   }
 
+  async function deleteAccountAndData() {
+    if (!user?.uid) throw new Error("계정 삭제는 로그인 후 사용할 수 있습니다.");
+    await session.clearAllDrafts();
+    await deleteMyAccountAndData(user.uid);
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index) || "";
+      if (key.startsWith("makeros:") || key.startsWith("studylock-")) localStorage.removeItem(key);
+    }
+    setHistory([]); setPracticeHistory([]); setWrongNotes([]); setLearningProgress([]); setStudyEvents([]); setAttemptEvents([]);
+    setQuestionBookmarks([]); setPdfQuizHistory([]); setPdfQuizWrongNotes([]); setPdfLibrary([]); setAssets({ notes: [], cards: [] });
+    setPartnerState(createDefaultPartnerState());
+  }
+
   function changeTodayPartnerItem(itemId, status) {
     setPartnerState((previous) => {
       const item = (getActivePartnerPlan(previous)?.today?.items || []).find((candidate) => candidate.id === itemId);
@@ -1292,19 +1324,24 @@ function App() {
     ));
   }
 
+  function toggleTodayDayOff(dayOff) {
+    setPartnerState((previous) => setPartnerDayOff(previous, new Date(), dayOff));
+  }
+
   const repeatedWrong = useMemo(() => buildRepeatedWrong(certificateLearningProgress), [certificateLearningProgress]);
   const dueReviews = useMemo(() => getDueReviews(certificateLearningProgress), [certificateLearningProgress]);
 
   return (
     <div className="app">
       <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} certificateShortcuts={certificateShortcuts} onOpenCertificateGoal={openPartnerCertificateGoal} onStartCertificateGoal={startPartnerCertificateGoal} user={user} onLogin={() => setShowAuth(true)} onTutorial={() => setShowTutorial(true)} isAdmin={isAdminUser(user)} syncStatus={workspaceSyncStatus} />
-      {page === "partnerToday" && <PartnerTodayPage state={partnerState} onNavigate={navigate} onQuickAction={navigatePartnerAction} onOpenPlanItem={openPartnerPlan} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onAdjustItem={adjustTodayPartnerItem} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
+      <PageErrorBoundary key={page}><Suspense fallback={<main className="loading-page"><div className="empty-state">화면을 불러오고 있습니다…</div></main>}>
+      {page === "partnerToday" && <PartnerTodayPage state={partnerState} activeSession={certificateActiveSession} onResumeSession={() => setPage("exam")} onNavigate={navigate} onQuickAction={navigatePartnerAction} onOpenPlanItem={openPartnerPlan} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onAdjustItem={adjustTodayPartnerItem} onToggleDayOff={toggleTodayDayOff} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
       {page === "partnerPlan" && <PartnerPlanPage state={partnerState} focusGoalId={planFocusGoalId} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
       {page === "partnerCalendar" && <PartnerCalendarPage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
       {page === "timetable" && <TimetablePage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
       {page === "meals" && <MealPage state={partnerState} onNavigate={navigate} />}
       {page === "partnerGoals" && <PartnerGoalsPage value={partnerState} onChange={setPartnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "학생 정보가 변경되어 가능한 시간에 맞춘 계획을 적용했습니다." }, { destination: "partnerToday" })} busy={partnerBusy} />}
-      {page === "data" && <DataManagementPage user={user} syncStatus={workspaceSyncStatus} counts={{ exams: history.length + practiceHistory.length, wrongNotes: wrongNotes.length, bookmarks: questionBookmarks.length, pdfs: pdfLibrary.length, plans: normalizePartnerState(partnerState).planVersions.length }} onExport={exportMyData} onResetLearning={() => resetLearningData("")} onResetPlan={resetPartnerPlan} />}
+      {page === "data" && <DataManagementPage user={user} syncStatus={workspaceSyncStatus} counts={{ exams: history.length + practiceHistory.length, wrongNotes: wrongNotes.length, bookmarks: questionBookmarks.length, pdfs: pdfLibrary.length, plans: normalizePartnerState(partnerState).planVersions.length, drafts: session.drafts.length }} onExport={exportMyData} onResetLearning={() => resetLearningData("")} onResetPlan={resetPartnerPlan} onDeleteAccount={deleteAccountAndData} />}
       {page === "makerHome" && <MakerHomePage onNavigate={navigate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} />}
       {page === "invent" && <InventPage projects={inventorProjects} onChangeProjects={setInventorProjects} onCreateBuildProject={createBuildProject} />}
       {page === "projects" && <ProjectsPage projects={buildProjects} inventorProjects={inventorProjects} onChangeProjects={setBuildProjects} onOpenInvent={() => setPage("invent")} />}
@@ -1321,7 +1358,7 @@ function App() {
       {page === "report" && <GrowthReportPage certificate={certificate} history={certificateHistory} practiceHistory={certificatePracticeHistory} studyEvents={certificateStudyEvents} wrongNotes={certificateWrongNotes} learningProgress={certificateLearningProgress} />}
       {page === "tutor" && <AiTutorPage certificate={certificate} initialQuery={tutorSeed.question} initialPdfId={tutorSeed.pdfId} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} userKey={user?.uid || "guest"} searchCbt={searchQuestions} onOpenCbt={openSearchResult} onOpenPdf={openPdf} onOpenGraph={(query) => { setGraphQuery(query); setPage("graph"); }} />}
       {page === "graph" && <KnowledgeGraphPage initialQuery={graphQuery} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} searchCbt={searchQuestions} onOpenCbt={openSearchResult} onOpenPdf={openPdf} onOpenAsset={openStudyAsset} onAskTutor={(payload) => { const value = typeof payload === "string" ? { question: payload, pdfId: "" } : payload || { question: "", pdfId: "" }; setTutorSeed(value); setPage("tutor"); }} />}
-      {page === "past" && <PastExamsPage exams={exams} loadQuestions={getExamQuestions} resumeSession={certificateActiveSession} onResume={() => setPage("exam")} onOpen={openExam} onNavigate={navigate} />}
+      {page === "past" && <PastExamsPage exams={exams} loadQuestions={getExamQuestions} resumeSessions={certificateDraftSessions} onResume={resumeExamDraft} onOpen={openExam} onNavigate={navigate} />}
       {page === "subject" && <SubjectStudyPage certificate={certificate} exams={exams} history={certificatePracticeHistory.filter((item) => item.studyScope === "subject")} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "subject", learningType: "subjectPractice", returnPage: "subject" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
       {page === "all" && <AllQuestionsPage certificate={certificate} exams={exams} loadQuestions={getExamQuestions} resumeSession={session.resumable && session.exam?.studyScope === "all" && (!certificate?.id || session.exam?.certificateId === certificate.id) ? { title: session.exam?.title || "전체 문제 학습", current: session.current, total: session.questions.length, answered: Object.keys(session.answers).length } : null} onResume={() => setPage("exam")} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "all", learningType: "allPractice", returnPage: "all" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
       {page === "mode" && <ModeSelectPage exam={selectedExam} onStart={startExam} onBack={() => setPage("past")} />}
@@ -1332,6 +1369,7 @@ function App() {
       {page === "search" && <SearchPage exams={exams} searchQuestions={async (term) => (await searchQuestions(term)).map((item) => item.q)} onOpenResult={(exam, question) => openSearchResult(exam, question)} />}
       {page === "planner" && <PlannerPage certificate={certificate} wrongNotes={certificateWrongNotes} history={certificateHistory} practiceHistory={certificatePracticeHistory} learningProgress={certificateLearningProgress} exams={exams} plan={plan} onSavePlan={setPlan} onStartRecommended={startRecommended} onStartDueReview={startDueReview} onStartRepeatedWrong={startWrongReview} pdfLibrary={pdfLibrary} />}
       {page === "admin" && isAdminUser(user) && <AdminPage />}
+      </Suspense></PageErrorBoundary>
       {showAuth && <AuthModal user={user} onClose={() => setShowAuth(false)} />}
       <TutorialModal open={showTutorial} onClose={() => setShowTutorial(false)}/>
       <div className="sync-indicator">{assetBusy ? "AI 자료 생성 중…" : user ? (cloudReady ? "클라우드 동기화" : "동기화 중…") : "이 기기에 자동 저장"}</div>
