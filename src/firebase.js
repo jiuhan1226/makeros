@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import {
   createUserWithEmailAndPassword,
+  deleteUser,
   getAuth,
   GoogleAuthProvider,
   onAuthStateChanged,
@@ -239,6 +240,32 @@ function sanitizeDocumentId(value) {
     .trim()
     .replace(/\//g, "-")
     .replace(/\s+/g, "_");
+}
+
+export async function loadCloudExamDrafts(uid) {
+  if (!db || !uid) return [];
+  const snapshot = await getDocs(collection(db, "users", uid, "examDrafts"));
+  return snapshot.docs.map((item) => ({ ...item.data(), cloudDocumentId: item.id }));
+}
+
+export async function saveCloudExamDraft(uid, checkpoint) {
+  if (!db || !uid || !checkpoint?.checkpointKey) return;
+  await setDoc(
+    doc(db, "users", uid, "examDrafts", sanitizeDocumentId(checkpoint.checkpointKey)),
+    { ...firestoreSafe(checkpoint, {}), updatedAt: serverTimestamp() },
+    { merge: true },
+  );
+}
+
+export async function deleteCloudExamDraft(uid, checkpointKey) {
+  if (!db || !uid || !checkpointKey) return;
+  await deleteDoc(doc(db, "users", uid, "examDrafts", sanitizeDocumentId(checkpointKey)));
+}
+
+export async function clearCloudExamDrafts(uid) {
+  if (!db || !uid) return;
+  const snapshot = await getDocs(collection(db, "users", uid, "examDrafts"));
+  await deleteDocumentRefs(snapshot.docs.map((item) => item.ref));
 }
 
 export function createExamId(exam) {
@@ -699,4 +726,26 @@ export async function clearCloudLearningData(uid, certificateId = "") {
     .filter((item) => !certificateId || item.data()?.certificateId === certificateId)
     .map((item) => item.ref);
   await deleteDocumentRefs(deleteRefs);
+}
+
+export async function deleteMyAccountAndData(uid) {
+  if (!db || !auth?.currentUser || auth.currentUser.uid !== uid) throw new Error("로그인 계정을 확인할 수 없습니다.");
+  const collectionNames = ["cbtProgress", "cbtPracticeProgress", "cbtAttempts", "studyAssets", "aiExplanationCache", "examDrafts"];
+  const snapshots = await Promise.all(collectionNames.map((name) => getDocs(collection(db, "users", uid, name))));
+  const pdfSnapshot = await getDocs(collection(db, "users", uid, "pdfLibrary"));
+  const pdfPageSnapshots = await Promise.all(pdfSnapshot.docs.map((item) => getDocs(collection(db, "users", uid, "pdfLibrary", item.id, "pages"))));
+  const feedbackSnapshots = await Promise.all([
+    getDocs(query(collection(db, "aiExplanationFeedback"), where("uid", "==", uid))).catch(() => ({ docs: [] })),
+    getDocs(query(collection(db, "aiExplanationReviews"), where("reporterUid", "==", uid))).catch(() => ({ docs: [] })),
+  ]);
+  await deleteDocumentRefs([
+    ...snapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.ref)),
+    ...pdfPageSnapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.ref)),
+    ...pdfSnapshot.docs.map((item) => item.ref),
+    ...feedbackSnapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.ref)),
+    doc(db, "users", uid, "studylock", "state"),
+    doc(db, "users", uid, "workspace", "state"),
+    doc(db, "users", uid),
+  ]);
+  await deleteUser(auth.currentUser);
 }
