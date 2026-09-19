@@ -40,10 +40,8 @@ git push -u origin main
 
 - `VITE_ADMIN_UIDS`
 - `ALLOWED_ORIGINS`
-- `AI_EXPLANATION_USER_DAILY_LIMIT`
-- `AI_EXPLANATION_FORCE_RETRY_DAILY_LIMIT`
 
-`ALLOW_UNAUTHENTICATED_AI`는 운영 환경에서 `false`를 유지하세요.
+AI 튜터·CBT 해설에는 일일 사용 횟수 제한이 없습니다. 짧은 시간에 반복되는 자동 요청을 막는 순간 보호 장치는 별도로 유지됩니다.
 
 ## 3. Firebase 설정
 
