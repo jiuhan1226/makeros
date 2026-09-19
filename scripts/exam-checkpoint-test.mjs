@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildExamCheckpoint, examCheckpointMeta } from '../src/utils/examCheckpoint.js';
+import { buildExamCheckpoint, examCheckpointKey, examCheckpointMeta } from '../src/utils/examCheckpoint.js';
 
 const questions = Array.from({ length: 1200 }, (_, index) => ({ id: `q-${index}`, question: `문제 ${index}` }));
 const checkpoint = buildExamCheckpoint({ exam: { title: '전체 문제', studyScope: 'all' }, questions, answers: { 0: 1, 18: 2 }, current: 18, savedAt: 1234 });
@@ -10,10 +10,11 @@ assert.equal(meta.total, 1200);
 assert.equal(meta.answered, 2);
 assert.equal(Object.hasOwn(meta, 'questions'), false, 'localStorage 메타 정보에는 전체 문제 배열을 저장하면 안 됩니다.');
 assert.ok(JSON.stringify(meta).length < 1000, 'localStorage 메타 정보는 작게 유지해야 합니다.');
+assert.equal(checkpoint.checkpointKey, examCheckpointKey(checkpoint.exam), '시험별로 독립된 이어풀기 키를 사용해야 합니다.');
 const main = fs.readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const home = fs.readFileSync(new URL('../src/pages/CertificateHomePage.jsx', import.meta.url), 'utf8');
 const past = fs.readFileSync(new URL('../src/pages/PastExamsPage.jsx', import.meta.url), 'utf8');
 assert.match(main, /certificateActiveSession/, '저장된 CBT 진행 상태를 자격증 화면에 전달해야 합니다.');
 assert.match(home, /진행 중.*이어풀기/s, '최근 학습에 중단한 CBT 이어풀기를 표시해야 합니다.');
-assert.match(past, /resumeSession.*이어풀기/s, '기출 회차 목록에서 저장된 회차를 바로 이어 풀 수 있어야 합니다.');
+assert.match(past, /resumeSessions.*이어풀기/s, '기출 회차 목록에서 저장된 각 회차를 바로 이어 풀 수 있어야 합니다.');
 console.log('[exam-checkpoint-test] OK');
