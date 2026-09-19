@@ -39,16 +39,11 @@ const distPath = path.resolve(__dirname, "../dist");
 const requestedModel = (process.env.GEMINI_MODEL || "gemini-3.5-flash-lite")
   .trim()
   .replace(/^models\//, "");
-const dailyLimit = Number(process.env.DAILY_REQUEST_LIMIT || 100);
 const maxQuestions = Number(process.env.MAX_QUESTIONS_PER_REQUEST || 20);
 const maxSourceChars = Number(process.env.MAX_SOURCE_CHARS || 30000);
 const apiKey = process.env.GEMINI_API_KEY?.trim();
 const firebaseProjectId = String(process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "").trim();
 const allowUnauthenticatedAi = String(process.env.ALLOW_UNAUTHENTICATED_AI || "false").toLowerCase() === "true";
-const explanationUserDailyLimit = Math.max(1, Number(process.env.AI_EXPLANATION_USER_DAILY_LIMIT || 30));
-const explanationForceRetryDailyLimit = Math.max(0, Number(process.env.AI_EXPLANATION_FORCE_RETRY_DAILY_LIMIT || 2));
-const aiTutorUserDailyLimit = Math.max(1, Number(process.env.AI_TUTOR_USER_DAILY_LIMIT || 5));
-const guestAiTrialDailyLimit = Math.max(1, Number(process.env.GUEST_AI_TRIAL_DAILY_LIMIT || 2));
 const neisApiKey = String(process.env.NEIS_API_KEY || "").trim();
 const comciganEnabled = String(process.env.COMCIGAN_ENABLED || "true").toLowerCase() !== "false";
 const neisCache = new Map();
@@ -59,7 +54,7 @@ const neisRequestHeaders = {
   "cache-control": "no-cache",
   pragma: "no-cache",
   referer: "https://open.neis.go.kr/portal/mainPage.do",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.25",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.28",
 };
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
@@ -76,10 +71,6 @@ const fallbackModels = [
 if (!apiKey) console.warn("[MakerOS] GEMINI_API_KEY가 설정되지 않았습니다.");
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 const cache = new Map();
-const explanationUserUsage = new Map();
-const explanationForceUsage = new Map();
-const aiTutorUserUsage = new Map();
-const guestAiUsage = new Map();
 let activeModel = requestedModel;
 let availableModelNames = null;
 
@@ -120,15 +111,6 @@ app.use(cors({
   }
 }));
 app.use(express.json({ limit: "12mb" }));
-app.use("/api/", rateLimit({
-  windowMs: 24 * 60 * 60 * 1000,
-  limit: dailyLimit,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "오늘의 AI 생성 요청 한도에 도달했습니다." },
-  skip: (req) => req.path.startsWith("/neis/") || req.path.startsWith("/school-data/"),
-}));
-
 app.use("/api/neis", rateLimit({
   windowMs: 60 * 1000,
   limit: 60,
@@ -153,35 +135,12 @@ const explanationMinuteLimiter = rateLimit({
   message: { error: "AI 해설 요청이 너무 빠릅니다. 잠시 후 다시 시도해 주세요." },
 });
 
-function usageDayKey() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-}
-
-function guestFeatureKey(req) {
-  const pathName = String(req.originalUrl || req.path || "ai").split("?")[0];
-  if (pathName.includes("verify-explanation-cache")) return "free-cache-check";
-  return pathName.replace(/^\/api\//, "").split("/").slice(0, 2).join(":") || "ai";
-}
-
-function consumeGuestAiTrial(req) {
-  const feature = guestFeatureKey(req);
-  if (feature === "free-cache-check") return { allowed: true, remaining: guestAiTrialDailyLimit };
-  const visitor = crypto.createHash("sha256").update(String(req.ip || req.socket?.remoteAddress || "unknown")).digest("hex").slice(0, 20);
-  const key = `${visitor}:${usageDayKey()}:${feature}`;
-  const used = Number(guestAiUsage.get(key) || 0);
-  if (used >= guestAiTrialDailyLimit) return { allowed: false, remaining: 0 };
-  guestAiUsage.set(key, used + 1);
-  return { allowed: true, remaining: guestAiTrialDailyLimit - used - 1 };
-}
-
 async function requireFirebaseUser(req, res, next) {
   const authorization = String(req.headers.authorization || "");
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
 
   if (!token) {
-    const trial = consumeGuestAiTrial(req);
-    if (!trial.allowed) return res.status(401).json({ error: `비회원 체험은 AI 기능별 하루 ${guestAiTrialDailyLimit}회까지 가능합니다. 로그인하면 계속 이용할 수 있습니다.`, code: "guest_ai_trial_exhausted", requiresLogin: true });
-    req.user = { uid: `guest:${req.ip || "unknown"}`, guest: true, guestTrialRemaining: trial.remaining };
+    req.user = { uid: `guest:${req.ip || "unknown"}`, guest: true, guestTrialRemaining: null };
     return next();
   }
 
@@ -202,35 +161,12 @@ async function requireFirebaseUser(req, res, next) {
   }
 }
 
-function consumeExplanationQuota({ uid, questionHash, force = false }) {
-  const day = usageDayKey();
-  const userKey = `${uid}:${day}`;
-  const used = Number(explanationUserUsage.get(userKey) || 0);
-  if (used >= explanationUserDailyLimit) {
-    return { allowed: false, message: `사용자별 AI 해설 일일 한도(${explanationUserDailyLimit}회)에 도달했습니다.` };
-  }
-
-  if (force) {
-    const forceKey = `${uid}:${questionHash}:${day}`;
-    const forceUsed = Number(explanationForceUsage.get(forceKey) || 0);
-    if (forceUsed >= explanationForceRetryDailyLimit) {
-      return { allowed: false, message: `같은 문제의 강제 재생성은 하루 ${explanationForceRetryDailyLimit}회까지 가능합니다.` };
-    }
-    explanationForceUsage.set(forceKey, forceUsed + 1);
-  }
-
-  explanationUserUsage.set(userKey, used + 1);
-  return { allowed: true, remaining: Math.max(0, explanationUserDailyLimit - used - 1) };
+function consumeExplanationQuota() {
+  return { allowed: true, remaining: null };
 }
 
-function consumeAiTutorQuota(uid = "unknown") {
-  const key = `${uid}:${usageDayKey()}`;
-  const used = Number(aiTutorUserUsage.get(key) || 0);
-  if (used >= aiTutorUserDailyLimit) {
-    return { allowed: false, remaining: 0, message: `AI 튜터는 하루 ${aiTutorUserDailyLimit}회까지 사용할 수 있습니다. 내일 다시 이용해 주세요.` };
-  }
-  aiTutorUserUsage.set(key, used + 1);
-  return { allowed: true, remaining: Math.max(0, aiTutorUserDailyLimit - used - 1) };
+function consumeAiTutorQuota() {
+  return { allowed: true, remaining: null };
 }
 
 const protectedAiPaths = [
@@ -1192,7 +1128,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.25",
+    version: "3.1.28",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
@@ -1200,7 +1136,7 @@ app.get("/api/health", async (req, res) => {
     comciganEnabled,
     firebaseTokenVerificationConfigured: Boolean(adminAuth),
     unauthenticatedAiAllowed: allowUnauthenticatedAi,
-    guestAiTrialDailyLimit,
+    aiDailyUsageLimit: null,
     signedExplanationCacheConfigured: Boolean(explanationSigningSecret),
   };
   if (!apiKey) return res.json({ ok: true, ...base, activeModel: null });
@@ -1872,10 +1808,7 @@ app.post("/api/ai-tutor", async (req, res) => {
         const resources = [];
         (context.cbt || []).slice(0, 3).forEach((item) => resources.push({ type: "CBT", label: `${item.exam?.title || "기출문제"} · ${item.q?.questionNumber || ""}번`, exam: item.exam, question: item.q }));
         (context.pdf || []).forEach((document) => (document.pages || []).slice(0, 1).forEach((page) => resources.push({ type: "PDF", label: `${document.name} · ${page.page}쪽`, id: document.id, page: page.page })));
-        const remainingDailyRequests = req.user?.guest
-          ? Math.min(quota.remaining, Number(req.user.guestTrialRemaining || 0))
-          : quota.remaining;
-        return res.json({ answer, resources, model, remainingDailyRequests });
+        return res.json({ answer, resources, model, remainingDailyRequests: null });
       } catch (error) {
         last = error;
         if (statusFromError(error) !== 404) throw error;
