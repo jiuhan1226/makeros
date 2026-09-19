@@ -8,6 +8,7 @@ export const OPPORTUNITY_SOURCES = [
   { id: "cne-notice", name: "충청남도교육청", url: "https://www.cne.go.kr/", type: "교육청 공고", kind: "official" },
   { id: "moe-business", name: "교육부 사업공고", url: "https://www.moe.go.kr/boardCnts/listRenew.do?boardID=72755&m=031302&opType=N", type: "교육부 공고", kind: "official" },
 ];
+const sourceHealth = new Map();
 
 function decode(value = "") {
   return String(value)
@@ -133,7 +134,25 @@ function parseOpportunityCandidates(html = "", source = OPPORTUNITY_SOURCES[0]) 
   return results;
 }
 
-function verifyCandidate(candidate, detailText = "") {
+function officialLinkFromHtml(html = "", candidate = {}) {
+  if (candidate.source?.kind === "official") return candidate.url;
+  let sourceHost = "";
+  try { sourceHost = new URL(candidate.source?.url || candidate.url).hostname.replace(/^www\./, ""); } catch { /* ignore */ }
+  const links = [...String(html).matchAll(/<a\b[^>]*href\s*=\s*["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+    .map((match) => ({ url: absoluteUrl(match[1], candidate.url), label: decode(match[2]) }))
+    .filter((item) => {
+      try {
+        const parsed = new URL(item.url);
+        const host = parsed.hostname.replace(/^www\./, "");
+        if (!/^https?:$/.test(parsed.protocol) || !host || host === sourceHost || host.endsWith(`.${sourceHost}`)) return false;
+        if (/instagram|facebook|youtube|twitter|x\.com|naver\.com|kakao|contestkorea|wevity/i.test(host)) return false;
+        return /공식|홈페이지|접수|신청|주최|공고|바로가기/i.test(item.label) || /apply|contest|competition|notice|event|program|festival/i.test(`${host}${parsed.pathname}`);
+      } catch { return false; }
+    });
+  return links[0]?.url || "";
+}
+
+function verifyCandidate(candidate, detailText = "", { requireOfficial = false } = {}) {
   const { source, title, url } = candidate;
   const context = decode(`${candidate.context || ""} ${detailText || ""}`);
   if (NON_ANNOUNCEMENT_WORDS.test(title) || !CONTEST_WORDS.test(title) || !ANNOUNCEMENT_WORDS.test(`${title} ${context}`)) return null;
@@ -142,10 +161,14 @@ function verifyCandidate(candidate, detailText = "") {
   const date = dateParts(context);
   const ongoing = /(?:상시\s*(?:모집|접수|공모)|마감\s*시까지)/i.test(context);
   if (!date.deadlineValid && !ongoing) return null;
+  const officialUrl = officialLinkFromHtml(detailText, candidate);
+  if (requireOfficial && source.kind !== "official" && !officialUrl) return null;
   return {
     id: `${source.id}-${crypto.createHash("sha1").update(url || title).digest("hex").slice(0, 12)}`,
     title,
-    url,
+    url: officialUrl || url,
+    listingUrl: source.kind === "official" ? "" : url,
+    officialUrl: officialUrl || (source.kind === "official" ? url : ""),
     source: source.name,
     sourceUrl: source.url,
     sourceType: source.type,
@@ -155,7 +178,7 @@ function verifyCandidate(candidate, detailText = "") {
     audienceEvidence: audience.evidence,
     verifiedAudience: true,
     verifiedAnnouncement: true,
-    verification: ["공모·대회명", "모집·접수 공고", "학생 참여 대상", ongoing ? "상시 접수" : "유효한 마감일", "상세 페이지"],
+    verification: ["공모·대회명", "모집·접수 공고", "학생 참여 대상", ongoing ? "상시 접수" : "유효한 마감일", officialUrl ? "주최기관 링크" : "상세 페이지"],
     deadline: ongoing && !date.deadline ? "상시" : date.deadline,
     dday: ongoing && !date.dday ? "상시 접수" : date.dday,
   };
@@ -185,7 +208,7 @@ export function dedupeOpportunities(items = []) {
 
 async function fetchText(fetchImpl, url, timeout = 9000) {
   const response = await fetchImpl(url, {
-    headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.27" },
+    headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.28" },
     redirect: "follow",
     signal: AbortSignal.timeout(timeout),
   });
@@ -196,15 +219,9 @@ async function fetchText(fetchImpl, url, timeout = 9000) {
 async function verifySourceCandidates(fetchImpl, source, html) {
   const candidates = parseOpportunityCandidates(html, source);
   const verified = [];
-  const pending = [];
-  for (const candidate of candidates.slice(0, 18)) {
-    const item = verifyCandidate(candidate);
-    if (item) verified.push(item);
-    else pending.push(candidate);
-  }
-  for (let index = 0; index < pending.length; index += 6) {
-    const batch = await Promise.all(pending.slice(index, index + 6).map(async (candidate) => {
-      try { return verifyCandidate(candidate, await fetchText(fetchImpl, candidate.url, 7000)); }
+  for (let index = 0; index < candidates.slice(0, 18).length; index += 6) {
+    const batch = await Promise.all(candidates.slice(0, 18).slice(index, index + 6).map(async (candidate) => {
+      try { return verifyCandidate(candidate, await fetchText(fetchImpl, candidate.url, 7000), { requireOfficial: source.kind !== "official" }); }
       catch { return null; }
     }));
     verified.push(...batch.filter(Boolean));
@@ -218,15 +235,21 @@ export async function collectOpportunities(fetchImpl = fetch) {
       const html = await fetchText(fetchImpl, source.url, 11000);
       const items = await verifySourceCandidates(fetchImpl, source, html);
       if (!items.length) throw new Error("검증 조건을 모두 통과한 진행 중 공고가 없음");
-      return { source, ok: true, count: items.length, items };
+      const previous = sourceHealth.get(source.id) || {};
+      const health = { failureCount: 0, lastSuccessAt: Date.now(), lastErrorAt: previous.lastErrorAt || 0 };
+      sourceHealth.set(source.id, health);
+      return { source, ok: true, count: items.length, items, ...health };
     } catch (error) {
-      return { source, ok: false, count: 0, items: [], error: String(error?.message || error) };
+      const previous = sourceHealth.get(source.id) || {};
+      const health = { failureCount: Number(previous.failureCount || 0) + 1, lastSuccessAt: Number(previous.lastSuccessAt || 0), lastErrorAt: Date.now() };
+      sourceHealth.set(source.id, health);
+      return { source, ok: false, count: 0, items: [], error: String(error?.message || error), ...health };
     }
   }));
   const items = dedupeOpportunities(checks.flatMap((check) => check.items));
   return {
     items: items.slice(0, 80),
-    sources: checks.map((check) => ({ id: check.source.id, name: check.source.name, url: check.source.url, kind: check.source.kind, ok: check.ok, count: check.count })),
+    sources: checks.map((check) => ({ id: check.source.id, name: check.source.name, url: check.source.url, kind: check.source.kind, ok: check.ok, count: check.count, failureCount: check.failureCount || 0, lastSuccessAt: check.lastSuccessAt || 0, lastErrorAt: check.lastErrorAt || 0 })),
     warning: checks.every((check) => !check.ok)
       ? "현재 검증을 통과한 진행 중 공고를 찾지 못했습니다. 출처의 새 공고가 확인되면 표시됩니다."
       : checks.some((check) => !check.ok) ? "일부 출처가 지연되었거나 검증을 통과한 진행 중 공고가 없어, 확인된 공고만 표시합니다." : "",
