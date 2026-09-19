@@ -43,6 +43,7 @@ export function createDefaultPartnerState() {
       weeklyAvailableHours: 13.5,
       dailyAvailableMinutes: { mon: 90, tue: 90, wed: 90, thu: 90, fri: 90, sat: 180, sun: 180 },
       fixedSchedules: [],
+      dayOffDates: [],
       sleepProtected: true,
     },
     academics: [],
@@ -89,6 +90,9 @@ export function normalizePartnerState(input = {}) {
     ...(input?.profile?.dailyAvailableMinutes || {}),
   };
   state.profile.fixedSchedules = Array.isArray(input?.profile?.fixedSchedules) ? input.profile.fixedSchedules : [];
+  state.profile.dayOffDates = Array.isArray(input?.profile?.dayOffDates)
+    ? [...new Set(input.profile.dayOffDates.map(isoDate).filter(Boolean))]
+    : [];
   state.academics = Array.isArray(input?.academics) ? input.academics : [];
   state.activities = Array.isArray(input?.activities) ? input.activities : [];
   state.calendarExtras = Array.isArray(input?.calendarExtras) ? input.calendarExtras : [];
@@ -361,8 +365,19 @@ export function fixedScheduleMinutesForDate(profile = {}, value = new Date()) {
 export function availableMinutesForDate(profile = {}, value = new Date()) {
   const date = dateAtNoon(value) || new Date(value);
   if (Number.isNaN(date.getTime())) return 0;
+  if ((profile.dayOffDates || []).includes(isoDate(date))) return 0;
   const base = Math.max(0, Number(profile.dailyAvailableMinutes?.[DAY_KEYS[date.getDay()]] || 0));
   return Math.max(0, base - fixedScheduleMinutesForDate(profile, date));
+}
+
+export function capacityBreakdownForDate(profile = {}, value = new Date()) {
+  const date = dateAtNoon(value) || new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: "", baseMinutes: 0, fixedMinutes: 0, availableMinutes: 0, dayOff: false };
+  const dateKey = isoDate(date);
+  const dayOff = (profile.dayOffDates || []).includes(dateKey);
+  const baseMinutes = Math.max(0, Number(profile.dailyAvailableMinutes?.[DAY_KEYS[date.getDay()]] || 0));
+  const fixedMinutes = fixedScheduleMinutesForDate(profile, date);
+  return { date: dateKey, baseMinutes, fixedMinutes, availableMinutes: dayOff ? 0 : Math.max(0, baseMinutes - fixedMinutes), dayOff };
 }
 
 function weeklyAvailableMinutes(state, baseDate = new Date()) {
@@ -627,7 +642,7 @@ export function buildDeterministicPlan(state, options = {}) {
       : todayLimit >= 20 ? "목표 정보가 부족해 첫 설정 행동만 제안합니다." : "오늘은 등록한 가능 시간과 고정 일정을 반영해 학습을 배치하지 않았습니다.",
     roadmap,
     weeks,
-    today: { date: isoDate(today), availableMinutes: todayLimit, items: todayItems },
+    today: { date: isoDate(today), availableMinutes: todayLimit, capacityBreakdown: capacityBreakdownForDate(normalized.profile, today), isDayOff: (normalized.profile.dayOffDates || []).includes(isoDate(today)), items: todayItems },
     constraints: {
       weeklyAvailableMinutes: weekLimit,
       dailyAvailableMinutes: normalized.profile.dailyAvailableMinutes,
@@ -684,6 +699,8 @@ export function validatePartnerPlan(plan, state) {
   }
   output.today.availableMinutes = todayLimit;
   output.today.totalMinutes = todayTotal;
+  output.today.capacityBreakdown = capacityBreakdownForDate(normalized.profile, referenceDate);
+  output.today.isDayOff = output.today.capacityBreakdown.dayOff;
   output.validatedAt = Date.now();
   return output;
 }
@@ -845,7 +862,7 @@ export function rolloverPartnerDay(state, { today = new Date() } = {}) {
   let refreshed = transferPlanProgress(active, buildDeterministicPlan(next, { today, basedOnEventId: eventId, source: "daily-rollover" }));
   const limit = Math.max(0, Number(refreshed.today?.availableMinutes || 0));
   if (limit <= 0) {
-    refreshed.today = { ...refreshed.today, date: nextDate, items: [], totalMinutes: 0 };
+    refreshed.today = { ...refreshed.today, date: nextDate, items: [], totalMinutes: 0, capacityBreakdown: capacityBreakdownForDate(next.profile, today), isDayOff: (next.profile.dayOffDates || []).includes(nextDate) };
   } else {
     let remaining = limit;
     const merged = [];
@@ -866,6 +883,29 @@ export function rolloverPartnerDay(state, { today = new Date() } = {}) {
     refreshed.today = { ...refreshed.today, date: nextDate, items: merged, totalMinutes: merged.reduce((sum, item) => sum + item.durationMinutes, 0) };
   }
   return createPlanVersion(next, refreshed, { activate: true });
+}
+
+export function setPartnerDayOff(state, value = new Date(), dayOff = true) {
+  const normalized = normalizePartnerState(state);
+  const dateKey = isoDate(value);
+  if (!dateKey) return normalized;
+  const dates = new Set(normalized.profile.dayOffDates || []);
+  if (dayOff) dates.add(dateKey); else dates.delete(dateKey);
+  let next = {
+    ...normalized,
+    profile: { ...normalized.profile, dayOffDates: [...dates].sort() },
+    planVersions: normalized.planVersions.map((version) => version.versionId === normalized.activePlanVersionId && version.today?.date === dateKey
+      ? { ...version, today: { ...version.today, items: dayOff ? [] : version.today.items, totalMinutes: dayOff ? 0 : version.today.totalMinutes, availableMinutes: dayOff ? 0 : version.today.availableMinutes, isDayOff: dayOff, capacityBreakdown: capacityBreakdownForDate({ ...normalized.profile, dayOffDates: [...dates] }, value) } }
+      : version),
+    lastUpdatedAt: Date.now(),
+  };
+  next = recordChangeEvent(next, {
+    type: dayOff ? "day_off_set" : "day_off_cleared",
+    label: dayOff ? `${dateKey}을 휴식일로 설정했습니다.` : `${dateKey} 휴식 설정을 해제했습니다.`,
+    after: { date: dateKey, dayOff },
+    actor: "student",
+  });
+  return dayOff ? next : rolloverPartnerDay(next, { today: dateAtNoon(dateKey) || new Date() });
 }
 
 export function adjustTodayPlanItem(state, itemId, action) {
