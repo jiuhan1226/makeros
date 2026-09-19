@@ -5,10 +5,11 @@ function subjectOf(question) {
   return String(question?.subject || "공통").trim() || "공통";
 }
 
-export default function PastExamsPage({ exams = [], loadQuestions, resumeSession = null, onResume, onOpen, onNavigate }) {
+export default function PastExamsPage({ exams = [], loadQuestions, resumeSessions = [], onResume, onOpen, onNavigate }) {
   const years = examYears(exams);
   const [questionMap, setQuestionMap] = useState({});
   const [loadingSubjects, setLoadingSubjects] = useState(true);
+  const recentDraft = [...resumeSessions].sort((a, b) => Number(b.savedAt || 0) - Number(a.savedAt || 0))[0] || null;
 
   useEffect(() => {
     let alive = true;
@@ -59,9 +60,9 @@ export default function PastExamsPage({ exams = [], loadQuestions, resumeSession
         <p>회차별 기출과 과목별 문제를 원하는 방식으로 풀어보세요.</p>
       </div>
 
-      {resumeSession && <section className="panel past-resume-banner">
-        <div><span>저장된 풀이</span><strong>{resumeSession.title}</strong><small>{resumeSession.answered}/{resumeSession.total}문제 답변 · {resumeSession.current}번 문제부터 계속</small></div>
-        <button className="primary" onClick={() => onResume?.()}>이어풀기</button>
+      {recentDraft && <section className="panel past-resume-banner">
+        <div><span>저장된 풀이 {resumeSessions.length > 1 ? `${resumeSessions.length}개` : ""}</span><strong>{recentDraft.title}</strong><small>{recentDraft.answered}/{recentDraft.total}문제 답변 · {Math.min(recentDraft.total, Number(recentDraft.current || 0) + 1)}번 문제부터 계속</small></div>
+        <button className="primary" onClick={() => onResume?.(recentDraft.checkpointKey)}>이어풀기</button>
       </section>}
 
       <section className="panel cbt-subject-overview">
@@ -84,14 +85,15 @@ export default function PastExamsPage({ exams = [], loadQuestions, resumeSession
         <div className="exam-grid">{exams.filter((exam) => Number(exam.year) === year).map((exam) => {
           const counts = new Map();
           for (const question of questionMap[exam.id] || []) counts.set(subjectOf(question), (counts.get(subjectOf(question)) || 0) + 1);
-          const isResumable = resumeSession?.examId === exam.id;
+          const resumable = resumeSessions.find((item) => item.examId === exam.id);
+          const isResumable = Boolean(resumable);
           return <article className="exam-card modern-exam-card" key={exam.id}>
             <span className="cbt-badge">CBT</span>
             <h3>{exam.round}</h3>
             <p>{exam.questionCount || 0}문제 · {exam.durationMinutes || 0}분</p>
             <div className="exam-subject-chips">{[...counts.entries()].map(([subject, count]) => <button key={subject} onClick={() => openSubject(subject)}>{subject} <b>{count}</b></button>)}</div>
-            {isResumable && <div className="exam-resume-progress"><span style={{ width: `${Math.max(0, Math.min(100, (resumeSession.answered / Math.max(1, resumeSession.total)) * 100))}%` }}/></div>}
-            <button className="primary" onClick={() => isResumable ? onResume?.() : onOpen(exam)}>{isResumable ? `이어풀기 · ${resumeSession.answered}/${resumeSession.total}` : "이 회차 전체 풀기"}</button>
+            {isResumable && <div className="exam-resume-progress"><span style={{ width: `${Math.max(0, Math.min(100, (resumable.answered / Math.max(1, resumable.total)) * 100))}%` }}/></div>}
+            <button className="primary" onClick={() => isResumable ? onResume?.(resumable.checkpointKey) : onOpen(exam)}>{isResumable ? `이어풀기 · ${resumable.answered}/${resumable.total}` : "이 회차 전체 풀기"}</button>
           </article>;
         })}</div>
       </section>)}
