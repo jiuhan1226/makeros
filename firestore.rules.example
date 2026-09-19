@@ -35,13 +35,17 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.reporterUid == request.auth.uid
         && request.resource.data.status == "pending";
-      allow read, update, delete: if isAdmin();
+      allow read, update: if isAdmin();
+      allow delete: if isAdmin()
+        || (signedIn() && resource.data.reporterUid == request.auth.uid);
     }
 
     match /aiExplanationFeedback/{feedbackId} {
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid;
-      allow read, update, delete: if isAdmin();
+      allow read, update: if isAdmin();
+      allow delete: if isAdmin()
+        || (signedIn() && resource.data.uid == request.auth.uid);
     }
   }
 }
