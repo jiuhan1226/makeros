@@ -1,20 +1,5 @@
 import React,{useEffect,useMemo,useState} from "react";
 import { postJson } from "../utils/api";
-
-const TUTOR_DAILY_LIMIT=5;
-const TUTOR_USAGE_KEY="makeros:ai-tutor-usage:v1";
-
-function seoulDayKey(){return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Seoul",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());}
-function readTutorRemaining(userKey="guest"){
-  try{
-    const saved=JSON.parse(localStorage.getItem(`${TUTOR_USAGE_KEY}:${userKey}`)||"{}");
-    const savedRemaining=Number(saved.remaining);
-    return saved.day===seoulDayKey()&&Number.isFinite(savedRemaining)?Math.max(0,Math.min(TUTOR_DAILY_LIMIT,savedRemaining)):TUTOR_DAILY_LIMIT;
-  }catch{return TUTOR_DAILY_LIMIT;}
-}
-function saveTutorRemaining(userKey,remaining){
-  try{localStorage.setItem(`${TUTOR_USAGE_KEY}:${userKey}`,JSON.stringify({day:seoulDayKey(),remaining}));}catch{/* 브라우저 저장소를 사용할 수 없어도 서버 제한은 유지됩니다. */}
-}
 function readImageFile(file){
   return new Promise((resolve,reject)=>{
     const reader=new FileReader();
@@ -48,7 +33,7 @@ function selectPdfPages(doc,question=""){
   return [...new Map(selected.map(page=>[page.page,page])).values()].map(page=>({page:page.page,text:String(page.text||"").slice(0,1800)}));
 }
 
-export default function AiTutorPage({certificate,initialQuery="",initialPdfId="",wrongNotes,pdfLibrary,assets,userKey="guest",searchCbt,onOpenCbt,onOpenPdf,onOpenGraph}){
+export default function AiTutorPage({certificate,initialQuery="",initialPdfId="",wrongNotes,pdfLibrary,assets,searchCbt,onOpenCbt,onOpenPdf,onOpenGraph}){
   const initialPdf=useMemo(()=>(pdfLibrary||[]).find(doc=>doc.id===initialPdfId||doc.id===initialQuery||norm(doc.name)===norm(initialQuery)),[initialPdfId,initialQuery,pdfLibrary]);
   const [scope,setScope]=useState(()=>initialPdf?`pdf:${initialPdf.id}`:(certificate?.id?`cbt:${certificate.id}`:"all"));
   const [messages,setMessages]=useState([{role:"assistant",text:"안녕하세요. MakerOS AI Tutor입니다. 먼저 참고할 자료 범위를 선택하면 서로 다른 PDF와 CBT가 섞이지 않도록 답변해 드릴게요."}]);
@@ -56,13 +41,11 @@ export default function AiTutorPage({certificate,initialQuery="",initialPdfId=""
   const [busy,setBusy]=useState(false);
   const [image,setImage]=useState(null);
   const [imageError,setImageError]=useState("");
-  const [remaining,setRemaining]=useState(()=>readTutorRemaining(userKey));
 
   useEffect(()=>{
     if(initialPdf)setScope(`pdf:${initialPdf.id}`);
   },[initialPdf?.id]);
   useEffect(()=>{if(initialQuery)setInput(initialQuery);},[initialQuery]);
-  useEffect(()=>setRemaining(readTutorRemaining(userKey)),[userKey]);
 
   const selectedPdf=useMemo(()=>scope.startsWith("pdf:")?(pdfLibrary||[]).find(doc=>doc.id===scope.slice(4)):null,[scope,pdfLibrary]);
   const isCbtScope=scope.startsWith("cbt:");
@@ -104,10 +87,6 @@ export default function AiTutorPage({certificate,initialQuery="",initialPdfId=""
     const activeImage=image;
     const question=String(text||"").trim()||(activeImage?"이 이미지를 분석해서 문제 풀이와 핵심 개념을 설명해 주세요.":"");
     if(!question||busy)return;
-    if(remaining<=0){
-      setMessages(m=>[...m,{role:"assistant",text:"오늘 사용할 수 있는 AI 튜터 5회를 모두 사용했습니다. 내일 다시 이용해 주세요.",error:true}]);
-      return;
-    }
     setInput("");setImage(null);setImageError("");setMessages(m=>[...m,{role:"user",text:question,imageUrl:activeImage?.preview}]);setBusy(true);
     try{
       const cbt=isPdfScope?[]:await searchCbt(question).catch(()=>[]);
@@ -121,11 +100,8 @@ export default function AiTutorPage({certificate,initialQuery="",initialPdfId=""
         cbt:(cbt||[]).slice(0,12).map(x=>({exam:x.exam,q:x.q})),
       };
       const result=await postJson("/api/ai-tutor",{question,context,image:activeImage?{label:activeImage.name,mimeType:activeImage.mimeType,data:activeImage.data}:null},"AI 답변 생성에 실패했습니다.");
-      const nextRemaining=Math.max(0,Number(result.remainingDailyRequests??remaining-1));
-      setRemaining(nextRemaining);saveTutorRemaining(userKey,nextRemaining);
       setMessages(m=>[...m,{role:"assistant",text:result.answer,resources:result.resources||[]}]);
     }catch(e){
-      if(e.status===429||e.body?.requiresLogin){setRemaining(0);saveTutorRemaining(userKey,0);}
       setMessages(m=>[...m,{role:"assistant",text:e.message||"답변을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.",error:true}]);
     }finally{setBusy(false);}
   }
@@ -142,12 +118,12 @@ export default function AiTutorPage({certificate,initialQuery="",initialPdfId=""
       </select>{isPdfScope&&selectedPdf&&<button className="secondary" onClick={()=>onOpenGraph(selectedPdf.name)}>개념 트리</button>}</div>
     </section>
 
-    <div className="tutor-layout"><aside className="card tutor-sidebar"><h3>추천 질문</h3>{suggestions.map(s=><button key={s} disabled={busy||remaining<=0} onClick={()=>ask(s)}>{s}</button>)}<div className="tutor-context"><b>현재 참고 범위</b><strong>{scopeLabel}</strong><span>CBT 오답 {scopedWrongNotes.length}개</span><span>PDF {scopedPdfs.length}개</span><span>AI 노트 {scopedNotes.length}개</span><span>개념카드 {scopedCards.length}개</span></div></aside>
+    <div className="tutor-layout"><aside className="card tutor-sidebar"><h3>추천 질문</h3>{suggestions.map(s=><button key={s} disabled={busy} onClick={()=>ask(s)}>{s}</button>)}<div className="tutor-context"><b>현재 참고 범위</b><strong>{scopeLabel}</strong><span>CBT 오답 {scopedWrongNotes.length}개</span><span>PDF {scopedPdfs.length}개</span><span>AI 노트 {scopedNotes.length}개</span><span>개념카드 {scopedCards.length}개</span></div></aside>
       <section className="card tutor-chat"><div className="tutor-messages">{messages.map((m,i)=><article key={i} className={`tutor-message ${m.role} ${m.error?"error":""}`}><div>{m.role==="assistant"?"AI":"나"}</div>{m.imageUrl&&<img className="tutor-message-image" src={m.imageUrl} alt="질문에 첨부한 이미지"/>}<p>{m.text}</p>{m.resources?.length>0&&<section className="tutor-resources">{m.resources.map((r,k)=><button key={k} onClick={()=>r.type==="PDF"?onOpenPdf((pdfLibrary||[]).find(d=>d.id===r.id),r.page||1):r.type==="CBT"&&r.question?onOpenCbt(r.exam,r.question):onOpenGraph(r.label)}><b>{r.type}</b><span>{r.label}</span></button>)}</section>}</article>)}{busy&&<article className="tutor-message assistant"><div>AI</div><p>{scopeLabel}과 첨부 자료를 기준으로 답변을 만들고 있어요…</p></article>}</div><div className="tutor-composer">
         {image&&<div className="tutor-image-preview"><img src={image.preview} alt="첨부 이미지 미리보기"/><span>{image.name}</span><button type="button" aria-label="첨부 이미지 제거" onClick={()=>setImage(null)}>×</button></div>}
         {imageError&&<div className="tutor-image-error" role="alert">{imageError}</div>}
-        <div className="tutor-composer-row"><label className="tutor-image-upload">이미지 첨부<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={selectImage} disabled={busy||remaining<=0}/></label><textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();ask();}}} placeholder={remaining>0?`${scopeLabel}에 대해 질문하거나 문제 이미지를 첨부하세요.`:"오늘의 AI 튜터 5회를 모두 사용했습니다."} disabled={busy||remaining<=0}/><button className="primary" onClick={()=>ask()} disabled={busy||remaining<=0||(!input.trim()&&!image)}>질문하기</button></div>
-        <small className="tutor-usage">오늘 <b>{remaining}</b>/{TUTOR_DAILY_LIMIT}회 남음 · 한국 시간 자정에 초기화</small>
+        <div className="tutor-composer-row"><label className="tutor-image-upload">이미지 첨부<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={selectImage} disabled={busy}/></label><textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();ask();}}} placeholder={`${scopeLabel}에 대해 질문하거나 문제 이미지를 첨부하세요.`} disabled={busy}/><button className="primary" onClick={()=>ask()} disabled={busy||(!input.trim()&&!image)}>질문하기</button></div>
+        <small className="tutor-usage">질문 횟수 제한 없이 사용할 수 있습니다.</small>
       </div></section></div>
   </main>;
 }
