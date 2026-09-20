@@ -372,6 +372,7 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
 
         <article className="question-focus qnet-question-card">
           <div className="question-meta qnet-question-meta">
+            <div className="mobile-question-progress"><strong>{current + 1}번</strong><span>/ {questions.length}</span></div>
             <div className="question-number-badge">문제 {q.questionNumber || current + 1}</div>
             <em>{q.subject}</em>
             <span className={`question-difficulty difficulty-${difficulty.id}`}>난이도 {difficulty.label}</span>
