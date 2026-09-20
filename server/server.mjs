@@ -54,7 +54,7 @@ const neisRequestHeaders = {
   "cache-control": "no-cache",
   pragma: "no-cache",
   referer: "https://open.neis.go.kr/portal/mainPage.do",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.28",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.29",
 };
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
@@ -1128,7 +1128,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.28",
+    version: "3.1.29",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
