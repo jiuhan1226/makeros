@@ -10,7 +10,7 @@ export function readPdfLibrary() { return readJson(PDF_LIBRARY_KEY, []); }
 export function savePdfLibrary(items) { writeJson(PDF_LIBRARY_KEY, items.slice(0, 50)); window.dispatchEvent(new Event("studylock:pdf-library")); }
 export function upsertPdfDocument(doc) {
   const items = readPdfLibrary();
-  const next = [{...doc, updatedAt: Date.now()}, ...items.filter(x => x.id !== doc.id && x.name !== doc.name)].slice(0,50);
+  const next = [{...doc, updatedAt: Date.now()}, ...items.filter(x => x.id !== doc.id)].slice(0,50);
   savePdfLibrary(next); return next;
 }
 export function deletePdfDocument(id) { savePdfLibrary(readPdfLibrary().filter(x => x.id !== id)); }
