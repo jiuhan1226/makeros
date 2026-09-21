@@ -861,7 +861,7 @@ html{overflow-x:hidden;-webkit-text-size-adjust:100%}body{min-width:320px;overfl
 
 /* v3.1.29 — compact, non-clipping mobile CBT */
 @media(max-width:760px){
-  html,body.makeros-exam-mode,body.makeros-exam-mode #root,body.makeros-exam-mode .app{width:100%;height:100dvh;min-height:0;overflow:hidden}
+  body.makeros-exam-mode,body.makeros-exam-mode #root,body.makeros-exam-mode .app{width:100%;height:100dvh;min-height:0;overflow:hidden}
   .exam-page.qnet-exam-layout{display:grid;grid-template-rows:58px minmax(0,1fr);width:100%;height:100dvh;min-height:0;overflow:hidden;padding:0;background:#fff}
   .exam-device-header{position:relative;top:auto;min-width:0;min-height:58px;height:58px;padding:6px 9px;grid-template-columns:38px minmax(0,1fr) auto;gap:6px}
   .exam-device-exit{width:38px;height:38px;font-size:24px}.exam-device-title strong{font-size:15px}.exam-device-title span{margin-top:0;font-size:10px}
@@ -892,4 +892,23 @@ html{overflow-x:hidden;-webkit-text-size-adjust:100%}body{min-width:320px;overfl
   .exam-mini-actions{gap:4px;padding:4px}.exam-mini-actions button,.exam-mini-navigator.size-compact .exam-mini-actions button,.exam-mini-navigator.size-large .exam-mini-actions button{height:34px;font-size:19px}
 }
 @media(max-width:420px){.partner-extra-tasks>summary{padding:12px}.career-radar>div{grid-template-columns:88px minmax(70px,1fr)!important}.career-radar>div>strong{grid-column:1/-1;text-align:right}.partner-capacity-ledger{grid-template-columns:1fr}.partner-capacity-ledger>button{grid-column:auto}.exam-device-status>div{display:none}.qnet-question-card>h2{font-size:18px}.qnet-choice-list>button>span:last-child{font-size:16px}}
+
+/* v3.1.30 — keep normal mobile pages scrollable; lock only the active CBT screen */
+@media(max-width:760px){
+  html{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto}
+  body:not(.makeros-exam-mode),body:not(.makeros-exam-mode) #root,body:not(.makeros-exam-mode) .app{height:auto;min-height:100%;overflow-x:hidden;overflow-y:visible}
+}
+
+/* 시험 화면: 화면 배율을 높여도 본문과 OMR이 서로의 너비를 밀어내지 않도록 합니다. */
+body.makeros-exam-mode #root,body.makeros-exam-mode .app{width:100%;min-width:0}
+.exam-page.qnet-exam-layout,.exam-page.qnet-exam-layout>.exam-main,.exam-page.qnet-exam-layout>.answer-sheet{min-width:0;max-width:100%}
+.exam-page.qnet-exam-layout .exam-scroll-area,.exam-page.qnet-exam-layout .question-focus,.exam-page.qnet-exam-layout .qnet-choice-list{min-width:0;max-width:100%}
+.exam-page.qnet-exam-layout .qnet-question-card>h2,.exam-page.qnet-exam-layout .qnet-choice-list>button>span:last-child{min-width:0;overflow-wrap:anywhere;white-space:normal}
+.exam-page.qnet-exam-layout .question-image,.exam-page.qnet-exam-layout .qnet-choice-list img{max-width:100%;height:auto;object-fit:contain}
+@media(min-width:761px){
+  .exam-page.qnet-exam-layout{grid-template-columns:minmax(0,1fr) clamp(288px,27vw,400px)}
+  .exam-page.qnet-exam-layout .answer-row{grid-template-columns:31px 34px minmax(0,1fr)}
+  .exam-page.qnet-exam-layout .answer-choices{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .exam-page.qnet-exam-layout .exam-scroll-area{overflow-x:auto}
+}
 @media print{@page{size:A4;margin:0}body{background:#fff!important}.portfolio-page>*:not(.official-resume-print),.maker-header,.maker-mobile-bottom-nav,.maker-mobile-drawer,.maker-mobile-menu-backdrop{display:none!important}.official-resume-print{display:block!important}.maker-page.portfolio-page{padding:0!important;margin:0!important;max-width:none!important}.official-sheet{position:relative;width:210mm;height:297mm;box-sizing:border-box;padding:15mm 17mm 18mm;background:#fff;color:#111;break-after:page;font-family:"Pretendard","Noto Sans KR",Arial,sans-serif}.official-sheet:last-child{break-after:auto}.official-sheet h1{text-align:center;font-size:24pt;letter-spacing:.4em;margin:0 0 12mm}.official-sheet h2{font-size:11pt;margin:6mm 0 2mm}.official-sheet table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5pt}.official-sheet th,.official-sheet td{border:1px solid #333;padding:2.4mm 2mm;height:8mm;word-break:break-word}.official-sheet th{background:#f3f3f3}.official-sheet .photo-cell{width:26mm;color:#aaa}.official-declaration{text-align:center;margin-top:10mm;font-size:9pt}.official-sign{text-align:right;line-height:2;margin-top:8mm;font-size:9pt}.official-school{position:absolute;left:0;right:0;bottom:10mm;text-align:center;font-size:12pt}.self-sheet>header{display:grid;grid-template-columns:25mm 1fr 20mm 35mm;border:1px solid #333;margin-bottom:7mm}.self-sheet>header>*{padding:3mm;border-right:1px solid #333}.self-sheet>header>*:last-child{border-right:0}.self-sheet>section{margin-bottom:8mm}.self-sheet>section h2{border:1px solid #333;background:#f3f3f3;margin:0;padding:3mm;text-align:center}.self-sheet>section p{height:86mm;box-sizing:border-box;border:1px solid #333;border-top:0;margin:0;padding:5mm;font-size:10pt;line-height:1.8;white-space:pre-wrap}.self-sheet>section:nth-of-type(2) p{height:82mm}}
