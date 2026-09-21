@@ -706,19 +706,47 @@ export function validatePartnerPlan(plan, state) {
 }
 
 export function planDiff(before, after) {
-  const oldItems = new Map((before?.weeks || []).flatMap((week) => week.items || []).map((item) => [item.goalId + ":" + item.title, item]));
-  const nextItems = new Map((after?.weeks || []).flatMap((week) => week.items || []).map((item) => [item.goalId + ":" + item.title, item]));
+  const flatten = (plan) => (plan?.weeks || []).flatMap((week) => (week.items || []).map((item) => ({
+    ...item,
+    weekStartsAt: week.startsAt,
+  })));
+  const oldItems = flatten(before);
+  const nextItems = flatten(after);
   const added = [], removed = [], changed = [];
-  nextItems.forEach((item, key) => {
-    if (!oldItems.has(key)) added.push(item);
-    else {
-      const previous = oldItems.get(key);
-      if (Number(previous.durationMinutes) !== Number(item.durationMinutes) || String(previous.dueAt || "") !== String(item.dueAt || "")) {
-        changed.push({ before: previous, after: item });
-      }
-    }
+  const unmatchedOld = new Set(oldItems.map((_, index) => index));
+  const unmatchedNext = new Set(nextItems.map((_, index) => index));
+  const compare = (previous, item) => {
+    if (Number(previous.durationMinutes) !== Number(item.durationMinutes)
+      || String(previous.dueAt || "") !== String(item.dueAt || "")
+      || String(previous.weekStartsAt || "") !== String(item.weekStartsAt || "")) changed.push({ before: previous, after: item });
+  };
+  // 반복 학습은 같은 제목으로 여러 주에 걸쳐 등장하므로, 각 회차의 고유 키를 먼저 맞춥니다.
+  const byKey = new Map();
+  oldItems.forEach((item, index) => {
+    if (!item.taskKey) return;
+    const matches = byKey.get(item.taskKey) || [];
+    matches.push(index);
+    byKey.set(item.taskKey, matches);
   });
-  oldItems.forEach((item, key) => { if (!nextItems.has(key)) removed.push(item); });
+  nextItems.forEach((item, index) => {
+    const matches = byKey.get(item.taskKey) || [];
+    const previousIndex = matches.find((candidate) => unmatchedOld.has(candidate));
+    if (previousIndex === undefined) return;
+    unmatchedOld.delete(previousIndex);
+    unmatchedNext.delete(index);
+    compare(oldItems[previousIndex], item);
+  });
+  // 예전 계획에는 taskKey가 없을 수 있습니다. 이동된 회차도 같은 목표/행동 내에서 짝을 찾습니다.
+  const group = (item) => [item.goalId || "", item.action || "", item.title || ""].join("::");
+  for (const index of [...unmatchedNext]) {
+    const previousIndex = [...unmatchedOld].find((candidate) => group(oldItems[candidate]) === group(nextItems[index]));
+    if (previousIndex === undefined) continue;
+    unmatchedOld.delete(previousIndex);
+    unmatchedNext.delete(index);
+    compare(oldItems[previousIndex], nextItems[index]);
+  }
+  unmatchedNext.forEach((index) => added.push(nextItems[index]));
+  unmatchedOld.forEach((index) => removed.push(oldItems[index]));
   return { added, removed, changed, summary: `추가 ${added.length} · 이동/분량 ${changed.length} · 제거 ${removed.length}` };
 }
 
