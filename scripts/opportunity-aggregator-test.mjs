@@ -15,6 +15,10 @@ assert.equal(parsed[0].deadline, "2026-10-04");
 assert.equal(parsed[0].audienceEvidence, "청소년");
 assert.equal(parsed[0].verifiedAnnouncement, true, "모집 중인 실제 공고임이 확인되어야 합니다.");
 assert.ok(parsed[0].verification.includes("상세 페이지"), "검증 근거가 사용자에게 제공되어야 합니다.");
+const overlappingDates = parseOpportunityHtml('<article><a href="/contest/deadline">2026 청소년 로봇 경진대회 참가 모집</a><p>청소년 대상 · 접수 마감 2026.09.30 · 본선 개최 2026.11.03</p></article>', source);
+assert.equal(overlappingDates[0]?.deadline, "2026-09-30", "대회 본선 날짜를 접수 마감일로 표시하면 안 됩니다.");
+const unlabeledDate = parseOpportunityHtml('<article><a href="/contest/event">2026 청소년 로봇 경진대회 참가 모집</a><p>청소년 대상 · 본선 개최 2026.11.03</p></article>', source);
+assert.equal(unlabeledDate.length, 0, "접수 날짜가 없으면 개최일을 마감일로 추정하면 안 됩니다.");
 const deduped = dedupeOpportunities([parsed[0], { ...parsed[0], id: "duplicate", title: "제1회 2026 청소년 로봇 아이디어 공모전" }]);
 assert.equal(deduped.length, 1, "연도·회차 표현이 다른 같은 공고는 중복 제거해야 합니다.");
 
