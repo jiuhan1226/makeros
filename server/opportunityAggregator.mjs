@@ -64,11 +64,26 @@ function dateParts(text = "") {
     const days = Math.ceil((value.getTime() - Date.now()) / 86400000);
     const previous = matches[index - 1];
     const between = previous ? rawText.slice(Number(previous.index || 0) + previous[0].length, Number(match.index || 0)) : "";
-    if (days >= 0) future.push({ value, year, month, day, days, rangeEnd: Boolean(previous && /[~〜–—-]/.test(between)) });
+    const before = rawText.slice(Math.max(0, Number(match.index || 0) - 45), Number(match.index || 0));
+    const after = rawText.slice(Number(match.index || 0) + match[0].length, Number(match.index || 0) + match[0].length + 12);
+    const nearby = `${before} ${after}`;
+    const rangeEnd = Boolean(previous && /^[\s~〜–—-]+$/.test(between));
+    const rangeContext = rangeEnd
+      ? rawText.slice(Math.max(0, Number(previous.index || 0) - 45), Number(previous.index || 0))
+      : "";
+    const applicationLabel = /(?:접수|신청|지원|응모|제출|모집|공모)(?:\s*(?:기간|마감|기한|일정))?\s*[:：]?\s*$/i;
+    const explicitDeadline = /(?:접수|신청|지원|응모|제출|모집)?\s*(?:마감|기한|마감일)\s*[:：]?\s*$/i;
+    const otherEvent = /(?:본선|결선|시상|발표|개최|행사|심사|수상|설명회)\s*[:：]?\s*$/i;
+    const endOfApplications = rangeEnd && applicationLabel.test(rangeContext);
+    const rank = otherEvent.test(before) ? 0
+      : explicitDeadline.test(before) ? 3
+      : endOfApplications ? 2
+      : applicationLabel.test(before) || (/(?:마감|까지)/.test(after) && /(?:접수|신청|지원|응모|제출|모집)/.test(before)) ? 1 : 0;
+    if (days >= 0 && rank) future.push({ value, year, month, day, days, rank });
   }
   if (!future.length) return { deadline: "", dday: "", deadlineValid: false };
-  const rangeEnds = future.filter((item) => item.rangeEnd);
-  const selected = (rangeEnds.length ? rangeEnds.sort((a, b) => a.value - b.value) : future.sort((a, b) => b.value - a.value))[0];
+  // 개최일·발표일이 접수 마감보다 뒤에 있어도 마감일로 대체하지 않습니다.
+  const selected = future.sort((a, b) => b.rank - a.rank || a.value - b.value)[0];
   return {
     deadline: `${selected.year}-${String(selected.month).padStart(2, "0")}-${String(selected.day).padStart(2, "0")}`,
     dday: selected.days === 0 ? "오늘 마감" : `D-${selected.days}`,
@@ -208,7 +223,7 @@ export function dedupeOpportunities(items = []) {
 
 async function fetchText(fetchImpl, url, timeout = 9000) {
   const response = await fetchImpl(url, {
-    headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.29" },
+    headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.30" },
     redirect: "follow",
     signal: AbortSignal.timeout(timeout),
   });
