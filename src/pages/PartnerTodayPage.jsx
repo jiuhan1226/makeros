@@ -12,7 +12,7 @@ function ActionButton({ item, onNavigate, onQuickAction, learningAction }) {
 
 function TodayTask({ item, index, onNavigate, onQuickAction, onOpenPlanItem, learningAction, onToggleItem, onAdjustItem }) {
   return <article className={`partner-task ${item.status === "completed" ? "done" : ""}`}>
-    <button className="partner-check" aria-label="완료 상태 변경" onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
+    <button className="partner-check" aria-label={`${item.title} ${item.status === "completed" ? "완료 취소" : "완료 표시"}`} onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
     <div className="partner-task-content"><button type="button" className="partner-task-open" onClick={() => onOpenPlanItem?.(item.goalId)}><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "일정"}</small></button>{item.reason && <details className="partner-task-reason"><summary>왜 이 일부터?</summary><p>{item.reason}</p></details>}</div>
     <div className="partner-task-actions">
       <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction} learningAction={learningAction}/>
@@ -44,7 +44,7 @@ export default function PartnerTodayPage({ state, activeSession = null, onResume
   const goals = [
     ...normalized.goals.map((item) => ({ id: item.id, title: item.title, date: item.deadline })),
     ...normalized.certificateGoals.map((item) => ({ id: item.id, title: `${item.name} 시험`, date: item.examDate })),
-  ].filter((item) => item?.date).sort((a,b) => String(a.date).localeCompare(String(b.date))).slice(0,3);
+  ].filter((item) => item?.date && daysUntil(item.date) >= 0).sort((a,b) => String(a.date).localeCompare(String(b.date))).slice(0,3);
   const lastDiagnostic = normalized.certificateGoals
     .map((item) => item.lastDiagnostic ? { ...item.lastDiagnostic, certificateName: item.name } : null)
     .filter(Boolean)
