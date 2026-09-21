@@ -49,6 +49,16 @@ export function buildExamCheckpoint(payload = {}) {
   return { version: 3, ...payload, checkpointKey, savedAt: Number(payload.savedAt || Date.now()) };
 }
 
+export function remainingForCheckpoint(checkpoint = {}, now = Date.now()) {
+  const savedRemaining = Math.max(0, Number(checkpoint.remaining || 0));
+  if (checkpoint.mode !== "실전모드" || checkpoint.submitted) return savedRemaining;
+  const deadlineAt = Number(checkpoint.deadlineAt || 0);
+  if (deadlineAt > 0) return Math.max(0, Math.ceil((deadlineAt - now) / 1000));
+  // 이전 버전에서 저장된 실전모드에는 종료 시각이 없으므로 저장 시각으로 보정합니다.
+  const savedAt = Number(checkpoint.savedAt || now);
+  return Math.max(0, savedRemaining - Math.max(0, Math.floor((now - savedAt) / 1000)));
+}
+
 export function examCheckpointMeta(payload = {}) {
   return {
     version: 3,
@@ -119,10 +129,7 @@ export async function readExamCheckpoint({ key = "", storage = globalThis.localS
   const checkpoint = buildExamCheckpoint(saved || {});
   if (!checkpoint) return null;
   saveMeta(storage, checkpoint, true);
-  const elapsed = checkpoint.mode === "실전모드" && !checkpoint.submitted
-    ? Math.max(0, Math.floor((Date.now() - checkpoint.savedAt) / 1000))
-    : 0;
-  return { ...checkpoint, remaining: Math.max(0, Number(checkpoint.remaining || 0) - elapsed) };
+  return { ...checkpoint, remaining: remainingForCheckpoint(checkpoint) };
 }
 
 export async function clearExamCheckpoint({ key = "", all = false, storage = globalThis.localStorage, indexedDb = globalThis.indexedDB } = {}) {
