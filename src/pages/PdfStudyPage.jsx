@@ -25,7 +25,11 @@ async function extractPdfPages(file, onProgress) {
 function assetsForDocument(document) {
   if (!document) return { notes: [], cards: [] };
   const saved = readStudyAssets();
-  const matches = (item) => item.pdfId === document.id || normalizedName(item.sourceName) === normalizedName(document.name);
+  // 파일명은 중복될 수 있습니다. ID가 없는 이전 기록에만 파일명 호환 조회를 적용합니다.
+  const uniqueName = readPdfLibrary().filter((item) => normalizedName(item.name) === normalizedName(document.name)).length === 1;
+  const matches = (item) => item.pdfId
+    ? item.pdfId === document.id
+    : uniqueName && normalizedName(item.sourceName) === normalizedName(document.name);
   return {
     notes: (saved.notes || []).filter(matches),
     cards: (saved.cards || []).filter(matches),
@@ -50,6 +54,8 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
     () => doc?.pages?.filter((page) => page.page >= startPage && page.page <= endPage) || [],
     [doc, startPage, endPage],
   );
+  const readableLength = selectedPages.reduce((total, page) => total + String(page.text || "").trim().length, 0);
+  const readablePages = selectedPages.filter((page) => String(page.text || "").trim().length > 0).length;
   const sourceName = doc?.name || "PDF 학습 자료";
 
   async function handleFile(event) {
@@ -74,7 +80,9 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
       setAssets(assetsForDocument(next));
       setStartPage(1);
       setEndPage(pages.length);
-      setStatus(`${pages.length}쪽 전체 분석 완료`);
+      setStatus(pages.some((page) => String(page.text || "").trim())
+        ? `${pages.length}쪽을 읽었습니다. 텍스트가 없는 페이지는 학습 생성에 포함되지 않습니다.`
+        : "이 PDF에서 글자를 읽지 못했습니다. 이미지로 스캔된 PDF는 현재 OCR을 지원하지 않습니다. 글자를 선택할 수 있는 PDF를 올려 주세요.");
     } catch (error) {
       setStatus(error.message || "PDF 분석에 실패했습니다.");
     } finally {
@@ -93,7 +101,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
   }
 
   async function generateQuiz() {
-    if (!selectedPages.length) return;
+    if (readableLength < 200) { setStatus("선택한 페이지에서 읽을 수 있는 글자가 부족합니다. 텍스트 PDF를 선택하거나 범위를 넓혀 주세요."); return; }
     setBusy(true);
     setStatus("선택한 PDF 범위를 바탕으로 이해도 확인 퀴즈를 만들고 있습니다…");
     try {
@@ -111,7 +119,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
   }
 
   async function generateSet() {
-    if (!selectedPages.length) return;
+    if (readableLength < 200) { setStatus("선택한 페이지에서 읽을 수 있는 글자가 부족합니다. 텍스트 PDF를 선택하거나 범위를 넓혀 주세요."); return; }
     setBusy(true);
     setProgress(0);
     setStatus("전체 범위를 여러 구간으로 나누어 자세한 학습 자료를 만들고 있습니다…");
@@ -126,7 +134,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
         },
       });
       const saved = readStudyAssets();
-      const sameDocument = (item) => item.pdfId === doc?.id || normalizedName(item.sourceName) === normalizedName(sourceName);
+      const sameDocument = (item) => item.pdfId ? item.pdfId === doc?.id : (readPdfLibrary().filter((pdf) => normalizedName(pdf.name) === normalizedName(sourceName)).length === 1 && normalizedName(item.sourceName) === normalizedName(sourceName));
       const next = {
         notes: [...created.notes, ...(saved.notes || []).filter((item) => !sameDocument(item))],
         cards: [...created.cards, ...(saved.cards || []).filter((item) => !sameDocument(item))],
@@ -153,7 +161,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
 
   function persistDocumentAssets(nextDocumentAssets) {
     const saved = readStudyAssets();
-    const sameDocument = (item) => item.pdfId === doc?.id || normalizedName(item.sourceName) === normalizedName(sourceName);
+    const sameDocument = (item) => item.pdfId ? item.pdfId === doc?.id : (readPdfLibrary().filter((pdf) => normalizedName(pdf.name) === normalizedName(sourceName)).length === 1 && normalizedName(item.sourceName) === normalizedName(sourceName));
     const next = {
       notes: [...nextDocumentAssets.notes, ...(saved.notes || []).filter((item) => !sameDocument(item))],
       cards: [...nextDocumentAssets.cards, ...(saved.cards || []).filter((item) => !sameDocument(item))],
@@ -224,7 +232,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
             {progress > 0 && progress < 100 && <div className="progress-track"><div className="progress-bar" style={{ width: `${progress}%` }} /></div>}
           </section> : <div className="pdf-native-grid">
             <section className="panel pdf-source-card">
-              <div className="pdf-source-head"><div className="pdf-file-icon">PDF</div><div><h2>{doc.name}</h2><p>{doc.pageCount || doc.pages?.length}쪽 · 학습 준비 완료</p></div></div>
+              <div className="pdf-source-head"><div className="pdf-file-icon">PDF</div><div><h2>{doc.name}</h2><p>{doc.pageCount || doc.pages?.length}쪽 · 텍스트 인식 {readablePages}쪽</p></div></div>
               <div className="pdf-text-preview">{selectedPages.map((page) => <details key={page.page} open={selectedPages.length <= 3}><summary>{page.page}쪽</summary><p>{page.text || "추출된 텍스트가 없습니다."}</p></details>)}</div>
             </section>
             <section className="panel pdf-config-card">
@@ -236,7 +244,8 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
                 <label>퀴즈 난이도<select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}><option>쉬움</option><option>보통</option><option>어려움</option><option>최상</option></select></label>
               </div>
               <div className="pdf-range-summary"><span>선택 범위</span><strong>{startPage}~{endPage}쪽 · {selectedPages.length}페이지</strong></div>
-              <div className="pdf-primary-actions"><button className="primary" disabled={busy} onClick={generateQuiz}>이해도 확인 퀴즈</button><button className="secondary" disabled={busy} onClick={generateSet}>상세 학습 자료 생성</button></div>
+              {readableLength < 200 && <p className="maker-error" role="status">{readablePages === 0 ? "선택 범위에 추출 가능한 글자가 없습니다. 스캔 PDF의 OCR은 지원하지 않습니다." : "글자가 부족합니다. 선택 범위를 넓히거나 텍스트 PDF를 사용해 주세요."}</p>}
+              <div className="pdf-primary-actions"><button className="primary" disabled={busy || readableLength < 200} onClick={generateQuiz}>이해도 확인 퀴즈</button><button className="secondary" disabled={busy || readableLength < 200} onClick={generateSet}>상세 학습 자료 생성</button></div>
               {progress > 0 && progress < 100 && <div className="progress-track"><div className="progress-bar" style={{ width: `${progress}%` }} /></div>}
               <p className="status">{status}</p>
             </section>
@@ -244,7 +253,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
         </>}
 
         {tab === "summary" && <section className="panel pdf-feature-panel">
-          <div className="section-title"><div><span className="eyebrow">DETAILED AI NOTES</span><h2>전체 범위 상세 노트</h2><p>전체 범위를 구간별로 정리해 핵심 개념과 세부 내용을 함께 보여드려요.</p></div><button className="primary" onClick={generateQuiz}>이 범위로 퀴즈 풀기</button></div>
+          <div className="section-title"><div><span className="eyebrow">DETAILED AI NOTES</span><h2>전체 범위 상세 노트</h2><p>전체 범위를 구간별로 정리해 핵심 개념과 세부 내용을 함께 보여드려요.</p></div><button className="primary" disabled={busy || readableLength < 200} onClick={generateQuiz}>이 범위로 퀴즈 풀기</button></div>
           <div className="pdf-note-outline">{assets.notes.map((note, index) => <a key={note.id} href={`#pdf-note-${index}`}>{sourcePageLabel(note) ? `${sourcePageLabel(note)} · ` : ""}{note.title}</a>)}</div>
           <div className="note-grid pdf-detailed-note-grid">{assets.notes.map((note, index) => <article className="ai-note-card" id={`pdf-note-${index}`} key={note.id}><span className="result-type">근거 · {sourcePageLabel(note) || "PDF"}</span><h3>{note.title}</h3><p>{note.summary}</p>{note.details && <p className="pdf-note-details">{note.details}</p>}<ul>{(note.keyPoints || []).map((point, pointIndex) => <li key={pointIndex}>{point}</li>)}</ul><div className="asset-card-actions"><button className="text-button" onClick={() => startAssetEdit("notes", note)}>수정</button><button className="text-button danger-text" onClick={() => deleteDocumentAsset("notes", note.id)}>삭제</button></div></article>)}</div>
         </section>}
