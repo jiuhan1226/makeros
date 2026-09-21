@@ -106,6 +106,7 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
 
   useEffect(() => {
     document.body.classList.add("makeros-exam-mode");
+    window.scrollTo(0, 0);
     return () => document.body.classList.remove("makeros-exam-mode");
   }, []);
 
