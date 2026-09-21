@@ -165,7 +165,7 @@ export default function PartnerGoalsPage({ value, onChange, onGeneratePlan, busy
           })}
         </div>
         <div className="partner-fixed-schedule-editor">
-          <div><strong>고정 일정 차감</strong><small>수업·학원처럼 공부할 수 없는 시간은 자동으로 빼고 배치합니다.</small></div>
+          <div><strong>고정 일정 차감</strong><small>입력한 고정 일정의 길이를 해당 요일의 공부 가능 분량에서 차감합니다.</small></div>
           <div className="partner-fixed-schedule-form">
             <input value={fixedDraft.title} onChange={(event) => setFixedDraft({ ...fixedDraft, title: event.target.value })} placeholder="예: 방과후 수업" />
             <select aria-label="고정 일정 요일" value={fixedDraft.dayKey} onChange={(event) => setFixedDraft({ ...fixedDraft, dayKey: event.target.value })}>{dayOptions.map(([key, label]) => <option key={key} value={key}>{label}요일</option>)}</select>
