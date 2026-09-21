@@ -174,6 +174,8 @@ function App() {
   const [certificate, setCertificate] = useState(null);
   const [exams, setExams] = useState([]);
   const [selectedExam, setSelectedExam] = useState(null);
+  const [examStartBusy, setExamStartBusy] = useState(false);
+  const [examStartError, setExamStartError] = useState("");
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
   const [showTutorial, setShowTutorial] = useState(shouldShowTutorial);
@@ -206,6 +208,11 @@ function App() {
   const [opportunityBookmarks, setOpportunityBookmarks] = useState(makerInitial.opportunityBookmarks || []);
   const [partnerState, setPartnerState] = useState(() => readPartnerLocal());
   const [workspaceSyncStatus, setWorkspaceSyncStatus] = useState("device");
+  const [learningSyncStatus, setLearningSyncStatus] = useState("device");
+  const syncStatus = !user ? "device"
+    : [workspaceSyncStatus, learningSyncStatus].includes("error") ? "error"
+    : [workspaceSyncStatus, learningSyncStatus].includes("loading") ? "loading"
+    : workspaceSyncStatus === "synced" && learningSyncStatus === "synced" ? "synced" : "saving";
   const [partnerBusy, setPartnerBusy] = useState(false);
   const [partnerLearningAction, setPartnerLearningAction] = useState({ itemId: "", status: "idle", message: "" });
   const [planFocusGoalId, setPlanFocusGoalId] = useState("");
@@ -292,14 +299,15 @@ function App() {
     };
   }, []);
   useEffect(() => {
-    if (!user) { setCloudLoadedForUid(""); setCloudReady(true); setWorkspaceSyncStatus("device"); return; }
+    if (!user) { setCloudLoadedForUid(""); setCloudReady(true); setWorkspaceSyncStatus("device"); setLearningSyncStatus("device"); return; }
     setCloudLoadedForUid("");
     setCloudReady(false);
     setWorkspaceSyncStatus("loading");
+    setLearningSyncStatus("loading");
     Promise.all([
       loadCloudState(user.uid),
-      listUserAttemptEvents(user.uid).catch(() => []),
-      loadCloudWorkspace(user.uid).catch(() => null),
+      listUserAttemptEvents(user.uid),
+      loadCloudWorkspace(user.uid),
     ])
       .then(([data, cloudAttempts, workspace]) => {
         if (data) {
@@ -333,8 +341,14 @@ function App() {
         setCloudLoadedForUid(user.uid);
         setCloudReady(true);
         setWorkspaceSyncStatus("synced");
+        setLearningSyncStatus("synced");
       })
-      .catch(() => { setCloudLoadedForUid(user.uid); setCloudReady(true); setWorkspaceSyncStatus("error"); });
+      .catch((error) => {
+        // 다운로드가 실패했을 때 빈 로컬 상태를 새 계정 데이터로 덮어쓰지 않습니다.
+        console.warn("계정 데이터를 불러오지 못했습니다. 저장을 중단합니다.", error);
+        setCloudLoadedForUid(""); setCloudReady(false);
+        setWorkspaceSyncStatus("error"); setLearningSyncStatus("error");
+      });
   }, [user]);
   useEffect(() => {
     if (!activeCertificateId || !certificates.length) return;
@@ -356,33 +370,43 @@ function App() {
       pdfQuizWrongNotes,
       activeCertificateId: certificate?.id || activeCertificateId,
     };
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(state));
+    let localSaved = true;
+    try { localStorage.setItem(LOCAL_KEY, JSON.stringify(state)); }
+    catch (error) { localSaved = false; setLearningSyncStatus("error"); console.warn("이 기기에 학습 상태를 저장하지 못했습니다.", error); }
     if (user && cloudReady && cloudLoadedForUid === user.uid) {
+      if (localSaved) setLearningSyncStatus("saving");
       const cloudState = { history, practiceHistory, wrongNotes, learningProgress, studyEvents, plan, questionBookmarks, pdfQuizHistory, pdfQuizWrongNotes, activeCertificateId: certificate?.id || activeCertificateId, partnerState };
-      const id = setTimeout(() => saveCloudState(user.uid, cloudState).catch(console.error), 500);
-      return () => clearTimeout(id);
+      let active = true;
+      const id = setTimeout(() => saveCloudState(user.uid, cloudState)
+        .then(() => { if (active && localSaved) setLearningSyncStatus("synced"); })
+        .catch((error) => { if (active) setLearningSyncStatus("error"); console.error("학습 상태 계정 저장 실패", error); }), 500);
+      return () => { active = false; clearTimeout(id); };
     }
     return undefined;
   }, [history, practiceHistory, wrongNotes, learningProgress, studyEvents, attemptEvents, plan, questionBookmarks, pdfQuizHistory, pdfQuizWrongNotes, activeCertificateId, certificate?.id, partnerState, user, cloudReady, cloudLoadedForUid]);
   useEffect(() => {
     const makerState = { inventorProjects, buildProjects, portfolioItems, awards, certifications, resumeProfile, careerProfile, opportunityBookmarks };
-    saveMakerState(makerState);
+    let localSaved = true;
+    try { saveMakerState(makerState); }
+    catch (error) { localSaved = false; setWorkspaceSyncStatus("error"); console.warn("이 기기에 작업공간을 저장하지 못했습니다.", error); }
     if (user && cloudReady && cloudLoadedForUid === user.uid) {
-      setWorkspaceSyncStatus("saving");
+      if (localSaved) setWorkspaceSyncStatus("saving");
+      let active = true;
       const id = setTimeout(() => {
         Promise.all([
           saveCloudWorkspace(user.uid, { makerState, studyAssets: assets }),
           saveCloudPdfLibrary(user.uid, pdfLibrary),
         ])
-          .then(() => setWorkspaceSyncStatus("synced"))
-          .catch(() => setWorkspaceSyncStatus("error"));
+          .then(() => { if (active && localSaved) setWorkspaceSyncStatus("synced"); })
+          .catch((error) => { if (active) setWorkspaceSyncStatus("error"); console.warn("작업공간 계정 저장 실패", error); });
       }, 900);
-      return () => clearTimeout(id);
+      return () => { active = false; clearTimeout(id); };
     }
     return undefined;
   }, [inventorProjects, buildProjects, portfolioItems, awards, certifications, resumeProfile, careerProfile, opportunityBookmarks, assets, pdfLibrary, user, cloudReady, cloudLoadedForUid]);
   useEffect(() => {
-    localStorage.setItem(PARTNER_KEY, JSON.stringify(partnerState));
+    try { localStorage.setItem(PARTNER_KEY, JSON.stringify(partnerState)); }
+    catch (error) { setLearningSyncStatus("error"); console.warn("이 기기에 계획을 저장하지 못했습니다.", error); }
   }, [partnerState]);
 
   const active = useMemo(
@@ -462,16 +486,25 @@ function App() {
   }
 
   async function startExam(mode) {
-    const questions = await getExamQuestions(selectedExam.id);
-    const practice = mode === "연습모드";
-    const started = session.start({
-      ...selectedExam,
-      assessmentType: practice ? "practice" : "exam",
-      studyScope: practice ? "exam-practice" : "exam",
-      learningType: practice ? "examPractice" : "exam",
-      returnPage: "past",
-    }, questions, mode);
-    if (started !== false) setPage("exam");
+    if (examStartBusy) return;
+    setExamStartBusy(true);
+    setExamStartError("");
+    try {
+      if (!selectedExam?.id) throw new Error("선택한 시험을 찾을 수 없습니다. 기출 목록에서 다시 선택해 주세요.");
+      const questions = await getExamQuestions(selectedExam.id);
+      if (!Array.isArray(questions) || !questions.length) throw new Error("이 회차에는 불러올 수 있는 문제가 없습니다. 다른 회차를 선택하거나 잠시 후 다시 시도해 주세요.");
+      const practice = mode === "연습모드";
+      const started = session.start({
+        ...selectedExam,
+        assessmentType: practice ? "practice" : "exam",
+        studyScope: practice ? "exam-practice" : "exam",
+        learningType: practice ? "examPractice" : "exam",
+        returnPage: "past",
+      }, questions, mode);
+      if (started !== false) setPage("exam");
+    } catch (error) {
+      setExamStartError(error?.message || "문제를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally { setExamStartBusy(false); }
   }
 
   function enrichLearningPayload(payload) {
@@ -1333,7 +1366,7 @@ function App() {
 
   return (
     <div className="app">
-      <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} certificateShortcuts={certificateShortcuts} onOpenCertificateGoal={openPartnerCertificateGoal} onStartCertificateGoal={startPartnerCertificateGoal} user={user} onLogin={() => setShowAuth(true)} onTutorial={() => setShowTutorial(true)} isAdmin={isAdminUser(user)} syncStatus={workspaceSyncStatus} />
+      <AppHeader active={active} onNavigate={navigate} certificateName={certificate?.name} certificateShortcuts={certificateShortcuts} onOpenCertificateGoal={openPartnerCertificateGoal} onStartCertificateGoal={startPartnerCertificateGoal} user={user} onLogin={() => setShowAuth(true)} onTutorial={() => setShowTutorial(true)} isAdmin={isAdminUser(user)} syncStatus={syncStatus} />
       <PageErrorBoundary key={page}><Suspense fallback={<main className="loading-page"><div className="empty-state">화면을 불러오고 있습니다…</div></main>}>
       {page === "partnerToday" && <PartnerTodayPage state={partnerState} activeSession={certificateActiveSession} onResumeSession={() => setPage("exam")} onNavigate={navigate} onQuickAction={navigatePartnerAction} onOpenPlanItem={openPartnerPlan} learningAction={partnerLearningAction} onToggleItem={changeTodayPartnerItem} onAdjustItem={adjustTodayPartnerItem} onToggleDayOff={toggleTodayDayOff} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} busy={partnerBusy} />}
       {page === "partnerPlan" && <PartnerPlanPage state={partnerState} focusGoalId={planFocusGoalId} onGeneratePlan={() => getActivePartnerPlan(partnerState) ? generatePartnerPlan({ type: "profile_updated", label: "최신 학생 정보로 계획을 다시 계산했습니다." }) : setPage("partnerGoals")} onConfirmPending={confirmPartnerPlan} onDiscardPending={discardPendingPartnerPlan} onRollback={rollbackPartnerVersion} busy={partnerBusy} />}
@@ -1341,7 +1374,7 @@ function App() {
       {page === "timetable" && <TimetablePage state={partnerState} onChange={setPartnerState} onNavigate={navigate} />}
       {page === "meals" && <MealPage state={partnerState} onNavigate={navigate} />}
       {page === "partnerGoals" && <PartnerGoalsPage value={partnerState} onChange={setPartnerState} onGeneratePlan={() => generatePartnerPlan({ type: "profile_updated", label: "학생 정보가 변경되어 가능한 시간에 맞춘 계획을 적용했습니다." }, { destination: "partnerToday" })} busy={partnerBusy} />}
-      {page === "data" && <DataManagementPage user={user} syncStatus={workspaceSyncStatus} counts={{ exams: history.length + practiceHistory.length, wrongNotes: wrongNotes.length, bookmarks: questionBookmarks.length, pdfs: pdfLibrary.length, plans: normalizePartnerState(partnerState).planVersions.length, drafts: session.drafts.length }} onExport={exportMyData} onResetLearning={() => resetLearningData("")} onResetPlan={resetPartnerPlan} onDeleteAccount={deleteAccountAndData} />}
+      {page === "data" && <DataManagementPage user={user} syncStatus={syncStatus} counts={{ exams: history.length + practiceHistory.length, wrongNotes: wrongNotes.length, bookmarks: questionBookmarks.length, pdfs: pdfLibrary.length, plans: normalizePartnerState(partnerState).planVersions.length, drafts: session.drafts.length }} onExport={exportMyData} onResetLearning={() => resetLearningData("")} onResetPlan={resetPartnerPlan} onDeleteAccount={deleteAccountAndData} />}
       {page === "makerHome" && <MakerHomePage onNavigate={navigate} history={history} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} inventorProjects={inventorProjects} buildProjects={buildProjects} />}
       {page === "invent" && <InventPage projects={inventorProjects} onChangeProjects={setInventorProjects} onCreateBuildProject={createBuildProject} />}
       {page === "projects" && <ProjectsPage projects={buildProjects} inventorProjects={inventorProjects} onChangeProjects={setBuildProjects} onOpenInvent={() => setPage("invent")} />}
@@ -1361,7 +1394,7 @@ function App() {
       {page === "past" && <PastExamsPage exams={exams} loadQuestions={getExamQuestions} resumeSessions={certificateDraftSessions} onResume={resumeExamDraft} onOpen={openExam} onNavigate={navigate} />}
       {page === "subject" && <SubjectStudyPage certificate={certificate} exams={exams} history={certificatePracticeHistory.filter((item) => item.studyScope === "subject")} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "subject", learningType: "subjectPractice", returnPage: "subject" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
       {page === "all" && <AllQuestionsPage certificate={certificate} exams={exams} loadQuestions={getExamQuestions} resumeSession={session.resumable && session.exam?.studyScope === "all" && (!certificate?.id || session.exam?.certificateId === certificate.id) ? { title: session.exam?.title || "전체 문제 학습", current: session.current, total: session.questions.length, answered: Object.keys(session.answers).length } : null} onResume={() => setPage("exam")} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "all", learningType: "allPractice", returnPage: "all" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
-      {page === "mode" && <ModeSelectPage exam={selectedExam} onStart={startExam} onBack={() => setPage("past")} />}
+      {page === "mode" && <ModeSelectPage exam={selectedExam} onStart={startExam} onBack={() => setPage("past")} busy={examStartBusy} error={examStartError} />}
       {page === "exam" && (session.restoring ? <main className="loading-page"><div className="empty-state">저장된 학습 진행 상태를 불러오고 있습니다…</div></main> : <ExamPage session={session} onExit={finishExam} onSaveConfidence={saveConfidenceRecord} onBookmarkChange={updateSavedBookmark} isQuestionBookmarked={(question) => savedBookmarkKeys.has(questionContentKey(question))} getDifficulty={getDifficulty} onOpenPdfSource={(pdfId, pageNumber) => { const document = pdfLibrary.find((item) => item.id === pdfId); if (document) openPdf(document, pageNumber); }} />)}
       {page === "mock" && <MockExamPage exams={exams} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "exam", studyScope: "mock", learningType: "mock", returnPage: "mock", certificateId: certificate?.id || "", certificateName: certificate?.name || "" }, questions, "실전모드"); setPage("exam"); }} />}
       {page === "bookmark" && <BookmarkPage wrongNotes={certificateWrongNotes} certificateName={certificate?.name} history={certificateHistory} onStartRecommended={startRecommended} onStartWrongReview={startWrongReview} repeatedWrong={repeatedWrong} dueReviews={dueReviews} onStartDueReview={startDueReview} />}
@@ -1372,7 +1405,7 @@ function App() {
       </Suspense></PageErrorBoundary>
       {showAuth && <AuthModal user={user} onClose={() => setShowAuth(false)} />}
       <TutorialModal open={showTutorial} onClose={() => setShowTutorial(false)}/>
-      <div className="sync-indicator">{assetBusy ? "AI 자료 생성 중…" : user ? (cloudReady ? "클라우드 동기화" : "동기화 중…") : "이 기기에 자동 저장"}</div>
+      <div className="sync-indicator">{assetBusy ? "AI 자료 생성 중…" : syncStatus === "error" ? "저장 상태를 확인해 주세요" : syncStatus === "synced" ? "계정에 저장됨" : user ? "동기화 중…" : "이 기기에 자동 저장"}</div>
     </div>
   );
 }
