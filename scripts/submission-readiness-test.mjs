@@ -6,14 +6,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const requiredFiles = [
   "LICENSE",
   "README.md",
-  "README_V3.1_AI_PARTNER.md",
-  "COMPETITION_SUBMISSION_CHECKLIST.md",
-  "PITCH_3MIN_SCRIPT.md",
-  "AI_USAGE_DISCLOSURE.md",
-  "ETHICS_SAFETY.md",
-  "IMPACT_EVALUATION_PLAN.md",
-  "COACHING_EXECUTION_LOG.md",
-  "JUDGE_ACCOUNT_SETUP.md",
+  "render.yaml",
+  ".env.example",
   "scripts/seed-demo-account.mjs",
 ];
 
@@ -22,10 +16,9 @@ for (const file of requiredFiles) {
   if (!fs.existsSync(target)) throw new Error(`제출 필수 파일 누락: ${file}`);
 }
 
-// 기존 README는 보존하고, v3.1 제품 정의는 별도 README에서 검증한다.
-const partnerReadme = fs.readFileSync(path.join(root, "README_V3.1_AI_PARTNER.md"), "utf8");
-for (const section of ["v3.1 핵심 화면", "계획 안전 구조", "데이터", "AI가 바꾸지 않는 값"]) {
-  if (!partnerReadme.includes(section)) throw new Error(`v3.1 README 필수 섹션 누락: ${section}`);
+const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+for (const section of ["로컬 실행", "테스트", "배포", "데이터 안내"]) {
+  if (!readme.includes(section)) throw new Error(`README 필수 섹션 누락: ${section}`);
 }
 
 const env = fs.readFileSync(path.join(root, ".env.example"), "utf8");
