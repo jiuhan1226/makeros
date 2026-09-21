@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useState} from "react";
 import { postJson } from "../utils/api";
+import { readPdfLibrary } from "../utils/studyPlatform";
 
 const PARTICLES=["으로부터","에게서","에서는","으로는","이라는","이라고","까지도","으로","에서","에게","보다","처럼","만큼","부터","까지","이나","라도","이며","하고","와의","과의","들의","에는","에도","만의","만을","만이","은","는","이","가","을","를","의","에","로","과","와","도","만"];
 const STOP=new Set(`무엇 대한 설명 가장 다음 옳은 것은 아닌 경우 문제 정답 보기 해당 관련 이용 사용 방법 종류 특징 의미 공통 학습 자료 페이지 PDF pdf 파일 내용 기준 정보 기능 구성 설계 업무 있다 없다 한다 된다 이다 그리고 또는 또한 위한 통한 대해 에서 으로 로서 경우 것이다 의해 관한 각각 매우 일반 주로 필요 가능 제공 적용 포함 활용 인간 기술 시스템 회로 특허 하는 만든 만들기 유형 시대 개요 세부 판단 직접 직업 교육과정 모듈 능력단위 학습모듈 교수학습 평가 출처 인용 참고문헌 저작권 copyright isbn doi 표 그림 페이지 쪽 장 절`.split(/\s+/));
@@ -11,7 +12,8 @@ function norm(v=""){return stripPdfExtension(v).toLowerCase().replace(/[^가-힣
 function belongsToPdf(item,doc){
   if(!item||!doc)return false;
   if(item.pdfId)return item.pdfId===doc.id;
-  return norm(item.sourceName)===norm(doc.name);
+  return norm(item.sourceName)===norm(doc.name)
+    && readPdfLibrary().filter((pdf)=>norm(pdf.name)===norm(doc.name)).length===1;
 }
 function cleanTerm(raw=""){
   let s=String(raw).replace(/\[[^\]]*\]|\([^)]*(출처|참고|인용|쪽|페이지)[^)]*\)/gi,"").replace(/https?:\/\/\S+|\S+@\S+|\b(?:isbn|doi|kci)\b[^\s]*/gi,"").trim();
