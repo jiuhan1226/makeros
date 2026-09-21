@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useState} from "react";
 import { postJson } from "../utils/api";
+import { readPdfLibrary } from "../utils/studyPlatform";
 function readImageFile(file){
   return new Promise((resolve,reject)=>{
     const reader=new FileReader();
@@ -17,7 +18,8 @@ function norm(value=""){return stripPdf(value).toLowerCase().replace(/[^가-힣a
 function belongsToPdf(item,doc){
   if(!item||!doc)return false;
   if(item.pdfId)return item.pdfId===doc.id;
-  return norm(item.sourceName)===norm(doc.name);
+  return norm(item.sourceName)===norm(doc.name)
+    && readPdfLibrary().filter((pdf)=>norm(pdf.name)===norm(doc.name)).length===1;
 }
 
 function selectPdfPages(doc,question=""){
