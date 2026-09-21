@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildExamCheckpoint, examCheckpointKey, examCheckpointMeta } from '../src/utils/examCheckpoint.js';
+import { buildExamCheckpoint, examCheckpointKey, examCheckpointMeta, remainingForCheckpoint } from '../src/utils/examCheckpoint.js';
 
 const questions = Array.from({ length: 1200 }, (_, index) => ({ id: `q-${index}`, question: `문제 ${index}` }));
 const checkpoint = buildExamCheckpoint({ exam: { title: '전체 문제', studyScope: 'all' }, questions, answers: { 0: 1, 18: 2 }, current: 18, savedAt: 1234 });
@@ -11,6 +11,9 @@ assert.equal(meta.answered, 2);
 assert.equal(Object.hasOwn(meta, 'questions'), false, 'localStorage 메타 정보에는 전체 문제 배열을 저장하면 안 됩니다.');
 assert.ok(JSON.stringify(meta).length < 1000, 'localStorage 메타 정보는 작게 유지해야 합니다.');
 assert.equal(checkpoint.checkpointKey, examCheckpointKey(checkpoint.exam), '시험별로 독립된 이어풀기 키를 사용해야 합니다.');
+assert.equal(remainingForCheckpoint({ mode: '실전모드', remaining: 120, deadlineAt: 20_000 }, 15_000), 5, '실전모드는 실제 종료 시각을 기준으로 복원해야 합니다.');
+assert.equal(remainingForCheckpoint({ mode: '실전모드', remaining: 120, deadlineAt: 20_000 }, 22_000), 0, '화면을 오래 닫아 두어도 시간이 늘어나면 안 됩니다.');
+assert.equal(remainingForCheckpoint({ mode: '실전모드', remaining: 120, savedAt: 1_000 }, 11_000), 110, '이전 버전의 저장 기록도 경과 시간을 반영해야 합니다.');
 const main = fs.readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const home = fs.readFileSync(new URL('../src/pages/CertificateHomePage.jsx', import.meta.url), 'utf8');
 const past = fs.readFileSync(new URL('../src/pages/PastExamsPage.jsx', import.meta.url), 'utf8');
