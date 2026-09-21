@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { gradeExam } from "../utils/exam.js";
-import { clearExamCheckpoint, examCheckpointKey, listExamCheckpointMeta, readExamCheckpoint, readExamCheckpointMeta, writeExamCheckpoint } from "../utils/examCheckpoint.js";
+import { clearExamCheckpoint, examCheckpointKey, listExamCheckpointMeta, readExamCheckpoint, readExamCheckpointMeta, remainingForCheckpoint, writeExamCheckpoint } from "../utils/examCheckpoint.js";
 
 const EXAM_SESSION_KEY = "makeros:active-exam-session:v1";
 const loadCloudDraftApi = () => import("../firebase.js");
@@ -9,12 +9,9 @@ export function readSavedExamSession(storage = globalThis.localStorage) {
   try {
     const saved = JSON.parse(storage?.getItem(EXAM_SESSION_KEY) || "null");
     if (!saved?.exam || !Array.isArray(saved.questions) || !saved.questions.length) return null;
-    const elapsed = saved.mode === "실전모드" && !saved.submitted
-      ? Math.max(0, Math.floor((Date.now() - Number(saved.savedAt || Date.now())) / 1000))
-      : 0;
     return {
       ...saved,
-      remaining: Math.max(0, Number(saved.remaining || 0) - elapsed),
+      remaining: remainingForCheckpoint(saved),
     };
   } catch {
     return null;
@@ -32,8 +29,9 @@ export function useExamSession({ userId = "" } = {}) {
   const [reviewChecks, setReviewChecks] = useState(restored?.reviewChecks || {});
   const [confidenceByQuestion, setConfidenceByQuestion] = useState(restored?.confidenceByQuestion || {});
   const [current, setCurrent] = useState(Math.max(0, Math.min(Number(restored?.current || 0), Math.max(0, (restored?.questions?.length || 1) - 1))));
-  const [submitted, setSubmitted] = useState(Boolean(restored?.submitted));
+  const [submitted, setSubmitted] = useState(Boolean(restored?.submitted || (restored?.mode === "실전모드" && restored?.remaining <= 0)));
   const [remaining, setRemaining] = useState(Number(restored?.remaining || 0));
+  const [deadlineAt, setDeadlineAt] = useState(Number(restored?.deadlineAt || 0) || (restored?.mode === "실전모드" ? Date.now() + Number(restored?.remaining || 0) * 1000 : 0));
   const [startedAt, setStartedAt] = useState(Number(restored?.startedAt || 0));
   const [checkpointEnabled, setCheckpointEnabled] = useState(Boolean(restored || savedMeta));
   const [restoring, setRestoring] = useState(Boolean(!restored && savedMeta));
@@ -63,8 +61,9 @@ export function useExamSession({ userId = "" } = {}) {
         setReviewChecks(saved.reviewChecks || {});
         setConfidenceByQuestion(saved.confidenceByQuestion || {});
         setCurrent(Math.max(0, Math.min(Number(saved.current || 0), saved.questions.length - 1)));
-        setSubmitted(Boolean(saved.submitted));
+        setSubmitted(Boolean(saved.submitted || (saved.mode === "실전모드" && saved.remaining <= 0)));
         setRemaining(Number(saved.remaining || 0));
+        setDeadlineAt(Number(saved.deadlineAt || 0) || (saved.mode === "실전모드" ? Date.now() + Number(saved.remaining || 0) * 1000 : 0));
         setStartedAt(Number(saved.startedAt || 0));
         setLastSavedAt(Number(saved.savedAt || 0));
         setCheckpointKey(String(saved.checkpointKey || examCheckpointKey(saved)));
@@ -113,6 +112,7 @@ export function useExamSession({ userId = "" } = {}) {
           current,
           submitted,
           remaining,
+          deadlineAt,
           startedAt,
           savedAt: Date.now(),
           checkpointKey,
@@ -133,21 +133,20 @@ export function useExamSession({ userId = "" } = {}) {
         });
     }, 250);
     return () => window.clearTimeout(id);
-  }, [answers, bookmarks, checkpointEnabled, checkpointKey, confidenceByQuestion, current, exam, mode, questions, restoring, reviewChecks, startedAt, submitted, userId]);
+  }, [answers, bookmarks, checkpointEnabled, checkpointKey, confidenceByQuestion, current, deadlineAt, exam, mode, questions, restoring, reviewChecks, startedAt, submitted, userId]);
 
   useEffect(() => {
     if (!exam || mode !== "실전모드" || submitted) return undefined;
-    const id = window.setInterval(() => {
-      setRemaining((value) => {
-        if (value <= 1) {
-          setSubmitted(true);
-          return 0;
-        }
-        return value - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [exam, mode, submitted]);
+    const refresh = () => {
+      const next = remainingForCheckpoint({ mode, deadlineAt, remaining });
+      setRemaining(next);
+      if (next <= 0) setSubmitted(true);
+    };
+    refresh();
+    const id = window.setInterval(refresh, 1000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearInterval(id); document.removeEventListener("visibilitychange", refresh); };
+  }, [exam, mode, submitted, deadlineAt]);
 
   const result = useMemo(
     () => gradeExam(questions, answers, exam, mode),
@@ -167,7 +166,7 @@ export function useExamSession({ userId = "" } = {}) {
         clearExamCheckpoint({ key: checkpointKey }).catch(() => undefined);
         if (userId) loadCloudDraftApi().then(({ deleteCloudExamDraft }) => deleteCloudExamDraft(userId, checkpointKey)).catch(() => undefined);
       } else {
-        const currentCheckpoint = { exam, questions, mode, answers, bookmarks, reviewChecks, confidenceByQuestion, current, submitted, remaining, startedAt, savedAt: Date.now(), checkpointKey };
+        const currentCheckpoint = { exam, questions, mode, answers, bookmarks, reviewChecks, confidenceByQuestion, current, submitted, remaining, deadlineAt, startedAt, savedAt: Date.now(), checkpointKey };
         writeExamCheckpoint(currentCheckpoint, { makeActive: false }).then((saved) => userId && saved ? loadCloudDraftApi().then(({ saveCloudExamDraft }) => saveCloudExamDraft(userId, saved)) : null).catch(() => undefined);
       }
     }
@@ -183,8 +182,11 @@ export function useExamSession({ userId = "" } = {}) {
     setConfidenceByQuestion({});
     setCurrent(0);
     setSubmitted(false);
-    setRemaining((nextExam?.durationMinutes || Math.max(1, nextQuestions.length)) * 60);
-    setStartedAt(Date.now());
+    const startTime = Date.now();
+    const durationSeconds = (nextExam?.durationMinutes || Math.max(1, nextQuestions.length)) * 60;
+    setRemaining(durationSeconds);
+    setDeadlineAt(nextMode === "실전모드" ? startTime + durationSeconds * 1000 : 0);
+    setStartedAt(startTime);
     setCheckpointKey(nextKey);
     return true;
   }
@@ -220,7 +222,8 @@ export function useExamSession({ userId = "" } = {}) {
       setExam(saved.exam); setQuestions(saved.questions); setMode(saved.mode || "시험모드");
       setAnswers(saved.answers || {}); setBookmarks(saved.bookmarks || {}); setReviewChecks(saved.reviewChecks || {});
       setConfidenceByQuestion(saved.confidenceByQuestion || {}); setCurrent(Math.max(0, Math.min(Number(saved.current || 0), saved.questions.length - 1)));
-      setSubmitted(Boolean(saved.submitted)); setRemaining(Number(saved.remaining || 0)); setStartedAt(Number(saved.startedAt || 0));
+      setSubmitted(Boolean(saved.submitted || (saved.mode === "실전모드" && saved.remaining <= 0)));
+      setRemaining(Number(saved.remaining || 0)); setDeadlineAt(Number(saved.deadlineAt || 0) || (saved.mode === "실전모드" ? Date.now() + Number(saved.remaining || 0) * 1000 : 0)); setStartedAt(Number(saved.startedAt || 0));
       setCheckpointKey(String(saved.checkpointKey || key)); setCheckpointEnabled(true); setLastSavedAt(Number(saved.savedAt || 0)); setCheckpointStatus("saved");
       return true;
     } finally { setRestoring(false); }
@@ -234,7 +237,7 @@ export function useExamSession({ userId = "" } = {}) {
       await clearCloudExamDrafts(userId);
     }
     setDrafts([]); setCheckpointKey(""); setCheckpointEnabled(false); setCheckpointStatus("idle"); setLastSavedAt(0);
-    setExam(null); setQuestions([]); setAnswers({}); setBookmarks({}); setReviewChecks({}); setConfidenceByQuestion({}); setCurrent(0); setSubmitted(false); setRemaining(0); setStartedAt(0);
+    setExam(null); setQuestions([]); setAnswers({}); setBookmarks({}); setReviewChecks({}); setConfidenceByQuestion({}); setCurrent(0); setSubmitted(false); setRemaining(0); setDeadlineAt(0); setStartedAt(0);
   }
 
   function setBookmark(index, value) {
