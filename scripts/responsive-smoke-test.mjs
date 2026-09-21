@@ -27,6 +27,7 @@ const checks = [
   [styles.includes("overflow-y:auto!important") && styles.includes("overflow-wrap:anywhere"), "긴 문제·보기 독립 스크롤과 줄바꿈"],
   [styles.includes(".exam-checkpoint-status.saved{display:none}"), "모바일 저장 완료 안내 축약"],
   [styles.includes(".exam-mini-navigator.size-normal{width:112px}"), "모바일 미니 방향키 축소"],
+  [!styles.includes("html,body.makeros-exam-mode") && styles.includes("body:not(.makeros-exam-mode)"), "비시험 모바일 화면 세로 스크롤 유지"],
   [styles.includes("prefers-reduced-motion"), "모션 접근성"],
   [growthReport.includes("report-mastery-head") && styles.includes(".report-mastery-head{display:flex!important"), "취약 개념명 가로 배치"],
   [styles.includes(".growth-message>p,.growth-message>small{display:block;max-width:100%"), "리포트 문장 화면 내 줄바꿈"],
