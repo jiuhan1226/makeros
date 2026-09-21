@@ -23,6 +23,7 @@ export default function UnifiedSearchPage({ searchCbt, pdfLibrary, wrongNotes, b
   const [remote, setRemote] = useState([]);
   const [remoteQuery, setRemoteQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const [type, setType] = useState("all");
   const local = useMemo(() => {
     const term = normalizeText(query);
@@ -53,10 +54,15 @@ export default function UnifiedSearchPage({ searchCbt, pdfLibrary, wrongNotes, b
       return;
     }
     setBusy(true);
+    setSearchError("");
     try {
       const cbt = await searchCbt(searchTerm);
       setRemote(cbt.map(({ exam, q }) => ({ type: "CBT", title: q.subject || exam?.title, subtitle: exam?.title || "", text: q.question, id: `cbt-${q.id}`, exam, question: q })));
       setRemoteQuery(searchTerm);
+    } catch (error) {
+      setRemote([]);
+      setRemoteQuery(searchTerm);
+      setSearchError(error?.message || "CBT 문제 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setBusy(false);
     }
@@ -75,6 +81,7 @@ export default function UnifiedSearchPage({ searchCbt, pdfLibrary, wrongNotes, b
       <p>예를 들어 ‘급식’, ‘전체 자격증’, ‘옴의 법칙’을 검색하면 관련 기능이나 학습 내용을 바로 열 수 있어요.</p>
       <div className="chip-row">{["all", "바로가기", "CBT", "PDF", "오답", "북마크", "AI 노트", "개념카드"].map((value) => <button key={value} className={type === value ? "chip active" : "chip"} onClick={() => setType(value)}>{value === "all" ? "전체" : value}</button>)}</div>
     </section>
+    {searchError && <p role="alert" className="maker-error">{searchError}</p>}
     {!!query && !!visibleShortcuts.length && <section className="app-shortcut-results" aria-label="MakerOS 바로가기 검색 결과">
       <header><span>바로가기</span><strong>{visibleShortcuts.length}개 기능</strong></header>
       <div>{visibleShortcuts.map((item) => <button type="button" key={item.page} onClick={() => onNavigate?.(item.page)}><span>↗</span><div><strong>{item.title}</strong><small>{item.subtitle}</small></div></button>)}</div>
