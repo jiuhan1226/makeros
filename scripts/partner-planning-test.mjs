@@ -112,6 +112,12 @@ const changed = normalizePartnerState({ ...state, certificateGoals: changedCerti
 const replanned = buildDeterministicPlan(changed, { today: '2026-09-08' });
 const diff = planDiff(getActivePartnerPlan(state), replanned);
 assert.ok(diff && Array.isArray(diff.changed));
+const repeatedBefore = { weeks: [
+  { startsAt: '2026-09-14', items: [{ taskKey: 'g::2026-09-14::CBT::1', goalId: 'g', title: 'CBT 기출 학습', durationMinutes: 60 }] },
+  { startsAt: '2026-09-21', items: [{ taskKey: 'g::2026-09-21::CBT::1', goalId: 'g', title: 'CBT 기출 학습', durationMinutes: 60 }] },
+] };
+const repeatedAfter = { weeks: repeatedBefore.weeks.map((week, index) => ({ ...week, items: week.items.map((item) => ({ ...item, durationMinutes: index === 0 ? 30 : 60 })) })) };
+assert.equal(planDiff(repeatedBefore, repeatedAfter).changed.length, 1, '다른 주에 같은 제목의 학습이 있어도 변경된 회차를 놓치면 안 됩니다.');
 
 const previousActive = state.activePlanVersionId;
 state = createPlanVersion(state, replanned, { activate: false });
