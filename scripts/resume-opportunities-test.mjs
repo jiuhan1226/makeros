@@ -11,6 +11,7 @@ const routes = fs.readFileSync(new URL("../src/utils/appRouting.js", import.meta
 for (const label of ["이력서 작성", "자기소개서", "AI 작성 도움", "PDF로 저장·인쇄", "학교 검색", "학력사항"]) assert.ok(portfolio.includes(label), `이력서 기능 누락: ${label}`);
 for (const field of ["selfIntro", "strengths", "motivation", "aspiration"]) assert.ok(portfolio.includes(field), `자소서 문항 누락: ${field}`);
 assert.ok(portfolio.includes("official-resume-print"), "인쇄 전용 3쪽 문서 누락");
+assert.match(portfolio, /compressResumePhoto[\s\S]*toDataURL\("image\/jpeg", 0\.82\)/, "증명사진은 클라우드 문서 용량을 넘지 않도록 축소 저장해야 합니다.");
 assert.ok(server.includes('/api/resume/assist'), "자소서 AI API 누락");
 assert.ok(server.includes('/api/career/student-record-assist'), "생기부 활동 정리 AI API 누락");
 assert.ok(server.includes('/api/opportunities'), "공모전 API 누락");
