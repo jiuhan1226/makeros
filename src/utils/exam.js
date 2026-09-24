@@ -5,6 +5,14 @@ export function formatTime(seconds = 0) {
   return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
 }
 
+export function formatExamRound(round) {
+  const value = String(round ?? "").trim();
+  if (!value) return "";
+  // Imported CBT data is not consistent: both `3` and `3회` are used.
+  // Keep descriptive/date labels intact and append the unit only to a bare number.
+  return /^\d+$/.test(value) ? `${value}회` : value;
+}
+
 export function shuffle(items) {
   const result = [...items];
   for (let i = result.length - 1; i > 0; i -= 1) {
