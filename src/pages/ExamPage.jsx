@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import AnswerSheet from "../components/AnswerSheet";
 import CbtSettingsPanel from "../components/CbtSettingsPanel";
 import ExamMiniNavigator from "../components/ExamMiniNavigator";
-import { circled, formatTime } from "../utils/exam";
+import { circled, formatExamRound, formatTime } from "../utils/exam";
 import { readCbtSettings, saveCbtSettings, shouldIgnoreExamShortcut } from "../utils/cbtPreferences";
 import {
   explanationFingerprint,
@@ -122,7 +122,7 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
   ])), [bookmarks, isQuestionBookmarked, questions]);
   const examContextLabel = [
     exam?.year ? `${exam.year}년` : "",
-    exam?.round ? `${exam.round}회` : "",
+    formatExamRound(exam?.round),
   ].filter(Boolean).join(" · ");
 
   useEffect(() => {
