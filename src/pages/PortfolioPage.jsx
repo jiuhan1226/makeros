@@ -14,6 +14,33 @@ const period = (start, end) => start && end ? `${start} ~ ${end}` : start || end
 
 function Field({ label, wide, children }) { return <label className={`invent-field ${wide ? "span-all" : ""}`}><span>{label}</span>{children}</label>; }
 
+function compressResumePhoto(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("사진 파일을 읽지 못했습니다."));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("지원하지 않는 사진 형식입니다. JPG 또는 PNG를 사용해 주세요."));
+      image.onload = () => {
+        const scale = Math.min(1, 480 / image.naturalWidth, 640 / image.naturalHeight);
+        const width = Math.max(1, Math.round(image.naturalWidth * scale));
+        const height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        if (!context) return reject(new Error("사진을 변환하지 못했습니다."));
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, width, height);
+        context.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      image.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function PrintDocument({ profile, awards, certifications, activities }) {
   const education = Array.isArray(profile.education) ? profile.education : [];
   const selfPages = [SELF_SECTIONS.slice(0, 2), SELF_SECTIONS.slice(2)];
@@ -52,7 +79,7 @@ export default function PortfolioPage({ buildProjects = [], resumeProfile = {}, 
   const update = (patch) => onChangeResumeProfile({ ...resumeProfile, ...patch });
 
   async function findSchool() { if (schoolQuery.trim().length < 2) return alert("학교 이름을 두 글자 이상 입력해 주세요."); setSchoolBusy(true); try { setSchools((await searchSchools(schoolQuery.trim())).schools || []); } catch (e) { alert(e.message); } finally { setSchoolBusy(false); } }
-  function loadPhoto(event) { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith("image/")) return alert("이미지 파일을 선택해 주세요."); if (file.size > 2 * 1024 * 1024) return alert("사진은 2MB 이하만 사용할 수 있습니다."); const reader = new FileReader(); reader.onload = () => update({ photo: String(reader.result || "") }); reader.readAsDataURL(file); }
+  async function loadPhoto(event) { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith("image/")) return alert("이미지 파일을 선택해 주세요."); if (file.size > 8 * 1024 * 1024) return alert("원본 사진은 8MB 이하만 사용할 수 있습니다."); try { update({ photo: await compressResumePhoto(file) }); } catch (error) { alert(error.message); } }
   function selectType(type) { setDraftType(type); setDraft({ ...EMPTY[type] }); }
   function storeRecord() {
     const maps = { certification: [certifications,onChangeCertifications,"name"], award: [awards,onChangeAwards,"title"], activity: [portfolioItems,onChangePortfolioItems,"title"] };
