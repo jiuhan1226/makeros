@@ -48,20 +48,29 @@ function audienceEvidence(context = "", source = {}) {
   return { eligible: Boolean(positive) && !exclusiveCollege, evidence: positive };
 }
 
-function dateParts(text = "") {
+export function opportunityDateParts(text = "", nowValue = Date.now()) {
   const rawText = String(text);
   const matches = [...rawText.matchAll(/(?:(20\d{2})[.\-/년]\s*)?(\d{1,2})[.\-/월]\s*(\d{1,2})\s*일?/g)];
   if (!matches.length) return { deadline: "", dday: "", deadlineValid: false };
-  const now = new Date();
+  const nowMs = Number(nowValue) || Date.now();
+  const nowKst = new Date(nowMs + 9 * 60 * 60 * 1000);
+  const today = {
+    year: nowKst.getUTCFullYear(),
+    month: nowKst.getUTCMonth() + 1,
+    day: nowKst.getUTCDate(),
+  };
+  const todayKey = Date.UTC(today.year, today.month - 1, today.day);
   const future = [];
   for (const [index, match] of matches.entries()) {
-    let year = Number(match[1] || now.getFullYear());
+    let year = Number(match[1] || today.year);
     const month = Number(match[2]);
     const day = Number(match[3]);
-    if (!match[1] && month < now.getMonth() + 1 - 6) year += 1;
-    const value = new Date(year, month - 1, day, 23, 59, 59);
-    if (value.getFullYear() !== year || value.getMonth() !== month - 1 || value.getDate() !== day) continue;
-    const days = Math.ceil((value.getTime() - Date.now()) / 86400000);
+    if (!match[1] && month < today.month - 6) year += 1;
+    const calendarKey = Date.UTC(year, month - 1, day);
+    const calendarDate = new Date(calendarKey);
+    if (calendarDate.getUTCFullYear() !== year || calendarDate.getUTCMonth() !== month - 1 || calendarDate.getUTCDate() !== day) continue;
+    const value = Date.UTC(year, month - 1, day, 14, 59, 59); // 해당 날짜 23:59 KST
+    const days = Math.round((calendarKey - todayKey) / 86400000);
     const previous = matches[index - 1];
     const between = previous ? rawText.slice(Number(previous.index || 0) + previous[0].length, Number(match.index || 0)) : "";
     const before = rawText.slice(Math.max(0, Number(match.index || 0) - 45), Number(match.index || 0));
@@ -173,7 +182,7 @@ function verifyCandidate(candidate, detailText = "", { requireOfficial = false }
   if (NON_ANNOUNCEMENT_WORDS.test(title) || !CONTEST_WORDS.test(title) || !ANNOUNCEMENT_WORDS.test(`${title} ${context}`)) return null;
   const audience = audienceEvidence(`${title} ${context}`, source);
   if (!audience.eligible) return null;
-  const date = dateParts(context);
+  const date = opportunityDateParts(context);
   const ongoing = /(?:상시\s*(?:모집|접수|공모)|마감\s*시까지)/i.test(context);
   if (!date.deadlineValid && !ongoing) return null;
   const officialUrl = officialLinkFromHtml(detailText, candidate);
@@ -223,7 +232,7 @@ export function dedupeOpportunities(items = []) {
 
 async function fetchText(fetchImpl, url, timeout = 9000) {
   const response = await fetchImpl(url, {
-    headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.30" },
+    headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.31" },
     redirect: "follow",
     signal: AbortSignal.timeout(timeout),
   });
