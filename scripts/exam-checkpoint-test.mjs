@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildExamCheckpoint, examCheckpointKey, examCheckpointMeta, remainingForCheckpoint } from '../src/utils/examCheckpoint.js';
+import { formatExamRound } from '../src/utils/exam.js';
+
+assert.equal(formatExamRound('3'), '3회', '숫자 회차에는 단위를 한 번 붙여야 합니다.');
+assert.equal(formatExamRound('3회'), '3회', '이미 단위가 있는 회차에 회를 중복해서 붙이면 안 됩니다.');
+assert.equal(formatExamRound('제3회'), '제3회', '서술형 회차 표기는 그대로 유지해야 합니다.');
+assert.equal(formatExamRound('2026-09-17'), '2026-09-17', '날짜형 회차 표기는 그대로 유지해야 합니다.');
 
 const questions = Array.from({ length: 1200 }, (_, index) => ({ id: `q-${index}`, question: `문제 ${index}` }));
 const checkpoint = buildExamCheckpoint({ exam: { title: '전체 문제', studyScope: 'all' }, questions, answers: { 0: 1, 18: 2 }, current: 18, savedAt: 1234 });
@@ -15,9 +21,12 @@ assert.equal(remainingForCheckpoint({ mode: '실전모드', remaining: 120, dead
 assert.equal(remainingForCheckpoint({ mode: '실전모드', remaining: 120, deadlineAt: 20_000 }, 22_000), 0, '화면을 오래 닫아 두어도 시간이 늘어나면 안 됩니다.');
 assert.equal(remainingForCheckpoint({ mode: '실전모드', remaining: 120, savedAt: 1_000 }, 11_000), 110, '이전 버전의 저장 기록도 경과 시간을 반영해야 합니다.');
 const main = fs.readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
+const sessionHook = fs.readFileSync(new URL('../src/hooks/useExamSession.js', import.meta.url), 'utf8');
 const home = fs.readFileSync(new URL('../src/pages/CertificateHomePage.jsx', import.meta.url), 'utf8');
 const past = fs.readFileSync(new URL('../src/pages/PastExamsPage.jsx', import.meta.url), 'utf8');
 assert.match(main, /certificateActiveSession/, '저장된 CBT 진행 상태를 자격증 화면에 전달해야 합니다.');
 assert.match(home, /진행 중.*이어풀기/s, '최근 학습에 중단한 CBT 이어풀기를 표시해야 합니다.');
 assert.match(past, /resumeSessions.*이어풀기/s, '기출 회차 목록에서 저장된 각 회차를 바로 이어 풀 수 있어야 합니다.');
+assert.match(sessionHook, /async function flushCheckpoint[\s\S]*writeExamCheckpoint\(snapshot\)/, '시험을 나가기 직전 최신 답안을 즉시 저장해야 합니다.');
+assert.match(main, /if \(!session\.submitted\) await session\.flushCheckpoint\(\)/, '미제출 시험을 나갈 때 저장 완료를 기다려야 합니다.');
 console.log('[exam-checkpoint-test] OK');
