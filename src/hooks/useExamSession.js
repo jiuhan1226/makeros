@@ -213,6 +213,49 @@ export function useExamSession({ userId = "" } = {}) {
     setDrafts((items) => items.filter((item) => item.checkpointKey !== key));
   }
 
+  async function flushCheckpoint() {
+    if (restoring || !checkpointEnabled || !exam || !questions.length || submitted) return null;
+    const generation = checkpointGeneration.current;
+    const snapshot = {
+      exam,
+      questions,
+      mode,
+      answers,
+      bookmarks,
+      reviewChecks,
+      confidenceByQuestion,
+      current,
+      submitted,
+      remaining,
+      deadlineAt,
+      startedAt,
+      savedAt: Date.now(),
+      checkpointKey,
+    };
+    setCheckpointStatus("saving");
+    writeQueue.current = writeQueue.current.catch(() => undefined).then(() => {
+      if (generation !== checkpointGeneration.current) return null;
+      return writeExamCheckpoint(snapshot);
+    });
+    try {
+      const checkpoint = await writeQueue.current;
+      if (generation !== checkpointGeneration.current || !checkpoint) return checkpoint;
+      setLastSavedAt(Number(checkpoint.savedAt || 0));
+      setDrafts(listExamCheckpointMeta());
+      if (userId) {
+        loadCloudDraftApi()
+          .then(({ saveCloudExamDraft }) => saveCloudExamDraft(userId, checkpoint))
+          .catch((error) => console.warn("종료 직전 CBT 클라우드 저장 실패", error));
+      }
+      setCheckpointStatus("saved");
+      return checkpoint;
+    } catch (error) {
+      if (generation === checkpointGeneration.current) setCheckpointStatus("error");
+      console.warn("시험 종료 전 진행 상태를 저장하지 못했습니다.", error);
+      return null;
+    }
+  }
+
   async function resumeDraft(key) {
     setRestoring(true);
     try {
@@ -283,6 +326,7 @@ export function useExamSession({ userId = "" } = {}) {
     setCurrent,
     submit: () => setSubmitted(true),
     clearCheckpoint,
+    flushCheckpoint,
     resumeDraft,
     clearAllDrafts,
   };
