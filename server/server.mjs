@@ -54,7 +54,7 @@ const neisRequestHeaders = {
   "cache-control": "no-cache",
   pragma: "no-cache",
   referer: "https://open.neis.go.kr/portal/mainPage.do",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.30",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.31",
 };
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
@@ -106,7 +106,8 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) return callback(null, true);
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    if (process.env.NODE_ENV !== "production" && allowedOrigins.length === 0) return callback(null, true);
     return callback(new Error("허용되지 않은 출처입니다."));
   }
 }));
@@ -182,7 +183,14 @@ const protectedAiPaths = [
   "/api/partner/plan",
   "/api/partner/cbt-diagnostic",
 ];
-app.use(protectedAiPaths, requireFirebaseUser);
+const aiMinuteLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "AI 요청이 너무 빠르게 반복되었습니다. 잠시 후 다시 시도해 주세요." },
+});
+app.use(protectedAiPaths, aiMinuteLimiter, requireFirebaseUser);
 
 function normalize(text = "") {
   return String(text)
@@ -1128,7 +1136,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.30",
+    version: "3.1.31",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
