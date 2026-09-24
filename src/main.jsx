@@ -807,7 +807,8 @@ function App() {
     if (user?.uid) await clearCloudLearningData(user.uid, "").catch(console.error);
   }
 
-  function finishExam() {
+  async function finishExam() {
+    if (!session.submitted) await session.flushCheckpoint();
     recordFinishedSession();
     const scope = resolveStudyScope(session.exam, session.mode);
     const fallback = {
