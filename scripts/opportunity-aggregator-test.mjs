@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { dedupeOpportunities, parseOpportunityHtml } from "../server/opportunityAggregator.mjs";
+import { dedupeOpportunities, opportunityDateParts, parseOpportunityHtml } from "../server/opportunityAggregator.mjs";
+
+const noonKst = Date.UTC(2026, 8, 30, 3, 0, 0);
+assert.equal(opportunityDateParts("접수 마감 2026.09.30", noonKst).dday, "오늘 마감", "마감 당일은 서버 시간대와 관계없이 오늘 마감으로 표시해야 합니다.");
+assert.equal(opportunityDateParts("접수 마감 2026.10.01", noonKst).dday, "D-1", "한국 날짜를 기준으로 남은 일수를 계산해야 합니다.");
 
 const source = { id: "fixture", name: "테스트 공고", url: "https://example.com/list", type: "공모전" };
 const html = `
