@@ -1159,6 +1159,7 @@ function App() {
       pdfId: meta?.pdfId || "",
       sourceName: meta?.name || "PDF",
       returnPage: "pdfstudy",
+      teacherProfile: meta?.teacherProfile || null,
     }, normalized, "연습모드");
     setPage("exam");
   }
