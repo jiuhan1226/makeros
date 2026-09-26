@@ -14,13 +14,18 @@ import {
 function registeredExplanation(question) {
   const official = String(question?.explanation || "").trim();
   if (official) {
+    const generatedChoiceReasons = Array.isArray(question?.choiceExplanations)
+      ? question.choiceExplanations.map((reason, index) => ({ index, reason: String(reason || "").trim() }))
+      : [];
     return {
       status: "ready",
       source: "official",
       explanation: official,
-      keyPoint: "",
-      choiceReasons: [],
-      label: question?.aiGenerated ? "AI 맞춤 문제 해설" : "등록 해설",
+      keyPoint: question?.aiGenerated ? String(question?.learningObjective || "").trim() : "",
+      choiceReasons: question?.aiGenerated ? generatedChoiceReasons : [],
+      label: question?.aiGenerated
+        ? (question?.teacherReviewStatus === "verified" ? "AI 출제 · 교사 기준 검수" : "AI 맞춤 문제 해설")
+        : "등록 해설",
     };
   }
 
@@ -490,6 +495,15 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
                       <div className="ai-key-point">
                         <strong>핵심 개념</strong>
                         <p>{explanationState.keyPoint}</p>
+                      </div>
+                    )}
+                    {q.aiGenerated && (q.questionType || q.difficulty || q.selectionReason) && (
+                      <div className="teacher-question-basis">
+                        <div>
+                          {q.questionType && <span>{q.questionType}</span>}
+                          {q.difficulty && <span>난이도 {q.difficulty}</span>}
+                        </div>
+                        {q.selectionReason && <p><strong>출제 이유</strong>{q.selectionReason}</p>}
                       </div>
                     )}
                     {explanationState.choiceReasons?.some((item) => String(item?.reason || "").trim()) && (
