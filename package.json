@@ -1,7 +1,7 @@
 {
   "name": "makeros-product-final",
   "private": true,
-  "version": "3.1.31",
+  "version": "3.1.32",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"node --watch server/server.mjs\"",
@@ -16,7 +16,8 @@
     "test:explanation": "node scripts/explanation-safety-test.mjs",
     "test:maintenance": "node scripts/learning-maintenance-test.mjs",
     "test:dedup": "node scripts/question-dedup-test.mjs",
-    "test": "npm run test:partner && npm run test:checkpoint && npm run test:pdf-source && npm run test:experience && npm run test:diagnostic && npm run test:routing && npm run test:calendar && npm run test:flashcards && npm run test:school-data && npm run test:timetable-overrides && npm run test:opportunities && npm run test:resume && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:dedup && npm run test:trust && npm run test:copy && npm run test:submission && npm run test:responsive && npm run test:cbt-ux && npm run test:core-ux",
+    "test:teacher-questions": "node scripts/teacher-question-design-test.mjs",
+    "test": "npm run test:partner && npm run test:checkpoint && npm run test:pdf-source && npm run test:experience && npm run test:diagnostic && npm run test:routing && npm run test:calendar && npm run test:flashcards && npm run test:school-data && npm run test:timetable-overrides && npm run test:opportunities && npm run test:resume && npm run test:learning && npm run test:explanation && npm run test:maintenance && npm run test:dedup && npm run test:teacher-questions && npm run test:trust && npm run test:copy && npm run test:submission && npm run test:responsive && npm run test:cbt-ux && npm run test:core-ux",
     "test:checkpoint": "node scripts/exam-checkpoint-test.mjs",
     "test:pdf-source": "node scripts/pdf-source-test.mjs",
     "test:copy": "node scripts/copy-audit.mjs",
