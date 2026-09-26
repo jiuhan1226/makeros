@@ -232,7 +232,7 @@ export function dedupeOpportunities(items = []) {
 
 async function fetchText(fetchImpl, url, timeout = 9000) {
   const response = await fetchImpl(url, {
-    headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.31" },
+    headers: { accept: "text/html,application/xhtml+xml", "accept-language": "ko-KR,ko;q=0.9", "user-agent": "Mozilla/5.0 MakerOS/3.1.32" },
     redirect: "follow",
     signal: AbortSignal.timeout(timeout),
   });
