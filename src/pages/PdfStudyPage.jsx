@@ -44,7 +44,8 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
   const [startPage, setStartPage] = useState(1);
   const [endPage, setEndPage] = useState(1);
   const [count, setCount] = useState(10);
-  const [difficulty, setDifficulty] = useState("보통");
+  const [difficulty, setDifficulty] = useState("교사 추천 혼합");
+  const [teacherFocus, setTeacherFocus] = useState("");
   const [tab, setTab] = useState("setup");
   const [assets, setAssets] = useState({ notes: [], cards: [] });
   const [flipped, setFlipped] = useState({});
@@ -107,10 +108,10 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
     try {
       const data = await postJson(
         "/api/generate-quiz",
-        { pages: selectedPages, count, difficulty, mode: "PDF 이해도 확인", fileName: sourceName },
+        { pages: selectedPages, count, difficulty, teacherFocus, mode: "PDF 이해도 확인", fileName: sourceName },
         "문제 생성에 실패했습니다.",
       );
-      onStartQuiz(data.questions || [], { name: sourceName, startPage, endPage, pdfId: doc?.id });
+      onStartQuiz(data.questions || [], { name: sourceName, startPage, endPage, pdfId: doc?.id, teacherProfile: data.teacherProfile || null });
     } catch (error) {
       setStatus(error.message);
     } finally {
@@ -241,8 +242,13 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
                 <label>시작 페이지<input type="number" min="1" max={doc.pageCount} value={startPage} onChange={(event) => setStartPage(Number(event.target.value))} /></label>
                 <label>종료 페이지<input type="number" min="1" max={doc.pageCount} value={endPage} onChange={(event) => setEndPage(Number(event.target.value))} /></label>
                 <label>퀴즈 문항 수<select value={count} onChange={(event) => setCount(Number(event.target.value))}>{[5, 10, 15, 20].map((value) => <option key={value}>{value}</option>)}</select></label>
-                <label>퀴즈 난이도<select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}><option>쉬움</option><option>보통</option><option>어려움</option><option>최상</option></select></label>
+                <label>퀴즈 난이도<select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}><option>교사 추천 혼합</option><option>쉬움</option><option>보통</option><option>어려움</option></select></label>
               </div>
+              <details className="pdf-teacher-focus">
+                <summary>수업에서 강조한 내용 추가 <span>선택</span></summary>
+                <label>학습목표·시험 범위의 핵심 내용<textarea rows="3" maxLength="600" value={teacherFocus} onChange={(event) => setTeacherFocus(event.target.value)} placeholder="예: 직렬·병렬 회로의 차이와 옴의 법칙 계산을 중요하게 다뤘어요." /></label>
+              </details>
+              <p className="pdf-teacher-note">교사 추천은 쉬움 30% · 보통 50% · 어려움 20%로 구성하고, 정답·근거·복수 정답·오답 품질을 다시 검수합니다.</p>
               <div className="pdf-range-summary"><span>선택 범위</span><strong>{startPage}~{endPage}쪽 · {selectedPages.length}페이지</strong></div>
               {readableLength < 200 && <p className="maker-error" role="status">{readablePages === 0 ? "선택 범위에 추출 가능한 글자가 없습니다. 스캔 PDF의 OCR은 지원하지 않습니다." : "글자가 부족합니다. 선택 범위를 넓히거나 텍스트 PDF를 사용해 주세요."}</p>}
               <div className="pdf-primary-actions"><button className="primary" disabled={busy || readableLength < 200} onClick={generateQuiz}>이해도 확인 퀴즈</button><button className="secondary" disabled={busy || readableLength < 200} onClick={generateSet}>상세 학습 자료 생성</button></div>
