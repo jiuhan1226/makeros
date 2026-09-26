@@ -28,6 +28,14 @@ import {
   verifyExplanationRecordSignature,
 } from "./cbtExplanation.mjs";
 import { collectOpportunities, OPPORTUNITY_SOURCES } from "./opportunityAggregator.mjs";
+import {
+  TEACHER_QUESTION_PROFILE,
+  applyTeacherReview,
+  buildTeacherQuestionBlueprint,
+  deduplicateTeacherQuestions,
+  teacherBlueprintPrompt,
+  validateTeacherQuestion,
+} from "./teacherQuestionDesign.mjs";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -54,7 +62,7 @@ const neisRequestHeaders = {
   "cache-control": "no-cache",
   pragma: "no-cache",
   referer: "https://open.neis.go.kr/portal/mainPage.do",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.31",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.32",
 };
 const explanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim()
   || (apiKey ? crypto.createHash("sha256").update(`${apiKey}:makeros-explanation-signing`).digest("hex") : "");
@@ -793,7 +801,7 @@ const quizSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["question", "subject", "choices", "answerIndex", "explanation", "evidencePage", "evidence"],
+        required: ["question", "subject", "choices", "answerIndex", "explanation", "evidencePage", "evidence", "difficulty", "questionType", "learningObjective", "selectionReason", "choiceExplanations"],
         properties: {
           question: { type: "string", description: "한국어로 된 5지선다형 질문" },
           subject: { type: "string", description: "문제가 속한 과목명" },
@@ -807,7 +815,18 @@ const quizSchema = {
           answerIndex: { type: "integer", minimum: 0, maximum: 4, description: "정답 선택지의 0부터 시작하는 번호" },
           explanation: { type: "string", description: "정답과 오답 근거를 설명하는 한국어 해설" },
           evidencePage: { type: "integer", minimum: 1, description: "근거가 있는 PDF 페이지 번호" },
-          evidence: { type: "string", description: "해당 페이지 원문에서 가져온 짧은 근거 구절" }
+          evidence: { type: "string", description: "해당 페이지 원문에서 가져온 짧은 근거 구절" },
+          difficulty: { type: "string", enum: ["쉬움", "보통", "어려움"], description: "문항 난이도" },
+          questionType: { type: "string", enum: ["핵심 개념 확인", "원리 이해", "비교·구분", "계산·적용", "상황·자료 해석"], description: "문항 유형" },
+          learningObjective: { type: "string", description: "이 문항으로 확인할 핵심 개념 또는 학습목표" },
+          selectionReason: { type: "string", description: "이 내용을 문제로 선정한 이유" },
+          choiceExplanations: {
+            type: "array",
+            minItems: 5,
+            maxItems: 5,
+            items: { type: "string" },
+            description: "각 선택지가 맞거나 틀린 이유. choices와 같은 순서"
+          }
         }
       }
     }
@@ -815,10 +834,7 @@ const quizSchema = {
 };
 
 function verifyQuestion(question, sourcePages) {
-  if (!question || !Array.isArray(question.choices) || question.choices.length !== 5) return false;
-  const choices = question.choices.map(normalize);
-  if (new Set(choices).size !== 5) return false;
-  if (!Number.isInteger(question.answerIndex) || question.answerIndex < 0 || question.answerIndex > 4) return false;
+  if (!validateTeacherQuestion(question).ok) return false;
   const page = sourcePages.find((item) => item.page === question.evidencePage);
   if (!page) return false;
   const tokens = normalize(question.evidence).split(" ").filter((token) => token.length >= 2).slice(0, 20);
@@ -1076,6 +1092,15 @@ function validateDiagnosticQuestions(value, references, requestedCount) {
       choices,
       answerIndex,
       explanation: normalize(item.explanation || "").slice(0, 1200),
+      difficulty: ["쉬움", "보통", "어려움"].includes(normalize(item.difficulty)) ? normalize(item.difficulty) : "보통",
+      questionType: ["핵심 개념 확인", "원리 이해", "비교·구분", "계산·적용", "상황·자료 해석"].includes(normalize(item.questionType)) ? normalize(item.questionType) : "핵심 개념 확인",
+      learningObjective: normalize(item.learningObjective || item.topic || source.topic || source.subject).slice(0, 160),
+      selectionReason: normalize(item.selectionReason || "실제 기출문제와 연결된 핵심 개념의 이해 여부를 확인합니다.").slice(0, 300),
+      choiceExplanations: Array.isArray(item.choiceExplanations) && item.choiceExplanations.length === choices.length
+        ? item.choiceExplanations.map((reason) => normalize(reason).slice(0, 500))
+        : choices.map((_, index) => index === answerIndex ? normalize(item.explanation || "참고 기출의 정답 관계와 일치합니다.").slice(0, 500) : "참고 기출의 핵심 판단 기준과 일치하지 않습니다."),
+      aiGenerated: true,
+      teacherReviewStatus: "reference-grounded",
     };
   }).filter((item) => item?.explanation?.length >= 15)).slice(0, requestedCount);
 }
@@ -1089,6 +1114,8 @@ app.post("/api/partner/cbt-diagnostic", async (req, res) => {
     const profile = req.body?.profile || {};
     const mode = req.body?.mode === "weak-practice" ? "취약 영역 맞춤 복습" : "기출 범위 진단";
     const weakSubjects = (Array.isArray(profile.weakSubjects) ? profile.weakSubjects : []).slice(0, 5).map(normalize).filter(Boolean);
+    const blueprint = buildTeacherQuestionBlueprint({ count: requestedCount, difficultyMode: profile.difficulty });
+    const teacherCriteria = teacherBlueprintPrompt(blueprint, weakSubjects.length ? `취약 과목: ${weakSubjects.join(", ")}` : "");
     const prompt = `당신은 한국 국가기술자격 CBT 학습을 돕는 문제 출제자입니다.
 아래에는 학생이 선택한 자격 종목의 실제 등록 기출문제와 공식 정답이 참고 근거로 제공됩니다.
 참고 근거에 들어 있는 지식만 사용하여 새로운 맞춤형 진단 문제를 만드십시오. 외부 지식, 최신 법령 수치, 존재하지 않는 출제 기준은 추가하지 마십시오.
@@ -1102,6 +1129,8 @@ app.post("/api/partner/cbt-diagnostic", async (req, res) => {
 - 추천 난이도: ${normalize(profile.difficulty || "보통")}
 - 우선 보완 과목: ${weakSubjects.join(", ") || "전체 과목 균형"}
 
+${teacherCriteria}
+
 출제 규칙:
 1. 총 ${requestedCount}개를 만들고, 각 문제는 정답이 하나인 4지 또는 5지선다형으로 작성합니다.
 2. sourceId에는 반드시 그 문제의 사실 근거가 된 참고 문제 id 하나를 그대로 넣습니다.
@@ -1111,8 +1140,11 @@ app.post("/api/partner/cbt-diagnostic", async (req, res) => {
 6. explanation에는 정답 근거와 핵심 판단 기준을 한국어로 설명합니다.
 7. 취약 과목이 있으면 절반 이상을 해당 과목에 배정하고, 나머지는 전체 범위를 확인하도록 배분합니다.
 8. 법령·수치가 참고 문제에 명시되지 않았다면 새로 만들어 묻지 않습니다.
-9. 설명 없이 다음 JSON 하나만 반환합니다.
-{"summary":"출제 구성 한 문장","questions":[{"sourceId":"참고 id","subject":"과목","topic":"개념","question":"새 문제","choices":["선택지1","선택지2","선택지3","선택지4"],"answerIndex":0,"explanation":"정답과 판단 근거"}]}
+9. difficulty는 쉬움·보통·어려움, questionType은 핵심 개념 확인·원리 이해·비교·구분·계산·적용·상황·자료 해석 중 하나로 분류합니다.
+10. learningObjective와 selectionReason을 짧고 구체적으로 작성합니다.
+11. choiceExplanations에는 각 선택지가 맞거나 틀린 이유를 choices와 같은 순서로 작성합니다.
+12. 설명 없이 다음 JSON 하나만 반환합니다.
+{"summary":"출제 구성 한 문장","questions":[{"sourceId":"참고 id","subject":"과목","topic":"개념","question":"새 문제","choices":["선택지1","선택지2","선택지3","선택지4"],"answerIndex":0,"explanation":"정답과 판단 근거","difficulty":"보통","questionType":"핵심 개념 확인","learningObjective":"확인할 개념","selectionReason":"출제 이유","choiceExplanations":["선지1 판단","선지2 판단","선지3 판단","선지4 판단"]}]}
 
 참고 기출문제:
 ${JSON.stringify(references)}`;
@@ -1126,6 +1158,7 @@ ${JSON.stringify(references)}`;
       summary: normalize(generated.parsed?.summary || `${questions.length}개 맞춤 진단 문항을 생성했습니다.`),
       model: generated.selectedModel,
       provider: "Google Gemini SDK",
+      teacherProfile: blueprint,
     });
   } catch (error) {
     console.error("[MakerOS Partner CBT Diagnostic Error]", error);
@@ -1136,7 +1169,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.31",
+    version: "3.1.32",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
@@ -1264,23 +1297,71 @@ ${source}`.trim();
   }
 });
 
+async function reviewGeneratedQuiz({ questions, sourcePages }) {
+  const reviewSource = sourcePages
+    .map((page) => `[PAGE ${page.page}]\n${page.text}`)
+    .join("\n\n")
+    .slice(0, maxSourceChars);
+  const reviewPrompt = `당신은 학교 시험 문항을 최종 검수하는 현직 교사입니다.
+아래 AI 생성 문항을 PDF 원문과 대조하여 엄격하게 검수하십시오. 문항을 고치지 말고 통과 여부만 판단합니다.
+
+반드시 거절할 조건:
+- PDF 원문만으로 정답을 확정할 수 없음
+- 정답이 둘 이상이거나 다른 선택지도 타당하게 해석될 수 있음
+- 오답이 지나치게 엉뚱하거나, 정답처럼 보이거나, 서로 사실상 중복됨
+- 제시된 정답 번호가 원문·해설·선택지별 이유와 일치하지 않음
+- 문항이 선택한 범위 밖의 지식, 최신 법령, 외부 상식을 요구함
+- 질문이 모호하거나 비문이어서 학생이 의도를 다르게 해석할 수 있음
+- 난이도·문항 유형·학습목표 분류가 실제 문항과 맞지 않음
+
+각 문항마다 아래 형식으로 판단하고 JSON만 반환하십시오.
+{"reviews":[{"index":0,"accepted":true,"sourceSupported":true,"singleCorrectAnswer":true,"distractorsPlausible":true,"answerIndex":0,"issues":[]}]}
+- index는 입력 문항의 0부터 시작하는 순번입니다.
+- answerIndex는 검수자가 PDF로 다시 확인한 정답 번호입니다.
+- 하나라도 문제가 있으면 accepted=false이고 issues에 짧은 이유를 넣습니다.
+
+검수할 문항:
+${JSON.stringify(questions)}
+
+PDF 원문:
+${reviewSource}`;
+  const generated = await generateLooseJsonWithFallback({ prompt: reviewPrompt, maxOutputTokens: 8000 });
+  const reviews = (Array.isArray(generated.parsed?.reviews) ? generated.parsed.reviews : [])
+    .map((review) => ({ ...review, model: generated.selectedModel }));
+  return {
+    questions: applyTeacherReview(questions, reviews),
+    model: generated.selectedModel,
+  };
+}
+
 app.post("/api/generate-quiz", async (req, res) => {
   try {
     if (!apiKey || !ai) return res.status(503).json({ error: "서버에 GEMINI_API_KEY가 설정되지 않았습니다." });
-    const { pages, count, difficulty, mode, fileName, examLevel, certificateName, subjects, batchNo } = req.body || {};
+    const { pages, count, difficulty, mode, fileName, examLevel, certificateName, subjects, batchNo, teacherFocus } = req.body || {};
     if (!Array.isArray(pages) || pages.length === 0) return res.status(400).json({ error: "출제할 PDF 페이지가 없습니다." });
 
     const requestedCount = Math.min(Math.max(Number(count) || 3, 1), maxQuestions);
+    const blueprint = buildTeacherQuestionBlueprint({ count: requestedCount, difficultyMode: difficulty });
     const sourcePages = buildSourcePages(pages);
     const sourceLength = sourcePages.reduce((sum, page) => sum + page.text.length, 0);
     if (sourceLength < 200) return res.status(400).json({ error: "출제 가능한 본문이 부족합니다. 텍스트가 있는 다른 페이지를 선택해 주세요." });
 
     const modelCandidates = await resolveCandidateModels();
-    const key = makeCacheKey({ count: requestedCount, difficulty, mode, examLevel, certificateName, subjects, batchNo, modelCandidates }, sourcePages);
+    const key = makeCacheKey({ count: requestedCount, difficulty, mode, examLevel, certificateName, subjects, batchNo, teacherFocus, teacherProfile: TEACHER_QUESTION_PROFILE.id, modelCandidates }, sourcePages);
     if (cache.has(key)) return res.json({ ...cache.get(key), cached: true });
 
     const source = sourcePages.map((page) => `[PAGE ${page.page}]\n${page.text}`).join("\n\n");
     const isPdfPractice = /pdf|이해도 확인|학습 자료/i.test(String(mode || ""));
+    const teacherCriteria = teacherBlueprintPrompt(blueprint, teacherFocus);
+    const metadataRules = `
+교사 기준 메타데이터 규칙:
+- difficulty는 반드시 쉬움, 보통, 어려움 중 하나입니다.
+- questionType은 반드시 핵심 개념 확인, 원리 이해, 비교·구분, 계산·적용, 상황·자료 해석 중 하나입니다.
+- learningObjective에는 학생이 이 문항으로 확인할 핵심 개념을 짧게 적습니다.
+- selectionReason에는 학습목표·수업 강조·기본 개념·핵심 원리 중 이 내용을 선정한 구체적 이유를 적습니다.
+- choiceExplanations에는 다섯 선택지 각각이 맞거나 틀린 이유를 choices와 같은 순서로 적습니다.
+- 정답 위치가 특정 번호에 몰리지 않게 전체 문항에서 고르게 배치합니다.
+- 계산·자료 해석에 필요한 근거가 본문에 없으면 억지로 만들지 말고 원리 이해나 비교·구분 문항으로 대체합니다.`;
     const prompt = isPdfPractice ? `
 당신은 학생이 PDF 학습 자료를 제대로 이해했는지 확인하는 교육용 문제 출제 도우미입니다.
 제공된 PDF 본문만 근거로 사용하고 외부 지식으로 보충하거나 수정하지 마십시오.
@@ -1298,9 +1379,12 @@ app.post("/api/generate-quiz", async (req, res) => {
 9. subject에는 자격증 과목명이 아니라 PDF 안의 단원 또는 개념 영역을 짧게 작성합니다.
 10. 요청 문제 수는 ${requestedCount}개이며 근거가 부족하면 더 적게 생성할 수 있습니다.
 
+${teacherCriteria}
+${metadataRules}
+
 파일명: ${normalize(fileName || "학습자료.pdf")}
 활동 유형: PDF 이해도 확인
-난이도: ${normalize(difficulty || "보통")}
+난이도 구성: ${normalize(blueprint.requestedDifficulty)}
 생성 묶음 번호: ${Number(batchNo) || 1}
 
 다음 PDF 본문만 사용하십시오.
@@ -1319,9 +1403,12 @@ ${source}`.trim() : `
 7. explanation은 정답 근거와 주요 오답이 틀린 이유를 설명합니다.
 8. 요청 문제 수는 ${requestedCount}개이며 근거가 부족하면 더 적게 생성할 수 있습니다.
 
+${teacherCriteria}
+${metadataRules}
+
 파일명: ${normalize(fileName || "학습자료.pdf")}
 출제 모드: ${normalize(mode || "학교시험")}
-난이도: ${normalize(difficulty || "보통")}
+난이도 구성: ${normalize(blueprint.requestedDifficulty)}
 자격 등급: ${normalize(examLevel || "일반")}
 자격 종목: ${normalize(certificateName || "미지정")}
 출제 과목: ${Array.isArray(subjects) && subjects.length ? subjects.map(normalize).join(", ") : "공통"}
@@ -1344,14 +1431,26 @@ ${source}`.trim();
     catch { throw new Error(`Gemini 응답을 JSON으로 해석하지 못했습니다: ${outputText.slice(0, 180)}`); }
     if (!Array.isArray(parsed.questions)) throw new Error("Gemini 응답에 questions 배열이 없습니다.");
 
-    const verified = deduplicateQuestions(parsed.questions.filter((question) => verifyQuestion(question, sourcePages))).slice(0, requestedCount);
-    if (verified.length === 0) return res.status(422).json({ error: "AI가 만든 문제 중 PDF 근거 검증을 통과한 문제가 없습니다. 범위를 조금 넓혀 다시 시도해 주세요." });
+    const formatVerified = deduplicateTeacherQuestions(parsed.questions.filter((question) => verifyQuestion(question, sourcePages))).slice(0, requestedCount);
+    if (formatVerified.length === 0) return res.status(422).json({ error: "AI가 만든 문제 중 PDF 근거와 교사 출제 기준을 통과한 문제가 없습니다. 범위를 조금 넓혀 다시 시도해 주세요." });
+    const review = await reviewGeneratedQuiz({ questions: formatVerified, sourcePages });
+    const verified = review.questions.slice(0, requestedCount);
+    const minimumVerified = Math.min(formatVerified.length, Math.max(1, Math.ceil(requestedCount * 0.4)));
+    if (verified.length < minimumVerified) {
+      return res.status(422).json({ error: "정답·근거·복수 정답·오답 품질 2차 검수에서 통과한 문항이 부족합니다. 범위를 넓히거나 강조 내용을 줄여 다시 시도해 주세요." });
+    }
 
     const result = {
       questions: verified,
       cached: false,
       provider: "Google Gemini SDK",
       model: selectedModel,
+      teacherProfile: {
+        ...blueprint,
+        reviewModel: review.model,
+        generatedCount: formatVerified.length,
+        verifiedCount: verified.length,
+      },
       usage: {
         input_tokens: response.usageMetadata?.promptTokenCount ?? null,
         output_tokens: response.usageMetadata?.candidatesTokenCount ?? null,
