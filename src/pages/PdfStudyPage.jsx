@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { readStudyAssets, saveStudyAssets, upsertPdfDocument } from "../utils/studyPlatform";
+import { readPdfLibrary, readStudyAssets, saveStudyAssets, upsertPdfDocument } from "../utils/studyPlatform";
 import { generateStudyAssetsFromPages } from "../utils/aiStudyAssets";
 import { postJson } from "../utils/api";
 import { sourcePageLabel } from "../utils/pdfSource";
@@ -104,17 +104,34 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
   async function generateQuiz() {
     if (readableLength < 200) { setStatus("선택한 페이지에서 읽을 수 있는 글자가 부족합니다. 텍스트 PDF를 선택하거나 범위를 넓혀 주세요."); return; }
     setBusy(true);
-    setStatus("선택한 PDF 범위를 바탕으로 이해도 확인 퀴즈를 만들고 있습니다…");
+    setStatus("1/3 · PDF 근거를 확인하고 있습니다…");
+    const stageTimers = [
+      window.setTimeout(() => setStatus("2/3 · 교사 설문 기준으로 문항을 생성하고 있습니다…"), 3500),
+      window.setTimeout(() => setStatus("3/3 · 정답·근거·복수 정답 가능성을 AI가 자동검수하고 있습니다…"), 9000),
+    ];
     try {
       const data = await postJson(
         "/api/generate-quiz",
         { pages: selectedPages, count, difficulty, teacherFocus, mode: "PDF 이해도 확인", fileName: sourceName },
         "문제 생성에 실패했습니다.",
       );
-      onStartQuiz(data.questions || [], { name: sourceName, startPage, endPage, pdfId: doc?.id, teacherProfile: data.teacherProfile || null });
+      const verifiedCount = data.questions?.length || 0;
+      onStartQuiz(data.questions || [], {
+        name: sourceName,
+        startPage,
+        endPage,
+        pdfId: doc?.id,
+        teacherProfile: data.teacherProfile || null,
+        qualityReport: data.qualityReport || null,
+        requestedCount: count,
+        generationNotice: verifiedCount < count
+          ? `요청한 ${count}문항 중 PDF 근거와 자동검수를 통과한 ${verifiedCount}문항으로 학습합니다.`
+          : `${verifiedCount}문항이 PDF 근거와 AI 자동검수를 통과했습니다. 사람 교사의 직접 검수 결과는 아닙니다.`,
+      });
     } catch (error) {
       setStatus(error.message);
     } finally {
+      stageTimers.forEach((timer) => window.clearTimeout(timer));
       setBusy(false);
     }
   }
@@ -248,7 +265,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
                 <summary>수업에서 강조한 내용 추가 <span>선택</span></summary>
                 <label>학습목표·시험 범위의 핵심 내용<textarea rows="3" maxLength="600" value={teacherFocus} onChange={(event) => setTeacherFocus(event.target.value)} placeholder="예: 직렬·병렬 회로의 차이와 옴의 법칙 계산을 중요하게 다뤘어요." /></label>
               </details>
-              <p className="pdf-teacher-note">교사 추천은 쉬움 30% · 보통 50% · 어려움 20%로 구성하고, 정답·근거·복수 정답·오답 품질을 다시 검수합니다.</p>
+              <p className="pdf-teacher-note">교사 8명 설문을 참고해 쉬움 30% · 보통 50% · 어려움 20%를 권장하고, AI가 정답·근거·복수 정답·오답 품질을 자동검수합니다. 사람 교사의 직접 검수 결과는 아닙니다.</p>
               <div className="pdf-range-summary"><span>선택 범위</span><strong>{startPage}~{endPage}쪽 · {selectedPages.length}페이지</strong></div>
               {readableLength < 200 && <p className="maker-error" role="status">{readablePages === 0 ? "선택 범위에 추출 가능한 글자가 없습니다. 스캔 PDF의 OCR은 지원하지 않습니다." : "글자가 부족합니다. 선택 범위를 넓히거나 텍스트 PDF를 사용해 주세요."}</p>}
               <div className="pdf-primary-actions"><button className="primary" disabled={busy || readableLength < 200} onClick={generateQuiz}>이해도 확인 퀴즈</button><button className="secondary" disabled={busy || readableLength < 200} onClick={generateSet}>상세 학습 자료 생성</button></div>
