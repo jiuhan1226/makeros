@@ -34,7 +34,7 @@ export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPendin
 
   return <main className="partner-page">
     <section className="partner-page-head">
-      <div><span className="partner-kicker">DEADLINE ROADMAP</span><h1>AI가 나눈 학습 일정</h1><p>입력한 목표일부터 역산해 하루 분량을 자동 배치했습니다. 날짜가 바뀌면 기간도 다시 계산됩니다.</p></div>
+      <div><span className="partner-kicker">목표 일정</span><h1>자동으로 나눈 학습 일정</h1><p>입력한 목표일부터 역산해 하루 분량을 자동 배치했습니다. 날짜가 바뀌면 기간도 다시 계산됩니다.</p></div>
       <button className="partner-primary" disabled={busy} onClick={onGeneratePlan}>{busy ? "계획 계산 중…" : active ? "재계획 만들기" : "첫 계획 만들기"}</button>
     </section>
 
@@ -55,7 +55,7 @@ export default function PartnerPlanPage({ state, onGeneratePlan, onConfirmPendin
         {["all", "certificate", "academic", ...(planCounts.other ? ["other"] : [])].map((key) => <button type="button" key={key} className={planView === key ? "active" : ""} aria-pressed={planView === key} onClick={() => setPlanView(key)}><span>{planViewLabels[key]}</span><small>{planCounts[key]}</small></button>)}
       </nav>
       <section className="partner-panel">
-        <div className="partner-section-title"><div><span>{pending ? "검토 중인 계획" : "현재 확정 계획"}</span><h2>{planView === "all" ? displaySummary : `${planViewLabels[planView]} 계획`}</h2></div><span className={`partner-status-chip ${pending ? "draft" : "active"}`}>{pending ? "확정 전" : "적용 중"}</span></div>
+        <div className="partner-section-title"><div><span>{pending ? "검토 중인 계획" : "현재 확정 계획"}</span><h2>{planView === "all" ? displaySummary : `${planViewLabels[planView]} 계획`}</h2><small className="partner-plan-origin" title={shown?.generation?.message || ""}>{shown?.generation?.label || (shown?.source === "ai+rules" ? "AI 보정 계획" : "규칙 기반 안전 계획")}</small></div><span className={`partner-status-chip ${pending ? "draft" : "active"}`}>{pending ? "확정 전" : "적용 중"}</span></div>
         <div className="partner-roadmap-grid">
           {visibleRoadmap.map((goal) => <article id={`plan-goal-${goal.goalId}`} className={`partner-roadmap-goal ${String(focusGoalId) === String(goal.goalId) ? "focus" : ""}`} key={goal.goalId}>
             <header><span>{goal.type === "academic" ? "내신" : goal.type === "certificate" ? "자격증" : goal.type === "career" ? "취업" : "대회·활동"}</span><strong>{goal.title}</strong><small>{goal.startDate && goal.deadline && goal.startDate !== goal.deadline ? `${goal.startDate} ~ ${goal.deadline}` : goal.deadline ? `목표일 ${goal.deadline}` : goal.startDate ? `시작일 ${goal.startDate}` : "장기 목표"}</small></header>
