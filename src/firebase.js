@@ -11,6 +11,7 @@ import {
 } from "firebase/auth";
 import {
   collection,
+  deleteField,
   deleteDoc,
   doc,
   getDoc,
@@ -71,19 +72,86 @@ export async function signInGoogle() {
   return signInWithPopup(auth, new GoogleAuthProvider());
 }
 
+const CLOUD_STATE_ARRAY_KEYS = [
+  "history",
+  "practiceHistory",
+  "wrongNotes",
+  "learningProgress",
+  "studyEvents",
+  "questionBookmarks",
+  "pdfQuizHistory",
+  "pdfQuizWrongNotes",
+];
+const CLOUD_STATE_CHUNK_SIZE = 80;
+const knownCloudChunkIds = new Map();
+
 export async function loadCloudState(uid) {
   if (!db) return null;
-  const snapshot = await getDoc(doc(db, "users", uid, "studylock", "state"));
-  return snapshot.exists() ? snapshot.data() : null;
+  const [snapshot, planSnapshot, partnerSnapshot, chunkSnapshot] = await Promise.all([
+    getDoc(doc(db, "users", uid, "studylock", "state")),
+    getDoc(doc(db, "users", uid, "studylock", "plan")),
+    getDoc(doc(db, "users", uid, "studylock", "partner")),
+    getDocs(collection(db, "users", uid, "studylockStateChunks")),
+  ]);
+  if (!snapshot.exists() && !planSnapshot.exists() && !partnerSnapshot.exists() && !chunkSnapshot.docs.length) return null;
+  const state = snapshot.exists() ? snapshot.data() : {};
+  const chunkGroups = {};
+  chunkSnapshot.docs.forEach((item) => {
+    const data = item.data();
+    const key = String(data.key || "");
+    if (!CLOUD_STATE_ARRAY_KEYS.includes(key) || !Array.isArray(data.items)) return;
+    (chunkGroups[key] ||= []).push({ index: Number(data.index || 0), items: data.items });
+  });
+  Object.entries(chunkGroups).forEach(([key, chunks]) => {
+    state[key] = chunks.sort((a, b) => a.index - b.index).flatMap((chunk) => chunk.items);
+  });
+  if (planSnapshot.exists()) state.plan = planSnapshot.data().value || {};
+  if (partnerSnapshot.exists()) state.partnerState = partnerSnapshot.data().value || null;
+  knownCloudChunkIds.set(uid, new Set(chunkSnapshot.docs.map((item) => item.id)));
+  return state;
 }
 
 export async function saveCloudState(uid, state) {
   if (!db) return;
-  await setDoc(
-    doc(db, "users", uid, "studylock", "state"),
-    { ...state, updatedAt: serverTimestamp() },
-    { merge: true },
-  );
+  const safeState = firestoreSafe(state, {});
+  const root = { ...safeState };
+  CLOUD_STATE_ARRAY_KEYS.forEach((key) => { root[key] = deleteField(); });
+  root.plan = deleteField();
+  root.partnerState = deleteField();
+  root.schemaVersion = 2;
+  root.updatedAt = serverTimestamp();
+
+  const operations = [];
+  const nextChunkIds = new Set();
+  CLOUD_STATE_ARRAY_KEYS.forEach((key) => {
+    const items = Array.isArray(safeState[key]) ? safeState[key] : [];
+    for (let start = 0, index = 0; start < items.length; start += CLOUD_STATE_CHUNK_SIZE, index += 1) {
+      const id = `${key}__${String(index).padStart(4, "0")}`;
+      nextChunkIds.add(id);
+      operations.push({
+        type: "set",
+        ref: doc(db, "users", uid, "studylockStateChunks", id),
+        data: { key, index, items: items.slice(start, start + CLOUD_STATE_CHUNK_SIZE), schemaVersion: 2 },
+      });
+    }
+  });
+
+  let previousChunkIds = knownCloudChunkIds.get(uid);
+  if (!previousChunkIds) {
+    const previous = await getDocs(collection(db, "users", uid, "studylockStateChunks"));
+    previousChunkIds = new Set(previous.docs.map((item) => item.id));
+  }
+  previousChunkIds.forEach((id) => {
+    if (!nextChunkIds.has(id)) operations.push({ type: "delete", ref: doc(db, "users", uid, "studylockStateChunks", id) });
+  });
+
+  await Promise.all([
+    setDoc(doc(db, "users", uid, "studylock", "state"), root, { merge: true }),
+    setDoc(doc(db, "users", uid, "studylock", "plan"), { value: safeState.plan || {}, updatedAt: serverTimestamp() }),
+    setDoc(doc(db, "users", uid, "studylock", "partner"), { value: safeState.partnerState || null, updatedAt: serverTimestamp() }),
+    commitFirestoreOperations(operations),
+  ]);
+  knownCloudChunkIds.set(uid, nextChunkIds);
 }
 
 function firestoreSafe(value, fallback) {
