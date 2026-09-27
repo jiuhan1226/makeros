@@ -1,9 +1,14 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
     match /cbt-images/{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+      // CBT 원본은 공용 학습 데이터이므로 관리자만 변경할 수 있습니다.
+      allow write: if isAdmin();
     }
   }
 }
