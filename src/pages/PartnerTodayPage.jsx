@@ -53,9 +53,10 @@ export default function PartnerTodayPage({ state, activeSession = null, onResume
   return <main className="partner-page partner-today-page">
     <section className="partner-today-hero">
       <div>
-        <span className="partner-kicker">TODAY · {todayLabel()}</span>
+        <span className="partner-kicker">오늘 · {todayLabel()}</span>
         <h1>{active ? "오늘, 목표에 가장 가까워지는 일부터." : "목표를 입력하면 오늘 할 일까지 연결해 드려요."}</h1>
         <p>{active?.summary || "목표일과 가능한 시간을 입력하면 마감일부터 역산해 이번 주와 오늘 계획을 만듭니다."}</p>
+        {active && <small className="partner-plan-origin" title={active?.generation?.message || ""}>{active?.generation?.label || (active?.source === "ai+rules" ? "AI 보정 계획" : "규칙 기반 안전 계획")}</small>}
         <div className="partner-hero-actions">
           {!active && <button className="partner-primary" disabled={busy} onClick={onGeneratePlan}>{busy ? "계획 계산 중…" : "첫 계획 만들기"}</button>}
           {active && nextItem && !isDayOff && <button className="partner-primary" onClick={() => onQuickAction?.(nextItem)}>오늘 할 일 시작</button>}
