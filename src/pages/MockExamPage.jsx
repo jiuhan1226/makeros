@@ -3,6 +3,7 @@ import {
   examDateLabel,
   examDateValue,
   examYears,
+  formatExamRound,
   mockCountOptions,
   officialQuestionCount,
   selectBalancedQuestions,
@@ -123,7 +124,7 @@ export default function MockExamPage({ exams, loadQuestions, onStart }) {
                   />
                   <span>
                     <strong>{examDateLabel(exam)}</strong>
-                    <small>{exam.round || exam.title} · {exam.questionCount || 0}문제</small>
+                    <small>{formatExamRound(exam.round) || exam.title} · {exam.questionCount || 0}문제</small>
                   </span>
                 </label>
               ))}
