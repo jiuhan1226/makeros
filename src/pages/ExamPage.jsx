@@ -24,7 +24,7 @@ function registeredExplanation(question) {
       keyPoint: question?.aiGenerated ? String(question?.learningObjective || "").trim() : "",
       choiceReasons: question?.aiGenerated ? generatedChoiceReasons : [],
       label: question?.aiGenerated
-        ? (question?.teacherReviewStatus === "verified" ? "AI 출제 · 교사 기준 검수" : "AI 맞춤 문제 해설")
+        ? (question?.teacherReviewStatus === "verified" ? "AI 출제 · 교사 설문 기준 자동검수" : "AI 맞춤 문제 해설")
         : "등록 해설",
     };
   }
