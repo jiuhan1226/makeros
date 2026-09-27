@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   applyTeacherReview,
+  auditTeacherQuestionSet,
   buildTeacherQuestionBlueprint,
   deduplicateTeacherQuestions,
   questionSimilarity,
@@ -52,5 +53,17 @@ const reviewed = applyTeacherReview([valid, { ...valid, question: "병렬 회로
 assert.equal(reviewed.length, 1);
 assert.equal(reviewed[0].teacherReviewStatus, "verified");
 assert.equal(reviewed[0].teacherReviewModel, "review-model");
+assert.equal(reviewed[0].reviewMethod, "teacher-survey-ai-review");
+
+const audited = auditTeacherQuestionSet([
+  { ...valid, difficulty: "쉬움", questionType: "핵심 개념 확인", answerIndex: 0 },
+  { ...valid, question: "병렬 회로의 전압 관계를 고르시오.", difficulty: "보통", questionType: "원리 이해", answerIndex: 1 },
+  { ...valid, question: "직렬 회로와 병렬 회로를 비교한 것은?", difficulty: "보통", questionType: "비교·구분", answerIndex: 2 },
+  { ...valid, question: "옴의 법칙을 회로에 적용한 값은?", difficulty: "어려움", questionType: "계산·적용", answerIndex: 3 },
+  { ...valid, question: "제시된 회로 상황을 해석한 것은?", difficulty: "보통", questionType: "상황·자료 해석", answerIndex: 4 },
+], buildTeacherQuestionBlueprint({ count: 5 }));
+assert.equal(audited.humanReviewed, false, "AI 자동검수를 사람 검수로 표시하면 안 됩니다.");
+assert.equal(audited.verifiedCount, 5);
+assert.equal(audited.answerPositions.reduce((sum, count) => sum + count, 0), 5);
 
 console.log("teacher-question-design-test: ok");
