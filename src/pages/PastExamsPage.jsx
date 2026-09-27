@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { examYears } from "../utils/exam";
+import { examYears, formatExamRound } from "../utils/exam";
 
 function subjectOf(question) {
   return String(question?.subject || "공통").trim() || "공통";
@@ -89,7 +89,7 @@ export default function PastExamsPage({ exams = [], loadQuestions, resumeSession
           const isResumable = Boolean(resumable);
           return <article className="exam-card modern-exam-card" key={exam.id}>
             <span className="cbt-badge">CBT</span>
-            <h3>{exam.round}</h3>
+            <h3>{formatExamRound(exam.round)}</h3>
             <p>{exam.questionCount || 0}문제 · {exam.durationMinutes || 0}분</p>
             <div className="exam-subject-chips">{[...counts.entries()].map(([subject, count]) => <button key={subject} onClick={() => openSubject(subject)}>{subject} <b>{count}</b></button>)}</div>
             {isResumable && <div className="exam-resume-progress"><span style={{ width: `${Math.max(0, Math.min(100, (resumable.answered / Math.max(1, resumable.total)) * 100))}%` }}/></div>}
