@@ -131,7 +131,7 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
                 {certificateName && <button type="button" onClick={() => navigate("learning")}>자격증 AI 추천</button>}
                 {certificateName && <button type="button" onClick={() => navigate("planner")}>자격증 시험 계획</button>}
               </nav>
-              <span>성장 기록 도구</span>
+              <span>진로·포트폴리오</span>
               <nav>
                 <button type="button" onClick={() => navigate("makerHome")}>성장 홈</button>
                 <button type="button" onClick={() => navigate("invent")}>발명</button>
@@ -165,7 +165,7 @@ export default function AppHeader({ active, onNavigate, certificateName, certifi
         <section><span>내 자격증 바로가기</span><nav>{certificateShortcuts.length ? certificateShortcuts.map((item) => <button key={item.goalId} onClick={() => openCertificateGoal(item.goalId, true)}>{item.name} CBT{item.supported ? "" : " · DB 없음"}</button>) : <button onClick={() => navigate("partnerGoals")}>자격증 일정 추가</button>}</nav></section>
         <section><span>자격증</span><nav><button className={active === "catalog" ? "active" : ""} onClick={() => navigate("catalog")}>전체 자격증</button>{certificateItems.filter(([key]) => key !== "catalog").map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
         <section><span>내신</span><nav>{schoolItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
-        <section><span>만들기·진로</span><nav>{legacyItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
+        <section><span>진로·포트폴리오</span><nav>{legacyItems.map(([key, label]) => <button key={key} className={active === key ? "active" : ""} onClick={() => navigate(key)}>{label}</button>)}</nav></section>
       </div>
       <footer><button type="button" onClick={() => { setMobileMenuOpen(false); onTutorial?.(); }}>사용법</button><button type="button" onClick={() => navigate("knowledge")}>통합 검색</button>{isAdmin && <button type="button" onClick={() => navigate("admin")}>관리자</button>}<button type="button" className="primary" onClick={handleAccount}>{user ? "계정 관리" : "로그인"}</button></footer>
     </aside>
