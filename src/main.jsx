@@ -45,7 +45,7 @@ import PartnerGoalsPage from "./pages/PartnerGoalsPage";
 import DataManagementPage from "./pages/DataManagementPage";
 import { shuffle } from "./utils/exam";
 import { useExamSession } from "./hooks/useExamSession";
-import { assetId, readPdfLibrary, readStudyAssets, savePdfLibrary, saveStudyAssets } from "./utils/studyPlatform";
+import { assetId, hydratePdfLibrary, readPdfLibrary, readStudyAssets, savePdfLibrary, saveStudyAssets } from "./utils/studyPlatform";
 import { createBuildProject as makeBuildProject, readMakerState, saveMakerState } from "./utils/makerPlatform";
 import { generateStudyAssetsFromPages } from "./utils/aiStudyAssets";
 import { postJson } from "./utils/api";
@@ -287,6 +287,13 @@ function App() {
       setActiveCertificateId(matched.id || "");
     }
   }, [certificate?.id, certificates, certificatesLoaded, partnerCertificateGoals]);
+  useEffect(() => {
+    let active = true;
+    hydratePdfLibrary()
+      .then((items) => { if (active) setPdfLibrary(items); })
+      .catch((error) => console.warn("PDF 학습 자료를 불러오지 못했습니다.", error));
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     const sync = () => { setPdfLibrary(readPdfLibrary()); setAssets(readStudyAssets()); };
     window.addEventListener("studylock:pdf-library", sync);
@@ -959,6 +966,7 @@ function App() {
       let diagnosticQuestions = [];
       let generationMode = "ai";
       let generationNotice = "";
+      let diagnosticQualityReport = null;
       try {
         const generated = await postJson(
           "/api/partner/cbt-diagnostic",
@@ -972,7 +980,8 @@ function App() {
           "맞춤 진단 문제 생성에 실패했습니다.",
         );
         diagnosticQuestions = normalizeGeneratedDiagnostic(generated.questions, target);
-        generationNotice = generated.summary || "";
+        diagnosticQualityReport = generated.qualityReport || null;
+        generationNotice = `${generated.summary || `${diagnosticQuestions.length}개 맞춤 문항을 만들었습니다.`} 교사 설문 기준 AI 자동검수 결과이며 사람 교사의 직접 검수는 아닙니다.`;
       } catch (generationError) {
         console.warn("맞춤 진단 AI 생성 실패, 선별 기출로 전환:", generationError);
         generationMode = "past-question-fallback";
@@ -996,6 +1005,7 @@ function App() {
         partnerItemId: item.id,
         generationMode,
         generationNotice,
+        qualityReport: diagnosticQualityReport,
         diagnosticProfile: profile,
       }, diagnosticQuestions, focusWeak ? "연습모드" : "실전모드");
       setPartnerLearningAction({ itemId: item.id, status: "ready", message: generationNotice });
@@ -1160,6 +1170,10 @@ function App() {
       sourceName: meta?.name || "PDF",
       returnPage: "pdfstudy",
       teacherProfile: meta?.teacherProfile || null,
+      qualityReport: meta?.qualityReport || null,
+      requestedQuestionCount: Number(meta?.requestedCount || normalized.length),
+      generationMode: "ai",
+      generationNotice: meta?.generationNotice || "PDF 근거와 AI 자동검수를 통과한 문항입니다.",
     }, normalized, "연습모드");
     setPage("exam");
   }
@@ -1260,7 +1274,14 @@ function App() {
         ? recordChangeEvent(partnerState, trigger)
         : normalizePartnerState(partnerState);
       const latestEvent = baseState.changeEvents?.[0];
-      const fallbackPlan = buildDeterministicPlan(baseState, { basedOnEventId: latestEvent?.id || "", source: "rules" });
+      const fallbackPlan = {
+        ...buildDeterministicPlan(baseState, { basedOnEventId: latestEvent?.id || "", source: "rules" }),
+        generation: {
+          method: "rules",
+          label: "규칙 기반 안전 계획",
+          message: "입력한 날짜·가능 시간·고정 일정을 계산해 만든 계획입니다.",
+        },
+      };
       let finalPlan = fallbackPlan;
       try {
         const response = await postJson(
@@ -1273,9 +1294,24 @@ function App() {
             },
             "AI 계획 생성에 실패했습니다.",
           );
-        finalPlan = mergeAiPlan(response?.plan, fallbackPlan, baseState);
+        finalPlan = {
+          ...mergeAiPlan(response?.plan, fallbackPlan, baseState),
+          generation: {
+            method: "ai-assisted",
+            label: "AI 보정 계획",
+            message: "안전 계산 계획을 유지하면서 AI가 우선순위와 설명을 다듬었습니다.",
+            model: String(response?.model || ""),
+          },
+        };
       } catch (error) {
         console.warn("[MakerOS AI Partner] AI 계획 생성 실패, 규칙 기반 계획 사용:", error.message);
+        finalPlan = {
+          ...fallbackPlan,
+          generation: {
+            ...fallbackPlan.generation,
+            message: "AI 연결이 지연되어 입력 정보만으로 안전하게 계산한 계획을 사용했습니다.",
+          },
+        };
       }
       setPartnerState(createPlanVersion(baseState, finalPlan, { activate: !getActivePartnerPlan(baseState) }));
       if (destination) setPage(destination);
