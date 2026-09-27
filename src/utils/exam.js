@@ -6,7 +6,7 @@ export function formatTime(seconds = 0) {
 }
 
 export function formatExamRound(round) {
-  const value = String(round ?? "").trim();
+  const value = String(round ?? "").trim().replace(/(\d+)\s*회(?:\s*회)+/g, "$1회");
   if (!value) return "";
   // Imported CBT data is not consistent: both `3` and `3회` are used.
   // Keep descriptive/date labels intact and append the unit only to a bare number.
