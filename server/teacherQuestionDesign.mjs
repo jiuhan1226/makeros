@@ -127,8 +127,69 @@ export function applyTeacherReview(questions = [], reviews = []) {
       ...question,
       aiGenerated: true,
       teacherReviewStatus: "verified",
+      reviewMethod: "teacher-survey-ai-review",
       teacherReviewModel: normalizeText(review?.model || ""),
     }];
   });
 }
 
+function countLabels(items, key, labels) {
+  const counts = Object.fromEntries(labels.map((label) => [label, 0]));
+  items.forEach((item) => {
+    const label = normalizeText(item?.[key]);
+    if (Object.hasOwn(counts, label)) counts[label] += 1;
+  });
+  return counts;
+}
+
+function distributionDistance(actual, expected, total) {
+  if (!total) return 0;
+  return Object.keys(expected).reduce((sum, label) => sum + Math.abs(Number(actual[label] || 0) - Number(expected[label] || 0)), 0) / (2 * total);
+}
+
+/**
+ * Produces a deterministic quality report for the final question set.
+ * This does not claim that AI review is human review. It exposes the actual
+ * distribution and the limits of the automatic checks to the client.
+ */
+export function auditTeacherQuestionSet(questions = [], blueprint = {}) {
+  const items = Array.isArray(questions) ? questions : [];
+  const total = items.length;
+  const difficulty = countLabels(items, "difficulty", DIFFICULTY_LABELS);
+  const questionTypes = countLabels(items, "questionType", QUESTION_TYPE_LABELS);
+  const answerPositions = Array.from({ length: 5 }, (_, answerIndex) => items.filter((item) => Number(item?.answerIndex) === answerIndex).length);
+  let maxSimilarity = 0;
+  for (let left = 0; left < items.length; left += 1) {
+    for (let right = left + 1; right < items.length; right += 1) {
+      maxSimilarity = Math.max(maxSimilarity, questionSimilarity(items[left]?.question, items[right]?.question));
+    }
+  }
+  const expectedForActualCount = buildTeacherQuestionBlueprint({
+    count: Math.max(1, total),
+    difficultyMode: blueprint?.requestedDifficulty || "교사 추천 혼합",
+  });
+  const difficultyDistance = distributionDistance(difficulty, expectedForActualCount.difficulty, total);
+  const typeDistance = distributionDistance(questionTypes, expectedForActualCount.questionTypes, total);
+  const usedAnswerPositions = answerPositions.filter((count) => count > 0).length;
+  const maxAnswerShare = total ? Math.max(...answerPositions) / total : 0;
+  const issues = [];
+  if (total < Number(blueprint?.total || total)) issues.push(`요청 ${Number(blueprint?.total || total)}문항 중 자동검수를 통과한 ${total}문항만 제공`);
+  if (difficultyDistance > 0.2) issues.push("최종 문항의 난이도 비율이 교사 설문 권장 비율과 다름");
+  if (typeDistance > 0.35) issues.push("최종 문항 유형 구성이 권장 구성과 다름");
+  if (total >= 5 && (usedAnswerPositions < 3 || maxAnswerShare > 0.5)) issues.push("정답 위치가 일부 번호에 치우침");
+  if (maxSimilarity >= 0.72) issues.push("서로 유사한 문항이 남아 있음");
+  return {
+    method: "teacher-survey-ai-review",
+    humanReviewed: false,
+    requestedCount: Number(blueprint?.total || total),
+    verifiedCount: total,
+    difficulty,
+    questionTypes,
+    answerPositions,
+    maxSimilarity: Number(maxSimilarity.toFixed(3)),
+    difficultyDistance: Number(difficultyDistance.toFixed(3)),
+    typeDistance: Number(typeDistance.toFixed(3)),
+    passed: total > 0 && issues.length === 0,
+    issues,
+  };
+}
