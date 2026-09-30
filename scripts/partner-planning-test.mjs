@@ -43,7 +43,7 @@ assert.ok(plan.weeks.at(-1).endsAt >= '2027-01-10', '계획 마지막 주가 가
 assert.ok(plan.today.items.length >= 1 && plan.today.items.length <= 5, '오늘 계획은 1~5개여야 합니다.');
 assert.ok(plan.weeks.every((week) => week.totalMinutes <= plan.constraints.weeklyAvailableMinutes), '주간 계획이 가능 시간을 넘으면 안 됩니다.');
 assert.ok(plan.today.totalMinutes <= plan.today.availableMinutes, '오늘 계획이 오늘 가능 시간을 넘으면 안 됩니다.');
-assert.equal(plan.algorithmVersion, 4, '고정 일정까지 차감하는 새 분배 알고리즘을 사용해야 합니다.');
+assert.equal(plan.algorithmVersion, 5, '날짜 경계와 실제 학습량을 구분하는 분배 알고리즘을 사용해야 합니다.');
 assert.ok(plan.roadmap.some((goal) => goal.type === 'academic'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'certificate'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'career'));
@@ -130,7 +130,8 @@ let completionState = createPlanVersion(base, buildDeterministicPlan(base, { tod
 const completionItem = getActivePartnerPlan(completionState).today.items[0];
 completionState = updateTodayItemStatus(completionState, completionItem.id, 'completed', { score: 80 });
 const transferred = transferPlanProgress(getActivePartnerPlan(completionState), buildDeterministicPlan(completionState, { today: '2026-09-14' }));
-assert.ok(transferred.weeks.flatMap((week) => week.items).some((item) => item.status === 'completed'), '재계획 후에도 완료 상태가 유지되어야 합니다.');
+assert.ok(transferred.today.items.some((item) => item.status === 'completed'), '재계획 후에도 오늘 완료 상태가 유지되어야 합니다.');
+assert.ok(transferred.weeks.flatMap((week) => week.items).some((item) => ['completed','in_progress'].includes(item.status)), '일부만 배정된 주간 항목은 진행 중으로 남겨야 합니다.');
 const beforeRolloverId = completionState.activePlanVersionId;
 completionState = rolloverPartnerDay(completionState, { today: '2026-09-15' });
 assert.equal(getActivePartnerPlan(completionState).today.date, '2026-09-15', '날짜 변경 시 오늘 계획 날짜가 자동 갱신되어야 합니다.');
@@ -147,7 +148,8 @@ assert.equal(new Set(repeatedActive.weeks[0].items.map((item) => item.taskKey)).
 const repeatedTodayItem = repeatedActive.today.items[0];
 repeatedPlanState = updateTodayItemStatus(repeatedPlanState, repeatedTodayItem.id, 'completed', { score: 90 });
 const repeatedTransferred = transferPlanProgress(getActivePartnerPlan(repeatedPlanState), buildDeterministicPlan(repeatedPlanState, { today: '2026-09-14' }));
-assert.equal(repeatedTransferred.weeks[0].items.filter((item) => item.status === 'completed').length, 1, '한 회차 완료가 같은 제목의 이후 회차까지 완료 처리하면 안 됩니다.');
+assert.ok(repeatedTransferred.weeks[0].items.filter((item) => item.status === 'completed').length <= 1, '한 회차 완료가 같은 제목의 이후 회차까지 완료 처리하면 안 됩니다.');
+assert.equal(repeatedTransferred.today.items[0].status, 'completed');
 
 const brokenActive = getActivePartnerPlan(repeatedPlanState);
 repeatedPlanState = normalizePartnerState({
