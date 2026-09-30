@@ -93,7 +93,8 @@ import {
   findCertificateForGoal,
 } from "./utils/certificateRouting";
 import { deduplicateQuestions, questionContentKey, removeQuestionFromList } from "./utils/questionDedup";
-import { CBT_ROUND_SIZE, calculateCbtBlockProgress, selectContinuousPastQuestions } from "./utils/continuousCbt";
+import { CBT_ROUND_SIZE, calculateCbtBlockProgress, selectContinuousPastQuestions, roundQuestionCount } from "./utils/continuousCbt";
+import { applyDailyCbtProgress, studySessionSnapshot, upsertStudySession } from './utils/cbtStudyLedger';
 import "./styles.css";
 
 const AdminPage = lazy(() => import("./pages/AdminPage"));
@@ -212,9 +213,26 @@ function App() {
   const [partnerBusy, setPartnerBusy] = useState(false);
   const [partnerLearningAction, setPartnerLearningAction] = useState({ itemId: "", status: "idle", message: "" });
   const [planFocusGoalId, setPlanFocusGoalId] = useState("");
+  const [academicGoalContext, setAcademicGoalContext] = useState(null);
   const knownPartnerCertificateGoalIds = useRef(null);
-  const session = useExamSession({ userId: user?.uid || "" });
+  const session = useExamSession({ userId: user?.uid || "", active: page === 'exam' });
   const recordedSessionIds = useRef(new Set());
+  const cbtLaunchBusy = useRef(false);
+  const activePlanDate = getActivePartnerPlan(partnerState)?.today?.date;
+  useEffect(() => {
+    if (!session.restoring && session.exam?.studyBlockDate && activePlanDate
+      && session.exam.studyBlockDate !== activePlanDate) {
+      saveStudyBlockProgress(false, true);
+      session.detachDailyBlock();
+    }
+  }, [session.restoring, session.exam?.studyBlockDate, activePlanDate]);
+  useEffect(() => {
+    if (!session.restoring && session.lastSavedAt && session.exam?.studyBlockTargetMinutes) saveStudyBlockProgress();
+  }, [session.lastSavedAt, session.restoring]);
+  useEffect(() => {
+    if (session.restoring || !session.exam?.studyBlockTargetMinutes) return;
+    recordAnsweredProgress(session.questions.map((question, index) => ({ question, index, answer: session.answers[index] })).filter((entry) => entry.answer !== undefined), resolveStudyScope(session.exam, session.mode));
+  }, [session.answers, session.restoring]);
   const partnerCertificateGoals = useMemo(() => normalizePartnerState(partnerState).certificateGoals, [partnerState]);
   const certificateShortcuts = useMemo(
     () => buildCertificateShortcuts(partnerCertificateGoals, certificates),
@@ -574,12 +592,26 @@ function App() {
     }
   }
 
+  function saveStudyBlockProgress(endedEarly = false, final = false) {
+    if (!session.exam?.studyBlockTargetMinutes) return;
+    const snapshot = { ...studySessionSnapshot(session, { date: getActivePartnerPlan(partnerState)?.today?.date, endedEarly }), final };
+    setPartnerState((previous) => {
+      const normalized = normalizePartnerState(previous);
+      const cbtStudySessions = upsertStudySession(normalized.cbtStudySessions, snapshot);
+      if (cbtStudySessions === normalized.cbtStudySessions) return previous;
+      return { ...normalized, cbtStudySessions,
+        planVersions: normalized.planVersions.map((plan) => applyDailyCbtProgress(plan, cbtStudySessions)), lastUpdatedAt: Date.now() };
+    });
+  }
+
   function recordFinishedSession({ forceCompleteBlock = false } = {}) {
+    saveStudyBlockProgress(forceCompleteBlock, true);
     if (!session.submitted || !session.questions.length) return;
     const recordId = `${session.startedAt}:${session.exam?.id || "exam"}`;
-    if (recordedSessionIds.current.has(recordId)) return null;
+    if (recordedSessionIds.current.has(recordId) || [...history, ...practiceHistory, ...pdfQuizHistory].some((row) => row.sessionId === `${session.startedAt}`)) return null;
     recordedSessionIds.current.add(recordId);
     const result = session.result;
+    if (result.assessmentType === 'practice' && !result.answered) return null;
     const now = Date.now();
     const scope = resolveStudyScope(session.exam, session.mode);
     const answeredEntries = session.questions
@@ -624,7 +656,7 @@ function App() {
       setPdfQuizWrongNotes((previous) => [...wrong.map((question) => ({ ...question, pdfId, sourceName, sourceType: "PDF" })), ...previous].slice(0, 1500));
       setPartnerState((previous) => {
         const normalized = normalizePartnerState(previous);
-        const weakSubjects = [...(result.subjects || [])]
+        const weakSubjects = [...(result.subjects || [])].filter((item) => Number(item.wrong || 0) > 0)
           .sort((a, b) => Number(a.score || 0) - Number(b.score || 0) || Number(b.wrong || 0) - Number(a.wrong || 0))
           .slice(0, 3)
           .map((item) => item.subject)
@@ -632,6 +664,7 @@ function App() {
         const signal = {
           id: `pdf-signal-${now}`,
           type: "pdf_quiz",
+          goalId: session.exam?.partnerGoalId || '',
           pdfId,
           sourceName,
           score: result.score,
@@ -643,11 +676,11 @@ function App() {
         let next = normalizePartnerState({ ...normalized, learningSignals: [signal, ...normalized.learningSignals].slice(0, 100) });
         next = recordChangeEvent(next, {
           type: "study_result_saved",
-          label: `${sourceName} 이해도 확인 ${result.score}점이 저장되어 내신 계획에 반영됩니다.`,
+          label: `${sourceName} 이해도 확인 ${result.score}점이 저장되었습니다.${signal.goalId ? ' 연결된 내신 목표에 반영합니다.' : ''}`,
           after: { score: result.score, weakSubjects },
           actor: "system",
         });
-        const hasAcademicGoal = next.goals.some((goal) => goal.type === "academic" || /내신|과목|시험|수행평가/.test(`${goal.title || ""} ${goal.details || ""}`));
+        const hasAcademicGoal = next.goals.some((goal) => goal.id === signal.goalId);
         if (!hasAcademicGoal || !getActivePartnerPlan(next)) return next;
         const replanned = buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" });
         return createPlanVersion(next, replanned, { activate: false });
@@ -661,6 +694,7 @@ function App() {
     const blockProgress = isStudyBlock ? calculateCbtBlockProgress({
       targetMinutes: session.exam.studyBlockTargetMinutes,
       completedMinutes: session.exam.studyBlockCompletedMinutes,
+      completedSeconds: session.exam.studyBlockCompletedSeconds,
       elapsedSeconds: session.elapsedSeconds,
       answeredCount: result.answered,
       forceComplete: forceCompleteBlock,
@@ -692,7 +726,7 @@ function App() {
     setPartnerState((previous) => {
       const normalized = normalizePartnerState(previous);
       const activeBefore = getActivePartnerPlan(normalized);
-      const completedItem = (activeBefore?.today?.items || []).find((item) => item.id === session.exam?.partnerItemId);
+      const completedItem = !isStudyBlock && (activeBefore?.today?.items || []).find((item) => item.id === session.exam?.partnerItemId);
       const itemStatus = blockProgress ? (blockProgress.completed ? "completed" : "in_progress") : "completed";
       const itemResult = blockProgress ? {
         ...(completedItem?.result || {}),
@@ -724,14 +758,15 @@ function App() {
       if (!target?.name) return next;
       const sameTarget = !certificateName || target.name === certificateName || target.id === certificateId;
       if (!sameTarget) return next;
-      const weakestSubjects = [...(result.subjects || [])]
+      const weakestSubjects = [...(result.subjects || [])].filter((item) => Number(item.wrong || 0) > 0)
         .sort((a, b) => Number(a.score || 0) - Number(b.score || 0) || Number(b.wrong || 0) - Number(a.wrong || 0))
         .slice(0, 3)
         .map((item) => item.subject)
         .filter(Boolean);
       const updatedTarget = {
           ...target,
-          cbtAccuracy: result.score,
+          ...(result.assessmentType === 'exam' ? { cbtAccuracy: result.score } : {}),
+          lastPracticeScore: result.score,
           weakSubjects: weakestSubjects,
           lastCbtAt: now,
           lastDiagnostic: session.exam?.studyScope === "diagnostic" ? {
@@ -754,7 +789,7 @@ function App() {
         after: { cbtAccuracy: result.score },
         actor: "system",
       });
-      if (!getActivePartnerPlan(next) || (blockProgress && !blockProgress.completed)) return next;
+      if (!getActivePartnerPlan(next) || blockProgress) return next;
       const completedPlan = getActivePartnerPlan(next);
       const replanned = transferPlanProgress(completedPlan, buildDeterministicPlan(next, { basedOnEventId: next.changeEvents[0]?.id || "", source: "rules" }));
       return createPlanVersion(next, replanned, { activate: false });
@@ -821,6 +856,14 @@ function App() {
   }
 
   async function resetLearningData(targetCertificateId = "") {
+    if (!targetCertificateId) await session.clearAllDrafts();
+    else if (session.exam?.certificateId === targetCertificateId) session.clearCheckpoint();
+    setPartnerState((previous) => {
+      const next = normalizePartnerState(previous);
+      const affected = new Set(next.cbtStudySessions.filter((s) => !targetCertificateId || s.certificateId === targetCertificateId).map((s) => s.goalId));
+      return { ...next, cbtStudySessions: next.cbtStudySessions.filter((s) => targetCertificateId && s.certificateId !== targetCertificateId),
+        planVersions: next.planVersions.map((plan) => ({ ...plan, today: { ...plan.today, items: (plan.today?.items || []).map((item) => item.action === 'cbt' && (!targetCertificateId || affected.has(item.goalId)) ? { ...item, result: {}, status: 'todo' } : item) } })) };
+    });
     if (targetCertificateId) {
       setAttemptEvents((items) => items.filter((item) => item.certificateId !== targetCertificateId));
       setLearningProgress((items) => items.filter((item) => item.certificateId !== targetCertificateId));
@@ -864,6 +907,7 @@ function App() {
 
   function navigate(next) {
     const destination = next === "topic" ? "all" : next;
+    if (!['library', 'pdfstudy', 'exam'].includes(destination)) setAcademicGoalContext(null);
     if (!certificate && ["certificate", "past", "subject", "all", "saved", "mock", "bookmark", "search", "planner", "learning", "report"].includes(destination)) {
       setPage("catalog");
       return;
@@ -956,6 +1000,9 @@ function App() {
   }
 
   async function startPartnerCbtAction(item) {
+    if (cbtLaunchBusy.current) return;
+    if (session.exam?.partnerGoalId === item.goalId && session.resumable
+      && session.exam.studyBlockDate === getActivePartnerPlan(partnerState)?.today?.date) { setPage('exam'); return; }
     const linkedGoal = partnerCertificateGoal(item);
     const target = partnerTargetCertificate(item);
     if (!target) {
@@ -966,6 +1013,7 @@ function App() {
       }
       return;
     }
+    cbtLaunchBusy.current = true;
     try {
       setPartnerLearningAction({ itemId: item.id, status: "analyzing", message: "미풀이 기출과 최근 오답을 골라 다음 세트를 준비하고 있어요." });
       setCertificate(target);
@@ -974,21 +1022,24 @@ function App() {
       const targetProgress = certificate?.id === target.id ? certificateLearningProgress : learningProgress.filter((row) => row.certificateId === target.id);
       const activePlan = getActivePartnerPlan(partnerState);
       const savedItem = (activePlan?.today?.items || []).find((row) => row.id === item.id) || item;
+      const targetMinutes = Math.max(15, Number(savedItem.durationMinutes || item.durationMinutes || 40));
+      const completedMinutes = Math.max(0, Number(savedItem?.result?.completedMinutes || 0));
+      const completedSeconds = Number(savedItem?.result?.completedSeconds ?? completedMinutes * 60);
+      const remainingMinutes = Math.max(0, targetMinutes - completedSeconds / 60);
+      if (remainingMinutes <= 0 || savedItem.status === 'completed') {
+        setPartnerLearningAction({ itemId: item.id, status: 'ready', message: '오늘 목표를 마쳤습니다.' }); return;
+      }
       const seenQuestionIds = savedItem?.result?.seenQuestionIds || [];
       const selection = selectContinuousPastQuestions({
         questions: questionPool,
         progress: targetProgress,
         seenQuestionIds,
         recentWrongQuestions: wrongNotes.filter((row) => row.certificateId === target.id).slice(0, 100),
-        limit: Math.min(CBT_ROUND_SIZE, questionPool.length),
+        limit: roundQuestionCount(remainingMinutes, (partnerState.cbtStudySessions || []).filter((s) => s.certificateId === target.id)),
       });
-      if (selection.questions.length < 4) throw new Error("이어 풀 기출문제를 충분히 구성하지 못했습니다. 잠시 후 다시 시도해 주세요.");
-      const targetMinutes = Math.max(15, Number(savedItem.durationMinutes || item.durationMinutes || 40));
-      const completedMinutes = Math.max(0, Number(savedItem?.result?.completedMinutes || 0));
-      const generationNotice = selection.unseenCount === selection.questions.length
-        ? `실제 과년도 DB에서 아직 풀지 않은 ${selection.questions.length}문제를 골랐습니다.`
-        : `실제 과년도 DB에서 미풀이 ${selection.unseenCount}문제와 오답·유사 유형 ${selection.reviewCount}문제를 골랐습니다.`;
-      session.start({
+      if (!selection.questions.length) throw new Error('정답·선택지가 유효한 기출문제가 없습니다.');
+      const generationNotice = `기출 ${selection.questions.length}문제 · 오답/복습 ${selection.reviewCount} · 같은 유형 ${selection.similarCount} · 미풀이 ${selection.unseenCount} (같은 유형 포함)`;
+      const started = session.start({
         id: `continuous-past-${Date.now()}`,
         title: "과년도 기출 이어풀기",
         durationMinutes: Math.min(30, Math.max(10, selection.questions.length * 2)),
@@ -1000,51 +1051,65 @@ function App() {
         certificateId: target.id || "",
         certificateName: target.name || "",
         partnerItemId: item.id,
+        partnerGoalId: item.goalId,
+        studyBlockDate: activePlan?.today?.date || new Date().toLocaleDateString('en-CA'),
         generationMode: "past-question-routine",
         generationNotice,
         studyBlockTargetMinutes: targetMinutes,
         studyBlockCompletedMinutes: completedMinutes,
+        studyBlockCompletedSeconds: completedSeconds,
         studyBlockSeenIds: seenQuestionIds,
         studyBlockRound: Number(savedItem?.result?.roundCount || 0) + 1,
       }, selection.questions, "연습모드");
+      if (!started) { setPartnerLearningAction(null); return; }
       setPartnerLearningAction({ itemId: item.id, status: "ready", message: generationNotice });
       setPage("exam");
     } catch (error) {
       console.error("파트너 CBT 실행 실패:", error);
       showPartnerCbtError(item, error?.message || "맞춤 학습을 시작하지 못했습니다.", error?.actionPage, error?.actionLabel);
+    } finally {
+      cbtLaunchBusy.current = false;
     }
   }
 
   async function continuePartnerCbtRound() {
-    if (!session.submitted || !session.exam?.studyBlockTargetMinutes) return;
+    if (cbtLaunchBusy.current || !session.submitted || !session.exam?.studyBlockTargetMinutes) return;
+    cbtLaunchBusy.current = true;
     const answeredCount = session.result.answered;
     const blockProgress = calculateCbtBlockProgress({
       targetMinutes: session.exam.studyBlockTargetMinutes,
       completedMinutes: session.exam.studyBlockCompletedMinutes,
+      completedSeconds: session.exam.studyBlockCompletedSeconds,
       elapsedSeconds: session.elapsedSeconds,
       answeredCount,
     });
     recordFinishedSession();
-    if (blockProgress.completed) {
+    if (blockProgress.completed || session.exam.studyBlockDate !== getActivePartnerPlan(partnerState)?.today?.date) {
       session.clearCheckpoint();
       setPage("partnerToday");
+      cbtLaunchBusy.current = false;
       return;
     }
     const target = certificates.find((item) => item.id === session.exam.certificateId) || certificate;
-    if (!target) return;
+    if (!target) { cbtLaunchBusy.current = false; return; }
     try {
       setPartnerLearningAction({ itemId: session.exam.partnerItemId, status: "analyzing", message: "방금 틀린 문제와 같은 유형을 다음 기출에서 찾고 있어요." });
       const questionPool = await loadCertificateQuestionPool(target);
       const wrongThisRound = session.questions.filter((question, index) => session.answers[index] !== undefined && Number(session.answers[index]) !== Number(question.answerIndex));
-      const seenQuestionIds = [...new Set([...(session.exam.studyBlockSeenIds || []), ...session.questions.map(questionProgressId)])];
-      const targetProgress = learningProgress.filter((row) => row.certificateId === target.id);
+      const answeredQuestions = session.questions.filter((q,i) => session.answers[i] !== undefined);
+      const seenQuestionIds = [...new Set([...(session.exam.studyBlockSeenIds || []), ...answeredQuestions.map(questionProgressId)])];
+      const targetProgress = session.questions.reduce((rows, question, index) => session.answers[index] === undefined ? rows : mergeLearningProgress(rows, {
+        question, exam: session.exam, mode: session.mode, selectedAnswerIndex: session.answers[index],
+        isCorrect: Number(session.answers[index]) === Number(question.answerIndex), attemptId: `${session.startedAt}:${question.id || index}`,
+      }), learningProgress.filter((row) => row.certificateId === target.id));
       const selection = selectContinuousPastQuestions({
         questions: questionPool,
         progress: targetProgress,
         seenQuestionIds,
         recentWrongQuestions: [...wrongThisRound, ...wrongNotes.filter((row) => row.certificateId === target.id).slice(0, 100)],
-        limit: Math.min(CBT_ROUND_SIZE, questionPool.length),
+        limit: roundQuestionCount(blockProgress.remainingMinutes, [...(partnerState.cbtStudySessions || []).filter((s) => s.certificateId === target.id), { answered: answeredCount, durationSeconds: session.elapsedSeconds }]),
       });
+      if (!selection.questions.length) throw new Error('정답·선택지가 유효한 기출문제가 없습니다.');
       const generationNotice = `남은 목표 ${blockProgress.remainingMinutes}분 · 미풀이 ${selection.unseenCount}문제와 방금 오답에 가까운 유형을 우선 배치했습니다.`;
       session.clearCheckpoint();
       session.start({
@@ -1052,6 +1117,7 @@ function App() {
         id: `continuous-past-${Date.now()}`,
         title: "과년도 기출 이어풀기",
         studyBlockCompletedMinutes: blockProgress.completedMinutes,
+        studyBlockCompletedSeconds: blockProgress.completedSeconds,
         studyBlockSeenIds: seenQuestionIds,
         studyBlockRound: Number(session.exam.studyBlockRound || 1) + 1,
         generationNotice,
@@ -1062,6 +1128,8 @@ function App() {
       console.error("다음 기출 세트 구성 실패:", error);
       showPartnerCbtError({ id: session.exam.partnerItemId }, error?.message || "다음 기출 세트를 준비하지 못했습니다.");
       setPage("partnerToday");
+    } finally {
+      cbtLaunchBusy.current = false;
     }
   }
 
@@ -1076,6 +1144,7 @@ function App() {
       startPartnerCbtAction(item);
       return;
     }
+    if (item?.action === 'academic') setAcademicGoalContext({ goalId: item.goalId, title: normalizePartnerState(partnerState).goals.find((goal) => goal.id === item.goalId)?.title || '' });
     const targets = { academic: "library", career: "career", activity: "projects", plan: "partnerPlan", goals: "partnerGoals" };
     navigate(targets[item?.action] || "partnerToday");
   }
@@ -1212,7 +1281,7 @@ function App() {
       pdfId: meta?.pdfId || "",
     }));
     if (!normalized.length) return;
-    session.start({
+    const started = session.start({
       id: `pdf-${Date.now()}`,
       title: `${meta?.name || "PDF"} · 이해도 확인`,
       durationMinutes: normalized.length,
@@ -1221,6 +1290,7 @@ function App() {
       studyScope: "pdf",
       learningType: "pdfPractice",
       sourceType: "pdf",
+      partnerGoalId: academicGoalContext?.goalId || '',
       pdfId: meta?.pdfId || "",
       sourceName: meta?.name || "PDF",
       returnPage: "pdfstudy",
@@ -1228,8 +1298,9 @@ function App() {
       qualityReport: meta?.qualityReport || null,
       requestedQuestionCount: Number(meta?.requestedCount || normalized.length),
       generationMode: "ai",
-      generationNotice: meta?.generationNotice || "PDF 근거와 AI 자동검수를 통과한 문항입니다.",
+      generationNotice: `${academicGoalContext?.title ? `${academicGoalContext.title}에 결과 반영 · ` : ''}${meta?.generationNotice || "PDF 근거와 AI 자동검수를 통과한 문항입니다."}`,
     }, normalized, "연습모드");
+    if (!started) return;
     setPage("exam");
   }
 
@@ -1368,7 +1439,12 @@ function App() {
           },
         };
       }
-      setPartnerState(createPlanVersion(baseState, finalPlan, { activate: !getActivePartnerPlan(baseState) }));
+      setPartnerState((previous) => {
+        const latest = normalizePartnerState(previous);
+        const inputsChanged = JSON.stringify(profileSnapshot(latest)) !== JSON.stringify(profileSnapshot(baseState));
+        const currentPlan = inputsChanged ? buildDeterministicPlan(latest, { source: 'rules' }) : finalPlan;
+        return createPlanVersion(latest, currentPlan, { activate: !getActivePartnerPlan(latest) });
+      });
       if (destination) setPage(destination);
     } finally {
       setPartnerBusy(false);
@@ -1376,7 +1452,7 @@ function App() {
   }
 
   function confirmPartnerPlan() {
-    setPartnerState((previous) => confirmPendingPlan(previous));
+    setPartnerState((previous) => rolloverPartnerDay(confirmPendingPlan(previous)));
   }
 
   function discardPendingPartnerPlan() {
