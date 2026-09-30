@@ -6,14 +6,18 @@ function ActionButton({ item, onNavigate, onQuickAction, learningAction }) {
   const target = item.action === "cbt" ? "past" : item.action === "academic" ? "library" : item.action === "career" ? "career" : item.action === "plan" ? "partnerPlan" : item.action === "goals" ? "partnerGoals" : "projects";
   const working = item.action === "cbt" && ["analyzing", "generating"].includes(learningAction?.status);
   const current = working && learningAction?.itemId === item.id;
-  const label = current ? (learningAction.status === "analyzing" ? "분석 중…" : "문제 생성 중…") : labels[item.action] || "열기";
+  const label = current ? (learningAction.status === "analyzing" ? "기출 고르는 중…" : "세트 준비 중…") : item.action === "cbt" ? (Number(item?.result?.completedQuestions || 0) > 0 ? "기출 계속 풀기" : "기출 15문제 시작") : labels[item.action] || "열기";
   return <button className="partner-mini-action" disabled={working} onClick={() => onQuickAction ? onQuickAction(item) : onNavigate(target)}>{label}</button>;
 }
 
 function TodayTask({ item, index, onNavigate, onQuickAction, onOpenPlanItem, learningAction, onToggleItem, onAdjustItem }) {
+  const isCbtRoutine = item.action === "cbt";
+  const completedMinutes = Math.max(0, Number(item?.result?.completedMinutes || 0));
+  const targetMinutes = Math.max(1, Number(item?.result?.targetMinutes || item.durationMinutes || 1));
+  const progress = Math.min(100, Math.round((completedMinutes / targetMinutes) * 100));
   return <article className={`partner-task ${item.status === "completed" ? "done" : ""}`}>
     <button className="partner-check" aria-label={`${item.title} ${item.status === "completed" ? "완료 취소" : "완료 표시"}`} onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
-    <div className="partner-task-content"><button type="button" className="partner-task-open" onClick={() => onOpenPlanItem?.(item.goalId)}><div className="partner-task-title"><strong>{item.title}</strong><span>{item.durationMinutes}분</span></div><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "일정"}</small></button>{item.reason && <details className="partner-task-reason"><summary>왜 이 일부터?</summary><p>{item.reason}</p></details>}</div>
+    <div className="partner-task-content"><button type="button" className="partner-task-open" onClick={() => onOpenPlanItem?.(item.goalId)}><div className="partner-task-title"><strong>{isCbtRoutine ? "과년도 기출 이어풀기" : item.title}</strong><span>{isCbtRoutine ? `오늘 ${targetMinutes}분` : `${item.durationMinutes}분`}</span></div><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "일정"}</small></button>{isCbtRoutine && <div className="partner-cbt-routine-progress"><div><i style={{ width: `${progress}%` }}/></div><p><strong>{completedMinutes}/{targetMinutes}분</strong><span>{Number(item?.result?.completedQuestions || 0)}문제 풀이 · 한 번에 15문제</span></p></div>}{item.reason && <details className="partner-task-reason"><summary>{isCbtRoutine ? "문제 선정 방식" : "왜 이 일부터?"}</summary><p>{isCbtRoutine ? "아직 안 푼 과년도 문제를 먼저 보여주고, 최근 오답과 같은 과목·유형을 다음 세트에 섞습니다." : item.reason}</p></details>}</div>
     <div className="partner-task-actions">
       <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction} learningAction={learningAction}/>
       {item.status !== "completed" && <details><summary>조정</summary><div><button type="button" onClick={() => onAdjustItem?.(item.id, "reduce")}>15분 줄이기</button><button type="button" onClick={() => onAdjustItem?.(item.id, "defer")}>내일로 이동</button><button type="button" onClick={() => onAdjustItem?.(item.id, "skip")}>오늘은 건너뛰기</button></div></details>}
@@ -59,7 +63,7 @@ export default function PartnerTodayPage({ state, activeSession = null, onResume
         {active && <small className="partner-plan-origin" title={active?.generation?.message || ""}>{active?.generation?.label || (active?.source === "ai+rules" ? "AI 보정 계획" : "규칙 기반 안전 계획")}</small>}
         <div className="partner-hero-actions">
           {!active && <button className="partner-primary" disabled={busy} onClick={onGeneratePlan}>{busy ? "계획 계산 중…" : "첫 계획 만들기"}</button>}
-          {active && nextItem && !isDayOff && <button className="partner-primary" onClick={() => onQuickAction?.(nextItem)}>오늘 할 일 시작</button>}
+          {active && nextItem && !isDayOff && <button className="partner-primary" onClick={() => onQuickAction?.(nextItem)}>{nextItem.action === "cbt" ? "오늘 기출 이어풀기" : "오늘 할 일 시작"}</button>}
           {activeSession && <button className={active && nextItem ? "partner-secondary" : "partner-primary"} onClick={onResumeSession}>이전 학습 이어하기 · {activeSession.answered}/{activeSession.total}</button>}
           {active && !nextItem && !activeSession && <button className="partner-primary" onClick={() => onNavigate("partnerPlan")}>전체 계획 보기</button>}
           {active && <button className="partner-text-action" disabled={busy} onClick={onGeneratePlan}>{busy ? "계산 중…" : "계획 다시 계산"}</button>}
@@ -92,7 +96,7 @@ export default function PartnerTodayPage({ state, activeSession = null, onResume
 
     <section className="partner-two-column">
       <div className="partner-panel">
-        <div className="partner-section-title"><div><span>오늘의 핵심 행동</span><h2>먼저 할 일 {Math.min(2, items.length)}개</h2></div><button className="partner-link" onClick={() => onNavigate("partnerPlan")}>전체 계획</button></div>
+        <div className="partner-section-title"><div><span>오늘의 핵심 행동</span><h2>{nextItem?.action === "cbt" ? "오늘 합격 루틴" : `먼저 할 일 ${Math.min(2, items.length)}개`}</h2></div><button className="partner-link" onClick={() => onNavigate("partnerPlan")}>전체 계획</button></div>
         {!items.length && <div className="partner-empty"><strong>{isDayOff ? "오늘은 휴식일로 설정했습니다." : "아직 확정된 오늘 계획이 없습니다."}</strong><p>{isDayOff ? "휴식을 해제하면 남은 목표와 가능한 시간을 기준으로 오늘 계획을 다시 만듭니다." : "프로필을 입력하고 첫 계획을 만들어 보세요."}</p></div>}
         <div className="partner-task-list">
           {focusItems.map((item, index) => <TodayTask key={item.id} item={item} index={index} onNavigate={onNavigate} onQuickAction={onQuickAction} onOpenPlanItem={onOpenPlanItem} learningAction={learningAction} onToggleItem={onToggleItem} onAdjustItem={onAdjustItem}/>)}
