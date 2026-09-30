@@ -41,7 +41,7 @@ export default function SavedBookmarksPage({ certificate, bookmarks = [], onStar
     <section className="cbt-learning-content saved-bookmarks-page">
       <div className="topic-result-heading">
         <div>
-          <span className="eyebrow">SAVED QUESTIONS</span>
+          <span className="eyebrow">저장한 문제</span>
           <h1>북마크한 문제</h1>
           <p>문제를 풀며 저장한 항목만 따로 모았습니다.</p>
         </div>
