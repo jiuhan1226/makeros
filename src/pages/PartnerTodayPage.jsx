@@ -6,8 +6,9 @@ function ActionButton({ item, onNavigate, onQuickAction, learningAction }) {
   const target = item.action === "cbt" ? "past" : item.action === "academic" ? "library" : item.action === "career" ? "career" : item.action === "plan" ? "partnerPlan" : item.action === "goals" ? "partnerGoals" : "projects";
   const working = item.action === "cbt" && ["analyzing", "generating"].includes(learningAction?.status);
   const current = working && learningAction?.itemId === item.id;
-  const label = current ? (learningAction.status === "analyzing" ? "기출 고르는 중…" : "세트 준비 중…") : item.action === "cbt" ? (Number(item?.result?.completedQuestions || 0) > 0 ? "기출 계속 풀기" : "기출 15문제 시작") : labels[item.action] || "열기";
-  return <button className="partner-mini-action" disabled={working} onClick={() => onQuickAction ? onQuickAction(item) : onNavigate(target)}>{label}</button>;
+  const finished = ['completed', 'skipped', 'deferred'].includes(item.status);
+  const label = finished ? (item.result?.endedEarly ? "오늘은 여기까지" : item.status === 'completed' ? "완료" : "오늘 제외") : current ? (learningAction.status === "analyzing" ? "기출 고르는 중…" : "세트 준비 중…") : item.action === "cbt" ? (Number(item?.result?.completedQuestions || 0) > 0 ? "기출 계속 풀기" : "기출 시작") : labels[item.action] || "열기";
+  return <button className="partner-mini-action" disabled={working || finished} onClick={() => onQuickAction ? onQuickAction(item) : onNavigate(target)}>{label}</button>;
 }
 
 function TodayTask({ item, index, onNavigate, onQuickAction, onOpenPlanItem, learningAction, onToggleItem, onAdjustItem }) {
@@ -16,8 +17,18 @@ function TodayTask({ item, index, onNavigate, onQuickAction, onOpenPlanItem, lea
   const targetMinutes = Math.max(1, Number(item?.result?.targetMinutes || item.durationMinutes || 1));
   const progress = Math.min(100, Math.round((completedMinutes / targetMinutes) * 100));
   return <article className={`partner-task ${item.status === "completed" ? "done" : ""}`}>
-    <button className="partner-check" aria-label={`${item.title} ${item.status === "completed" ? "완료 취소" : "완료 표시"}`} onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
-    <div className="partner-task-content"><button type="button" className="partner-task-open" onClick={() => onOpenPlanItem?.(item.goalId)}><div className="partner-task-title"><strong>{isCbtRoutine ? "과년도 기출 이어풀기" : item.title}</strong><span>{isCbtRoutine ? `오늘 ${targetMinutes}분` : `${item.durationMinutes}분`}</span></div><small>{item.goalType === "academic" ? "내신" : item.goalType === "certificate" ? "자격증" : item.goalType === "career" ? "취업" : item.goalType === "activity" ? "대회·활동" : "일정"}</small></button>{isCbtRoutine && <div className="partner-cbt-routine-progress"><div><i style={{ width: `${progress}%` }}/></div><p><strong>{completedMinutes}/{targetMinutes}분</strong><span>{Number(item?.result?.completedQuestions || 0)}문제 풀이 · 한 번에 15문제</span></p></div>}{item.reason && <details className="partner-task-reason"><summary>{isCbtRoutine ? "문제 선정 방식" : "왜 이 일부터?"}</summary><p>{isCbtRoutine ? "아직 안 푼 과년도 문제를 먼저 보여주고, 최근 오답과 같은 과목·유형을 다음 세트에 섞습니다." : item.reason}</p></details>}</div>
+    <button className="partner-check" disabled={isCbtRoutine} aria-label={isCbtRoutine ? '학습 결과로 진행 상태를 반영합니다' : `${item.title} ${item.status === "completed" ? "완료 취소" : "완료 표시"}`} onClick={() => onToggleItem(item.id, item.status === "completed" ? "todo" : "completed")}>{item.status === "completed" ? "✓" : index + 1}</button>
+    <div className="partner-task-content">
+      <button type="button" className="partner-task-open" onClick={() => onOpenPlanItem?.(item.goalId)}>
+        <div className="partner-task-title"><strong>{isCbtRoutine ? "과년도 기출 이어풀기" : item.title}</strong><span>{isCbtRoutine ? `오늘 ${targetMinutes}분` : `${item.durationMinutes}분`}</span></div>
+        <small>{item.goalTitle || (item.goalType === 'certificate' ? '자격증' : item.goalType === 'academic' ? '내신' : '일정')}</small>
+      </button>
+      {isCbtRoutine && <div className="partner-cbt-routine-progress">
+        <div><i style={{ width: `${progress}%` }}/></div>
+        <p><strong title="학습 화면에서 활동한 시간입니다. 숨겨진 탭과 2분 이상 입력이 없는 시간은 제외합니다.">{completedMinutes}/{targetMinutes}분</strong><span>{Number(item?.result?.completedQuestions || 0)}문제 풀이 · 최대 15문제씩{item.result?.endedEarly ? ' · 조기 종료' : ''}</span></p>
+      </div>}
+      {item.reason && <details className="partner-task-reason"><summary>{isCbtRoutine ? "문제 선정 방식" : "왜 이 일부터?"}</summary><p>{isCbtRoutine ? "오답과 복습할 문제를 먼저 확보하고, 유형 태그가 겹치는 문제와 미풀이 기출을 섞습니다. 남은 시간에 맞춰 세트 크기를 줄입니다." : item.reason}</p></details>}
+    </div>
     <div className="partner-task-actions">
       <ActionButton item={item} onNavigate={onNavigate} onQuickAction={onQuickAction} learningAction={learningAction}/>
       {item.status !== "completed" && <details><summary>조정</summary><div><button type="button" onClick={() => onAdjustItem?.(item.id, "reduce")}>15분 줄이기</button><button type="button" onClick={() => onAdjustItem?.(item.id, "defer")}>내일로 이동</button><button type="button" onClick={() => onAdjustItem?.(item.id, "skip")}>오늘은 건너뛰기</button></div></details>}
@@ -33,11 +44,13 @@ export default function PartnerTodayPage({ state, activeSession = null, onResume
   const pendingReason = pending?.basedOnEventId
     ? normalized.changeEvents.find((event) => event.id === pending.basedOnEventId)?.label
     : "";
-  const items = active?.today?.items || [];
+  const items = [...(active?.today?.items || [])].filter((item) => !['skipped','deferred'].includes(item.status))
+    .map((item) => ({ ...item, goalTitle: normalized.certificateGoals.find((goal) => goal.id === item.goalId)?.name || normalized.goals.find((goal) => goal.id === item.goalId)?.title || '' }))
+    .sort((a,b) => Number(a.status === 'completed') - Number(b.status === 'completed'));
   const focusItems = items.slice(0, 2);
   const extraItems = items.slice(2);
   const done = items.filter((item) => item.status === "completed").length;
-  const nextItem = items.find((item) => item.status !== "completed");
+  const nextItem = items.find((item) => !['completed', 'skipped', 'deferred'].includes(item.status));
   const capacity = active?.today?.capacityBreakdown || {
     baseMinutes: active?.today?.availableMinutes || 0,
     fixedMinutes: 0,
@@ -79,7 +92,8 @@ export default function PartnerTodayPage({ state, activeSession = null, onResume
       <i aria-hidden="true">−</i>
       <div><span>고정 일정</span><strong>{capacity.fixedMinutes}분</strong></div>
       <i aria-hidden="true">=</i>
-      <div><span>실제 배치 시간</span><strong>{capacity.availableMinutes}분</strong></div>
+      <div><span>남은 가능 시간</span><strong>{capacity.availableMinutes}분</strong></div>
+      <div><span>오늘 배치</span><strong>{items.filter((item) => !['skipped','deferred'].includes(item.status)).reduce((sum, item) => sum + item.durationMinutes, 0)}분</strong></div>
       <button type="button" className={isDayOff ? "active" : ""} onClick={() => onToggleDayOff?.(!isDayOff)}>{isDayOff ? "휴식 해제" : "오늘은 휴식"}</button>
     </section>}
 
@@ -97,7 +111,7 @@ export default function PartnerTodayPage({ state, activeSession = null, onResume
     <section className="partner-two-column">
       <div className="partner-panel">
         <div className="partner-section-title"><div><span>오늘의 핵심 행동</span><h2>{nextItem?.action === "cbt" ? "오늘 합격 루틴" : `먼저 할 일 ${Math.min(2, items.length)}개`}</h2></div><button className="partner-link" onClick={() => onNavigate("partnerPlan")}>전체 계획</button></div>
-        {!items.length && <div className="partner-empty"><strong>{isDayOff ? "오늘은 휴식일로 설정했습니다." : "아직 확정된 오늘 계획이 없습니다."}</strong><p>{isDayOff ? "휴식을 해제하면 남은 목표와 가능한 시간을 기준으로 오늘 계획을 다시 만듭니다." : "프로필을 입력하고 첫 계획을 만들어 보세요."}</p></div>}
+        {!items.length && <div className="partner-empty"><strong>{isDayOff ? "오늘은 휴식일로 설정했습니다." : active ? "오늘 배치할 학습이 없습니다." : "아직 확정된 오늘 계획이 없습니다."}</strong><p>{isDayOff ? "휴식을 해제하면 남은 목표와 가능한 시간을 기준으로 오늘 계획을 다시 만듭니다." : active ? "목표 기간과 오늘 가능한 시간을 확인해 주세요. 시작일 전이나 마감 후에는 배치하지 않습니다." : "프로필을 입력하고 첫 계획을 만들어 보세요."}</p></div>}
         <div className="partner-task-list">
           {focusItems.map((item, index) => <TodayTask key={item.id} item={item} index={index} onNavigate={onNavigate} onQuickAction={onQuickAction} onOpenPlanItem={onOpenPlanItem} learningAction={learningAction} onToggleItem={onToggleItem} onAdjustItem={onAdjustItem}/>)}
           {!!extraItems.length && <details className="partner-extra-tasks"><summary>그다음 할 일 {extraItems.length}개</summary><div>{extraItems.map((item, index) => <TodayTask key={item.id} item={item} index={index + 2} onNavigate={onNavigate} onQuickAction={onQuickAction} onOpenPlanItem={onOpenPlanItem} learningAction={learningAction} onToggleItem={onToggleItem} onAdjustItem={onAdjustItem}/>)}</div></details>}
