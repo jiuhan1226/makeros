@@ -33,6 +33,7 @@ export function useExamSession({ userId = "" } = {}) {
   const [remaining, setRemaining] = useState(Number(restored?.remaining || 0));
   const [deadlineAt, setDeadlineAt] = useState(Number(restored?.deadlineAt || 0) || (restored?.mode === "실전모드" ? Date.now() + Number(restored?.remaining || 0) * 1000 : 0));
   const [startedAt, setStartedAt] = useState(Number(restored?.startedAt || 0));
+  const [submittedAt, setSubmittedAt] = useState(Number(restored?.submittedAt || 0));
   const [checkpointEnabled, setCheckpointEnabled] = useState(Boolean(restored || savedMeta));
   const [restoring, setRestoring] = useState(Boolean(!restored && savedMeta));
   const [checkpointStatus, setCheckpointStatus] = useState(restored ? "saved" : savedMeta ? "restoring" : "idle");
@@ -65,6 +66,7 @@ export function useExamSession({ userId = "" } = {}) {
         setRemaining(Number(saved.remaining || 0));
         setDeadlineAt(Number(saved.deadlineAt || 0) || (saved.mode === "실전모드" ? Date.now() + Number(saved.remaining || 0) * 1000 : 0));
         setStartedAt(Number(saved.startedAt || 0));
+        setSubmittedAt(Number(saved.submittedAt || 0));
         setLastSavedAt(Number(saved.savedAt || 0));
         setCheckpointKey(String(saved.checkpointKey || examCheckpointKey(saved)));
         setDrafts(listExamCheckpointMeta());
@@ -114,6 +116,7 @@ export function useExamSession({ userId = "" } = {}) {
           remaining,
           deadlineAt,
           startedAt,
+          submittedAt,
           savedAt: Date.now(),
           checkpointKey,
         });
@@ -133,14 +136,14 @@ export function useExamSession({ userId = "" } = {}) {
         });
     }, 250);
     return () => window.clearTimeout(id);
-  }, [answers, bookmarks, checkpointEnabled, checkpointKey, confidenceByQuestion, current, deadlineAt, exam, mode, questions, restoring, reviewChecks, startedAt, submitted, userId]);
+  }, [answers, bookmarks, checkpointEnabled, checkpointKey, confidenceByQuestion, current, deadlineAt, exam, mode, questions, restoring, reviewChecks, startedAt, submitted, submittedAt, userId]);
 
   useEffect(() => {
     if (!exam || mode !== "실전모드" || submitted) return undefined;
     const refresh = () => {
       const next = remainingForCheckpoint({ mode, deadlineAt, remaining });
       setRemaining(next);
-      if (next <= 0) setSubmitted(true);
+      if (next <= 0) { setSubmittedAt((value) => value || Date.now()); setSubmitted(true); }
     };
     refresh();
     const id = window.setInterval(refresh, 1000);
@@ -166,7 +169,7 @@ export function useExamSession({ userId = "" } = {}) {
         clearExamCheckpoint({ key: checkpointKey }).catch(() => undefined);
         if (userId) loadCloudDraftApi().then(({ deleteCloudExamDraft }) => deleteCloudExamDraft(userId, checkpointKey)).catch(() => undefined);
       } else {
-        const currentCheckpoint = { exam, questions, mode, answers, bookmarks, reviewChecks, confidenceByQuestion, current, submitted, remaining, deadlineAt, startedAt, savedAt: Date.now(), checkpointKey };
+        const currentCheckpoint = { exam, questions, mode, answers, bookmarks, reviewChecks, confidenceByQuestion, current, submitted, remaining, deadlineAt, startedAt, submittedAt, savedAt: Date.now(), checkpointKey };
         writeExamCheckpoint(currentCheckpoint, { makeActive: false }).then((saved) => userId && saved ? loadCloudDraftApi().then(({ saveCloudExamDraft }) => saveCloudExamDraft(userId, saved)) : null).catch(() => undefined);
       }
     }
@@ -182,6 +185,7 @@ export function useExamSession({ userId = "" } = {}) {
     setConfidenceByQuestion({});
     setCurrent(0);
     setSubmitted(false);
+    setSubmittedAt(0);
     const startTime = Date.now();
     const durationSeconds = (nextExam?.durationMinutes || Math.max(1, nextQuestions.length)) * 60;
     setRemaining(durationSeconds);
@@ -229,6 +233,7 @@ export function useExamSession({ userId = "" } = {}) {
       remaining,
       deadlineAt,
       startedAt,
+      submittedAt,
       savedAt: Date.now(),
       checkpointKey,
     };
@@ -266,7 +271,7 @@ export function useExamSession({ userId = "" } = {}) {
       setAnswers(saved.answers || {}); setBookmarks(saved.bookmarks || {}); setReviewChecks(saved.reviewChecks || {});
       setConfidenceByQuestion(saved.confidenceByQuestion || {}); setCurrent(Math.max(0, Math.min(Number(saved.current || 0), saved.questions.length - 1)));
       setSubmitted(Boolean(saved.submitted || (saved.mode === "실전모드" && saved.remaining <= 0)));
-      setRemaining(Number(saved.remaining || 0)); setDeadlineAt(Number(saved.deadlineAt || 0) || (saved.mode === "실전모드" ? Date.now() + Number(saved.remaining || 0) * 1000 : 0)); setStartedAt(Number(saved.startedAt || 0));
+      setRemaining(Number(saved.remaining || 0)); setDeadlineAt(Number(saved.deadlineAt || 0) || (saved.mode === "실전모드" ? Date.now() + Number(saved.remaining || 0) * 1000 : 0)); setStartedAt(Number(saved.startedAt || 0)); setSubmittedAt(Number(saved.submittedAt || 0));
       setCheckpointKey(String(saved.checkpointKey || key)); setCheckpointEnabled(true); setLastSavedAt(Number(saved.savedAt || 0)); setCheckpointStatus("saved");
       return true;
     } finally { setRestoring(false); }
@@ -280,7 +285,7 @@ export function useExamSession({ userId = "" } = {}) {
       await clearCloudExamDrafts(userId);
     }
     setDrafts([]); setCheckpointKey(""); setCheckpointEnabled(false); setCheckpointStatus("idle"); setLastSavedAt(0);
-    setExam(null); setQuestions([]); setAnswers({}); setBookmarks({}); setReviewChecks({}); setConfidenceByQuestion({}); setCurrent(0); setSubmitted(false); setRemaining(0); setDeadlineAt(0); setStartedAt(0);
+    setExam(null); setQuestions([]); setAnswers({}); setBookmarks({}); setReviewChecks({}); setConfidenceByQuestion({}); setCurrent(0); setSubmitted(false); setSubmittedAt(0); setRemaining(0); setDeadlineAt(0); setStartedAt(0);
   }
 
   function setBookmark(index, value) {
@@ -308,7 +313,8 @@ export function useExamSession({ userId = "" } = {}) {
     submitted,
     remaining,
     startedAt,
-    elapsedSeconds: startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 1000)) : 0,
+    submittedAt,
+    elapsedSeconds: startedAt ? Math.max(0, Math.round(((submittedAt || Date.now()) - startedAt) / 1000)) : 0,
     resumable: Boolean(checkpointEnabled && exam && questions.length && !submitted),
     restoring,
     checkpointStatus,
@@ -324,7 +330,7 @@ export function useExamSession({ userId = "" } = {}) {
     toggleReviewCheck,
     setConfidence,
     setCurrent,
-    submit: () => setSubmitted(true),
+    submit: () => { setSubmittedAt(Date.now()); setSubmitted(true); },
     clearCheckpoint,
     flushCheckpoint,
     resumeDraft,
