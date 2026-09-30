@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { notifyUser } from "../utils/uiFeedback";
 
 function fieldOf(value = "") {
   if (/AI|SW|소프트웨어|게임|웹|모바일|코딩|데이터/i.test(value)) return "IT·소프트웨어";
@@ -46,15 +47,15 @@ export default function OpportunitiesPage({ portfolioItems = [], onChangePortfol
   }), [items, query, field, savedOnly, saved, sort]);
 
   function addActivity(item) {
-    if (portfolioItems.some((entry) => entry.sourceUrl === item.url)) return alert("이미 이력서 활동에 저장된 공고입니다.");
+    if (portfolioItems.some((entry) => entry.sourceUrl === item.url)) return notifyUser("이미 이력서 활동에 저장된 공고입니다.");
     if (!window.confirm("이 대회에 실제로 참여했나요? 참여한 활동만 이력서에 기록해 주세요.")) return;
     onChangePortfolioItems([{ id: `opportunity-${item.id}`, type: "공모전", title: item.title, organization: item.organization || item.source || "", startDate: "", endDate: item.deadline === "상시" ? "" : (item.deadline || ""), role: "", description: "참여 후 맡은 역할, 행동, 결과, 배운 점을 입력하세요.", sourceUrl: item.url }, ...portfolioItems]);
-    alert("이력서 활동에 추가했습니다. 실제 참여 기간과 역할을 확인해 주세요.");
+    notifyUser("이력서 활동에 추가했습니다. 실제 참여 기간과 역할을 확인해 주세요.", "success");
   }
 
   function addGoal(item) {
     onAddGoal?.(item);
-    alert("목표에 추가했습니다. 계획을 다시 만들면 마감일까지 가능한 시간에 배치됩니다.");
+    notifyUser("목표에 추가했습니다. 계획을 다시 만들면 마감일까지 가능한 시간에 배치됩니다.", "success");
   }
 
   return <main className="maker-page opportunities-page">
