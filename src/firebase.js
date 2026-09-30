@@ -84,6 +84,7 @@ const CLOUD_STATE_ARRAY_KEYS = [
 ];
 const CLOUD_STATE_CHUNK_SIZE = 80;
 const knownCloudChunkIds = new Map();
+const cloudStateSaveQueues = new Map();
 
 export async function loadCloudState(uid) {
   if (!db) return null;
@@ -95,9 +96,17 @@ export async function loadCloudState(uid) {
   ]);
   if (!snapshot.exists() && !planSnapshot.exists() && !partnerSnapshot.exists() && !chunkSnapshot.docs.length) return null;
   const state = snapshot.exists() ? snapshot.data() : {};
+  const activeRevision = String(state.activeRevision || "");
   const chunkGroups = {};
+  let revisionPlan = null;
+  let revisionPartnerState = null;
+  let hasRevisionPlan = false;
+  let hasRevisionPartner = false;
   chunkSnapshot.docs.forEach((item) => {
     const data = item.data();
+    if (activeRevision && String(data.revisionId || "") !== activeRevision) return;
+    if (data.kind === "plan") { hasRevisionPlan = true; revisionPlan = data.value || {}; return; }
+    if (data.kind === "partner") { hasRevisionPartner = true; revisionPartnerState = data.value || null; return; }
     const key = String(data.key || "");
     if (!CLOUD_STATE_ARRAY_KEYS.includes(key) || !Array.isArray(data.items)) return;
     (chunkGroups[key] ||= []).push({ index: Number(data.index || 0), items: data.items });
@@ -105,20 +114,33 @@ export async function loadCloudState(uid) {
   Object.entries(chunkGroups).forEach(([key, chunks]) => {
     state[key] = chunks.sort((a, b) => a.index - b.index).flatMap((chunk) => chunk.items);
   });
-  if (planSnapshot.exists()) state.plan = planSnapshot.data().value || {};
-  if (partnerSnapshot.exists()) state.partnerState = partnerSnapshot.data().value || null;
+  if (hasRevisionPlan) state.plan = revisionPlan;
+  else if (planSnapshot.exists()) state.plan = planSnapshot.data().value || {};
+  if (hasRevisionPartner) state.partnerState = revisionPartnerState;
+  else if (partnerSnapshot.exists()) state.partnerState = partnerSnapshot.data().value || null;
   knownCloudChunkIds.set(uid, new Set(chunkSnapshot.docs.map((item) => item.id)));
   return state;
 }
 
-export async function saveCloudState(uid, state) {
+export function saveCloudState(uid, state) {
+  const previous = cloudStateSaveQueues.get(uid) || Promise.resolve();
+  const task = previous.catch(() => undefined).then(() => performCloudStateSave(uid, state));
+  cloudStateSaveQueues.set(uid, task);
+  return task.finally(() => {
+    if (cloudStateSaveQueues.get(uid) === task) cloudStateSaveQueues.delete(uid);
+  });
+}
+
+async function performCloudStateSave(uid, state) {
   if (!db) return;
   const safeState = firestoreSafe(state, {});
   const root = { ...safeState };
   CLOUD_STATE_ARRAY_KEYS.forEach((key) => { root[key] = deleteField(); });
   root.plan = deleteField();
   root.partnerState = deleteField();
-  root.schemaVersion = 2;
+  const revisionId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  root.schemaVersion = 3;
+  root.activeRevision = revisionId;
   root.updatedAt = serverTimestamp();
 
   const operations = [];
@@ -126,32 +148,49 @@ export async function saveCloudState(uid, state) {
   CLOUD_STATE_ARRAY_KEYS.forEach((key) => {
     const items = Array.isArray(safeState[key]) ? safeState[key] : [];
     for (let start = 0, index = 0; start < items.length; start += CLOUD_STATE_CHUNK_SIZE, index += 1) {
-      const id = `${key}__${String(index).padStart(4, "0")}`;
+      const id = `${revisionId}__${key}__${String(index).padStart(4, "0")}`;
       nextChunkIds.add(id);
       operations.push({
         type: "set",
         ref: doc(db, "users", uid, "studylockStateChunks", id),
-        data: { key, index, items: items.slice(start, start + CLOUD_STATE_CHUNK_SIZE), schemaVersion: 2 },
+        data: { revisionId, key, index, items: items.slice(start, start + CLOUD_STATE_CHUNK_SIZE), schemaVersion: 3 },
       });
     }
   });
+
+  const planId = `${revisionId}__plan`;
+  const partnerId = `${revisionId}__partner`;
+  nextChunkIds.add(planId);
+  nextChunkIds.add(partnerId);
+  operations.push(
+    {
+      type: "set",
+      ref: doc(db, "users", uid, "studylockStateChunks", planId),
+      data: { revisionId, kind: "plan", value: safeState.plan || {}, schemaVersion: 3 },
+    },
+    {
+      type: "set",
+      ref: doc(db, "users", uid, "studylockStateChunks", partnerId),
+      data: { revisionId, kind: "partner", value: safeState.partnerState || null, schemaVersion: 3 },
+    },
+  );
 
   let previousChunkIds = knownCloudChunkIds.get(uid);
   if (!previousChunkIds) {
     const previous = await getDocs(collection(db, "users", uid, "studylockStateChunks"));
     previousChunkIds = new Set(previous.docs.map((item) => item.id));
   }
-  previousChunkIds.forEach((id) => {
-    if (!nextChunkIds.has(id)) operations.push({ type: "delete", ref: doc(db, "users", uid, "studylockStateChunks", id) });
-  });
-
-  await Promise.all([
-    setDoc(doc(db, "users", uid, "studylock", "state"), root, { merge: true }),
-    setDoc(doc(db, "users", uid, "studylock", "plan"), { value: safeState.plan || {}, updatedAt: serverTimestamp() }),
-    setDoc(doc(db, "users", uid, "studylock", "partner"), { value: safeState.partnerState || null, updatedAt: serverTimestamp() }),
-    commitFirestoreOperations(operations),
-  ]);
+  // 1) 새 버전 조각을 모두 쓴 뒤 2) 루트의 activeRevision을 바꿉니다.
+  // 중간에 연결이 끊기면 기존 activeRevision이 유지되어 혼합 버전을 읽지 않습니다.
+  await commitFirestoreOperations(operations);
+  await setDoc(doc(db, "users", uid, "studylock", "state"), root, { merge: true });
   knownCloudChunkIds.set(uid, nextChunkIds);
+
+  // 새 버전이 활성화된 뒤에만 이전 조각을 정리합니다. 정리 실패는 데이터 읽기에 영향을 주지 않습니다.
+  const staleOperations = [...previousChunkIds]
+    .filter((id) => !nextChunkIds.has(id))
+    .map((id) => ({ type: "delete", ref: doc(db, "users", uid, "studylockStateChunks", id) }));
+  if (staleOperations.length) await commitFirestoreOperations(staleOperations).catch((error) => console.warn("이전 학습 상태 조각 정리 실패", error));
 }
 
 function firestoreSafe(value, fallback) {
