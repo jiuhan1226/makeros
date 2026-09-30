@@ -132,6 +132,7 @@ export default function ExamPage({ session, onExit, onContinueStudyBlock, onFini
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [continuing, setContinuing] = useState(false);
   const [cbtSettings, setCbtSettings] = useState(() => readCbtSettings());
 
   useEffect(() => {
@@ -149,6 +150,7 @@ export default function ExamPage({ session, onExit, onContinueStudyBlock, onFini
   const studyBlockProgress = exam?.studyBlockTargetMinutes ? calculateCbtBlockProgress({
     targetMinutes: exam.studyBlockTargetMinutes,
     completedMinutes: exam.studyBlockCompletedMinutes,
+    completedSeconds: exam.studyBlockCompletedSeconds,
     elapsedSeconds: session.elapsedSeconds,
     answeredCount: result.answered,
   }) : null;
@@ -302,6 +304,7 @@ export default function ExamPage({ session, onExit, onContinueStudyBlock, onFini
   }
 
   function handleDeviceSubmit() {
+    if (!submitted && studyBlockProgress && answeredCount === 0) return;
     if (submitted) {
       onExit();
       return;
@@ -395,8 +398,8 @@ export default function ExamPage({ session, onExit, onContinueStudyBlock, onFini
               </span>
             </div>
             {studyBlockProgress && <div className="study-block-result-actions">
-              <button type="button" className="secondary" onClick={onFinishStudyBlock}>오늘은 여기까지</button>
-              <button type="button" className="primary" onClick={onContinueStudyBlock}>{studyBlockProgress.completed ? "학습 저장하기" : `다음 기출 ${questions.length}문제`}</button>
+              <button type="button" className="secondary" disabled={continuing} onClick={onFinishStudyBlock}>오늘은 여기까지</button>
+              <button type="button" className="primary" disabled={continuing} onClick={async () => { setContinuing(true); try { await onContinueStudyBlock?.(); } finally { setContinuing(false); } }}>{continuing ? '다음 세트 준비 중…' : studyBlockProgress.completed ? "학습 저장하기" : "다음 기출 풀기"}</button>
             </div>}
           </section>
         )}
@@ -608,7 +611,7 @@ export default function ExamPage({ session, onExit, onContinueStudyBlock, onFini
                 ? <button type="button" className="secondary" onClick={onExit}>진행 저장 후 나가기</button>
                 : <button type="button" className="primary" onClick={onExit}>결과 저장 후 종료</button>
             ) : (
-              <button type="button" className="primary" onClick={session.submit}>
+              <button type="button" className="primary" disabled={Boolean(studyBlockProgress && answeredCount === 0)} onClick={session.submit}>
                 {isPracticeAssessment ? "학습 결과 확인" : "시험 제출"}
               </button>
             )}
