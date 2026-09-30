@@ -3,16 +3,17 @@ import { calculateCbtBlockProgress, selectContinuousPastQuestions } from "../src
 import { questionProgressId } from "../src/utils/learningEngine.js";
 
 const first = calculateCbtBlockProgress({ targetMinutes: 75, elapsedSeconds: 11 * 60 + 3, answeredCount: 15 });
-assert.equal(first.completedMinutes, 12, "75분 계획을 한 세트의 30분 제한시간으로 간주하면 안 됩니다.");
-assert.equal(first.remainingMinutes, 63);
+assert.equal(first.completedMinutes, 11, "시간은 초 단위로 합산하고 표시만 분으로 내립니다.");
+assert.equal(first.remainingMinutes, 64);
 assert.equal(first.completed, false, "첫 세트 제출만으로 오늘 루틴을 완료하면 안 됩니다.");
 
-const continued = calculateCbtBlockProgress({ targetMinutes: 75, completedMinutes: first.completedMinutes, elapsedSeconds: 14 * 60, answeredCount: 15 });
-assert.equal(continued.completedMinutes, 26);
-assert.equal(continued.remainingMinutes, 49);
+const continued = calculateCbtBlockProgress({ targetMinutes: 75, completedSeconds: first.completedSeconds, elapsedSeconds: 14 * 60, answeredCount: 15 });
+assert.equal(continued.completedMinutes, 25);
+assert.equal(continued.remainingMinutes, 50);
 
 const manuallyFinished = calculateCbtBlockProgress({ targetMinutes: 75, completedMinutes: 12, elapsedSeconds: 0, answeredCount: 0, forceComplete: true });
 assert.equal(manuallyFinished.completed, true, "사용자가 명시적으로 오늘 루틴을 끝낼 수 있어야 합니다.");
+assert.equal(manuallyFinished.completedMinutes, 12, "조기 종료는 목표 시간 달성과 다릅니다.");
 
 const questions = Array.from({ length: 20 }, (_, index) => ({
   id: `q-${index + 1}`,
