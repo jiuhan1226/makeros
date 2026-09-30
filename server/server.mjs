@@ -32,6 +32,7 @@ import {
   TEACHER_QUESTION_PROFILE,
   applyTeacherReview,
   auditTeacherQuestionSet,
+  balanceAnswerPositions,
   buildTeacherQuestionBlueprint,
   deduplicateTeacherQuestions,
   teacherBlueprintPrompt,
@@ -63,7 +64,7 @@ const neisRequestHeaders = {
   "cache-control": "no-cache",
   pragma: "no-cache",
   referer: "https://open.neis.go.kr/portal/mainPage.do",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.33",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MakerOS/3.1.34",
 };
 const configuredExplanationSigningSecret = String(process.env.EXPLANATION_SIGNING_SECRET || "").trim();
 // Never derive a signing key from the Gemini credential. When a dedicated
@@ -207,6 +208,13 @@ function limitGuestAi(req, res, next) {
   guestAiUsage.set(key, used + 1);
   req.user.guestTrialRemaining = guestAiDailyLimit - used - 1;
   res.setHeader("X-MakerOS-Guest-AI-Remaining", String(req.user.guestTrialRemaining));
+  // 동시 요청은 미리 예약하되, 서버 오류·검증 실패·잘못된 요청에는 체험 횟수를 차감하지 않습니다.
+  res.once("finish", () => {
+    if (res.statusCode < 400) return;
+    const current = Number(guestAiUsage.get(key) || 0);
+    if (current <= 1) guestAiUsage.delete(key);
+    else guestAiUsage.set(key, current - 1);
+  });
   return next();
 }
 
@@ -1187,11 +1195,21 @@ ${teacherCriteria}
 참고 기출문제:
 ${JSON.stringify(references)}`;
     const generated = await generateLooseJsonWithFallback({ prompt, maxOutputTokens: 12000 });
-    const questions = validateDiagnosticQuestions(generated.parsed?.questions, references, requestedCount);
+    const questions = balanceAnswerPositions(
+      validateDiagnosticQuestions(generated.parsed?.questions, references, requestedCount),
+      5,
+    );
     if (questions.length < Math.min(5, requestedCount)) {
       return res.status(422).json({ error: "생성된 문제 중 기출 근거와 형식 검증을 통과한 문항이 부족합니다. 다시 시도해 주세요." });
     }
     const qualityReport = auditTeacherQuestionSet(questions, blueprint);
+    if (!qualityReport.passed) {
+      return res.status(422).json({
+        error: `생성 문항이 품질검사를 통과하지 못했습니다. ${qualityReport.blockingIssues.join(" · ")}`,
+        code: "question_quality_gate_failed",
+        qualityReport,
+      });
+    }
     return res.json({
       questions,
       summary: normalize(generated.parsed?.summary || `${questions.length}개 맞춤 진단 문항을 생성했습니다.`),
@@ -1209,7 +1227,7 @@ ${JSON.stringify(references)}`;
 
 app.get("/api/health", async (req, res) => {
   const base = {
-    version: "3.1.33",
+    version: "3.1.34",
     provider: "Google Gemini SDK",
     requestedModel,
     apiKeyConfigured: Boolean(apiKey),
@@ -1219,6 +1237,7 @@ app.get("/api/health", async (req, res) => {
     unauthenticatedAiAllowed: allowUnauthenticatedAi,
     aiDailyUsageLimit: null,
     guestAiDailyLimit,
+    guestAiQuotaMode: "process-local",
     signedExplanationCacheConfigured: Boolean(configuredExplanationSigningSecret),
     signedExplanationCacheMode: configuredExplanationSigningSecret ? "persistent" : "process-local",
   };
@@ -1482,13 +1501,20 @@ ${source}`.trim();
     const formatVerified = deduplicateTeacherQuestions(parsed.questions.filter((question) => verifyQuestion(question, sourcePages))).slice(0, requestedCount);
     if (formatVerified.length === 0) return res.status(422).json({ error: "AI가 만든 문제 중 PDF 근거와 교사 출제 기준을 통과한 문제가 없습니다. 범위를 조금 넓혀 다시 시도해 주세요." });
     const review = await reviewGeneratedQuiz({ questions: formatVerified, sourcePages });
-    const verified = review.questions.slice(0, requestedCount);
+    const verified = balanceAnswerPositions(review.questions.slice(0, requestedCount), 5);
     const minimumVerified = Math.min(formatVerified.length, Math.max(1, Math.ceil(requestedCount * 0.4)));
     if (verified.length < minimumVerified) {
       return res.status(422).json({ error: "정답·근거·복수 정답·오답 품질 2차 검수에서 통과한 문항이 부족합니다. 범위를 넓히거나 강조 내용을 줄여 다시 시도해 주세요." });
     }
 
     const qualityReport = auditTeacherQuestionSet(verified, blueprint);
+    if (!qualityReport.passed) {
+      return res.status(422).json({
+        error: `생성 문항이 품질검사를 통과하지 못했습니다. ${qualityReport.blockingIssues.join(" · ")}`,
+        code: "question_quality_gate_failed",
+        qualityReport,
+      });
+    }
     const result = {
       questions: verified,
       cached: false,
