@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createBuildProject } from "../utils/makerPlatform";
 import BufferedListInput from "../components/BufferedListInput";
+import { notifyUser } from "../utils/uiFeedback";
 
 function formatDate(value) {
   if (!value) return "날짜 없음";
@@ -84,7 +85,7 @@ export default function ProjectsPage({ projects = [], inventorProjects = [], onC
 
   function saveJournal() {
     if (!selected || !journalDraft.title.trim()) {
-      alert("일지 제목을 입력해 주세요.");
+      notifyUser("일지 제목을 입력해 주세요.");
       return;
     }
     const journals = [...(selected.journals || [])];
