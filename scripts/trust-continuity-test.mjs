@@ -32,7 +32,9 @@ assert.ok(!server.includes("AI 해설 일일 한도") && !server.includes("AI �
 assert.ok(server.includes("guestAiDailyLimit") && server.includes("guest_ai_trial_exhausted"), "로그인 사용자는 제한하지 않되 비로그인 AI 남용 방어는 필요합니다.");
 assert.ok(server.includes("configuredExplanationSigningSecret") && !server.includes(":makeros-explanation-signing"), "Gemini 키에서 해설 서명키를 파생하면 안 됩니다.");
 assert.ok(firebase.includes("studylockStateChunks") && firebase.includes("CLOUD_STATE_CHUNK_SIZE"), "장기 학습 기록은 한 문서가 아니라 분할 저장해야 합니다.");
+assert.ok(firebase.includes("activeRevision") && firebase.includes("revisionId") && firebase.includes("cloudStateSaveQueues"), "클라우드 상태는 버전 커밋과 직렬 저장으로 혼합 저장을 막아야 합니다.");
 assert.ok(studyPlatform.includes("indexedDB") && studyPlatform.includes("pdfMetadata"), "PDF 본문은 localStorage가 아닌 IndexedDB에 저장해야 합니다.");
+assert.ok(studyPlatform.includes("pdf-manifest-v2") && studyPlatform.includes("document:"), "PDF 본문은 자료별로 나누어 증분 저장해야 합니다.");
 
 const planningState = createDefaultPartnerState();
 planningState.profile.dayMinutes = { ...planningState.profile.dayMinutes, sun: 90 };
