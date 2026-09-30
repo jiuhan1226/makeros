@@ -112,6 +112,31 @@ export function deduplicateTeacherQuestions(questions = [], threshold = 0.72) {
   return selected;
 }
 
+/**
+ * 정답 내용은 바꾸지 않고 선택지 순서만 회전해 정답 번호 쏠림을 줄입니다.
+ * 선택지별 해설도 같은 순서로 이동하므로 정답-해설 연결이 유지됩니다.
+ */
+export function balanceAnswerPositions(questions = [], choiceCount = 5) {
+  return (Array.isArray(questions) ? questions : []).map((question, index) => {
+    const choices = Array.isArray(question?.choices) ? question.choices : [];
+    const explanations = Array.isArray(question?.choiceExplanations) ? question.choiceExplanations : [];
+    const answerIndex = Number(question?.answerIndex);
+    if (choices.length < 2 || !Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= choices.length) return question;
+
+    const availablePositions = Math.min(Math.max(2, Number(choiceCount) || choices.length), choices.length);
+    const target = index % availablePositions;
+    const shift = (target - answerIndex + choices.length) % choices.length;
+    if (!shift) return question;
+    const rotate = (items) => items.map((_, nextIndex) => items[(nextIndex - shift + items.length) % items.length]);
+    return {
+      ...question,
+      choices: rotate(choices),
+      choiceExplanations: explanations.length === choices.length ? rotate(explanations) : explanations,
+      answerIndex: target,
+    };
+  });
+}
+
 export function applyTeacherReview(questions = [], reviews = []) {
   const reviewMap = new Map((Array.isArray(reviews) ? reviews : []).map((review) => [Number(review?.index), review]));
   return questions.flatMap((question, index) => {
@@ -172,12 +197,15 @@ export function auditTeacherQuestionSet(questions = [], blueprint = {}) {
   const typeDistance = distributionDistance(questionTypes, expectedForActualCount.questionTypes, total);
   const usedAnswerPositions = answerPositions.filter((count) => count > 0).length;
   const maxAnswerShare = total ? Math.max(...answerPositions) / total : 0;
-  const issues = [];
-  if (total < Number(blueprint?.total || total)) issues.push(`요청 ${Number(blueprint?.total || total)}문항 중 자동검수를 통과한 ${total}문항만 제공`);
-  if (difficultyDistance > 0.2) issues.push("최종 문항의 난이도 비율이 교사 설문 권장 비율과 다름");
-  if (typeDistance > 0.35) issues.push("최종 문항 유형 구성이 권장 구성과 다름");
-  if (total >= 5 && (usedAnswerPositions < 3 || maxAnswerShare > 0.5)) issues.push("정답 위치가 일부 번호에 치우침");
-  if (maxSimilarity >= 0.72) issues.push("서로 유사한 문항이 남아 있음");
+  const blockingIssues = [];
+  const warnings = [];
+  if (!total) blockingIssues.push("자동검수를 통과한 문항이 없음");
+  if (total < Number(blueprint?.total || total)) warnings.push(`요청 ${Number(blueprint?.total || total)}문항 중 근거 검증을 통과한 ${total}문항만 제공`);
+  if (difficultyDistance > 0.2) warnings.push("최종 문항의 난이도 비율이 교사 설문 권장 비율과 다름");
+  if (typeDistance > 0.35) warnings.push("최종 문항 유형 구성이 권장 구성과 다름");
+  if (total >= 5 && (usedAnswerPositions < 3 || maxAnswerShare > 0.5)) blockingIssues.push("정답 위치가 일부 번호에 과도하게 치우침");
+  if (maxSimilarity >= 0.72) blockingIssues.push("서로 유사한 문항이 남아 있음");
+  const issues = [...blockingIssues, ...warnings];
   return {
     method: "teacher-survey-ai-review",
     humanReviewed: false,
@@ -189,7 +217,22 @@ export function auditTeacherQuestionSet(questions = [], blueprint = {}) {
     maxSimilarity: Number(maxSimilarity.toFixed(3)),
     difficultyDistance: Number(difficultyDistance.toFixed(3)),
     typeDistance: Number(typeDistance.toFixed(3)),
-    passed: total > 0 && issues.length === 0,
+    gateVersion: 2,
+    passed: blockingIssues.length === 0,
+    blockingIssues,
+    warnings,
     issues,
   };
+}
+
+export function assertTeacherQuestionQuality(report = {}) {
+  if (report?.passed) return report;
+  const reasons = Array.isArray(report?.blockingIssues) && report.blockingIssues.length
+    ? report.blockingIssues
+    : ["문항 품질 기준을 충족하지 못함"];
+  const error = new Error(`AI 문항 품질검사를 통과하지 못했습니다: ${reasons.join(", ")}`);
+  error.status = 422;
+  error.code = "question_quality_gate_failed";
+  error.details = { qualityReport: report };
+  throw error;
 }
