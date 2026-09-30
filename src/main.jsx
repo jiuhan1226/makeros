@@ -22,6 +22,7 @@ import {
 import AppHeader from "./components/AppHeader";
 import AuthModal from "./components/AuthModal";
 import TutorialModal, { shouldShowTutorial } from "./components/TutorialModal";
+import FeedbackCenter from "./components/FeedbackCenter";
 import CatalogPage from "./pages/CatalogPage";
 import CertificateHomePage from "./pages/CertificateHomePage";
 import PastExamsPage from "./pages/PastExamsPage";
@@ -49,6 +50,7 @@ import { assetId, hydratePdfLibrary, readPdfLibrary, readStudyAssets, savePdfLib
 import { createBuildProject as makeBuildProject, readMakerState, saveMakerState } from "./utils/makerPlatform";
 import { generateStudyAssetsFromPages } from "./utils/aiStudyAssets";
 import { postJson } from "./utils/api";
+import { notifyUser } from "./utils/uiFeedback";
 import {
   buildDeterministicPlan,
   confirmPendingPlan,
@@ -1100,7 +1102,7 @@ function App() {
 
   function startDueReview(items) {
     const questions = (items || []).map(progressToQuestion).filter((question) => question.choices.length && Number.isInteger(question.answerIndex));
-    if (!questions.length) { alert("복습 가능한 문제 원문이 없습니다. 새 버전에서 푼 문제부터 복습할 수 있습니다."); return; }
+    if (!questions.length) { notifyUser("복습 가능한 문제 원문이 없습니다. 새 버전에서 푼 문제부터 복습할 수 있습니다.", "error"); return; }
     session.start({
       id: `due-review-${Date.now()}`,
       title: "오늘의 자동 복습",
@@ -1123,7 +1125,7 @@ function App() {
       if (term === "전체 과목") return true;
       return question.subject === term || getQuestionTags(question).includes(term);
     });
-    if (!pool.length) { alert("추천 문제를 만들 수 있는 기출문제가 없습니다."); return; }
+    if (!pool.length) { notifyUser("추천 문제를 만들 수 있는 기출문제가 없습니다.", "error"); return; }
     const questions = shuffle(pool).slice(0, Math.min(count, pool.length)).map((question, index) => ({ ...question, questionNumber: index + 1 }));
     session.start({
       id: `recommended-${Date.now()}`,
@@ -1186,7 +1188,7 @@ function App() {
   }
 
   async function createAssetsFromPdf(document) {
-    if (!document?.pages?.length) { alert("이 PDF는 텍스트가 저장되지 않아 AI 자료를 만들 수 없습니다. PDF를 다시 업로드해 주세요."); return; }
+    if (!document?.pages?.length) { notifyUser("이 PDF는 텍스트가 저장되지 않아 AI 자료를 만들 수 없습니다. PDF를 다시 업로드해 주세요.", "error"); return; }
     setAssetBusy(true);
     try {
       const created = await generateStudyAssetsFromPages({ pages: document.pages, sourceName: document.name, pdfId: document.id });
@@ -1199,14 +1201,14 @@ function App() {
       setAssets(next);
       setPage("notes");
     } catch (error) {
-      alert(error.message);
+      notifyUser(error.message, "error");
     } finally {
       setAssetBusy(false);
     }
   }
 
   async function createAssetsFromWrong() {
-    if (!wrongNotes.length) { alert("CBT 오답이 없습니다."); return; }
+    if (!wrongNotes.length) { notifyUser("CBT 오답이 없습니다."); return; }
     setAssetBusy(true);
     try {
       const source = wrongNotes.slice(0, 40).map((question, index) => `${index + 1}. [${question.subject || "공통"}] ${question.question}\n정답: ${(question.choices || [])[question.answerIndex] || question.answerIndex}\n해설: ${question.explanation || ""}`).join("\n\n").slice(0, 18000);
@@ -1223,7 +1225,7 @@ function App() {
       saveStudyAssets(next);
       setAssets(next);
     } catch (error) {
-      alert(error.message);
+      notifyUser(error.message, "error");
     } finally {
       setAssetBusy(false);
     }
@@ -1443,6 +1445,7 @@ function App() {
       </Suspense></PageErrorBoundary>
       {showAuth && <AuthModal user={user} onClose={() => setShowAuth(false)} />}
       <TutorialModal open={showTutorial} onClose={() => setShowTutorial(false)}/>
+      <FeedbackCenter />
       <div className="sync-indicator">{assetBusy ? "AI 자료 생성 중…" : syncStatus === "error" ? "저장 상태를 확인해 주세요" : syncStatus === "synced" ? "계정에 저장됨" : user ? "동기화 중…" : "이 기기에 자동 저장"}</div>
     </div>
   );
