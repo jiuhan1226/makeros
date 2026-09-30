@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildExamCheckpoint, examCheckpointKey, examCheckpointMeta, remainingForCheckpoint } from '../src/utils/examCheckpoint.js';
+import { buildExamCheckpoint, examCheckpointKey, examCheckpointMeta, remainingForCheckpoint, writeExamCheckpoint } from '../src/utils/examCheckpoint.js';
 import { formatExamRound } from '../src/utils/exam.js';
 
 assert.equal(formatExamRound('3'), '3회', '숫자 회차에는 단위를 한 번 붙여야 합니다.');
@@ -29,4 +29,30 @@ assert.match(home, /진행 중.*이어풀기/s, '최근 학습에 중단한 CBT 
 assert.match(past, /resumeSessions.*이어풀기/s, '기출 회차 목록에서 저장된 각 회차를 바로 이어 풀 수 있어야 합니다.');
 assert.match(sessionHook, /async function flushCheckpoint[\s\S]*writeExamCheckpoint\(snapshot\)/, '시험을 나가기 직전 최신 답안을 즉시 저장해야 합니다.');
 assert.match(main, /if \(!session\.submitted\) await session\.flushCheckpoint\(\)/, '미제출 시험을 나갈 때 저장 완료를 기다려야 합니다.');
+// A put request can succeed and its transaction can still abort: never report saved early.
+function fakeDatabase(abort) {
+  return {open() {
+    const open = {};
+    queueMicrotask(() => {
+      open.result = {close(){}, transaction() {
+        const tx = {objectStore() {return {put() {
+          const request = {result:'saved-key'};
+          queueMicrotask(() => {
+            request.onsuccess?.();
+            queueMicrotask(() => abort ? tx.onabort?.() : tx.oncomplete?.());
+          });
+          return request;
+        }}}}; return tx;
+      }};
+      open.onsuccess?.();
+    });
+    return open;
+  }};
+}
+const store = new Map();
+const memoryStorage = {getItem:key=>store.get(key),setItem:(key,value)=>store.set(key,value),removeItem:key=>store.delete(key)};
+await assert.rejects(writeExamCheckpoint(checkpoint,{storage:memoryStorage,indexedDb:fakeDatabase(true)}),/중단/);
+assert.equal(store.size,0,'트랜잭션 중단을 저장 성공 메타데이터로 표시하지 않는다');
+assert.ok(await writeExamCheckpoint(checkpoint,{storage:memoryStorage,indexedDb:fakeDatabase(false)}));
+assert.ok(store.size>0);
 console.log('[exam-checkpoint-test] OK');
