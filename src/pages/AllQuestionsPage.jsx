@@ -74,7 +74,7 @@ export default function AllQuestionsPage({ certificate, exams = [], loadQuestion
     <section className="cbt-learning-content all-question-page">
       <div className="topic-result-heading">
         <div>
-          <span className="eyebrow">ALL CBT QUESTIONS</span>
+          <span className="eyebrow">전체 문제 학습</span>
           <h1>{certificate?.name || "선택한 자격증"} 전체 문제</h1>
           <p>모든 회차의 같은 문제를 한 번만 남겨 이어서 풀 수 있어요.</p>
         </div>
