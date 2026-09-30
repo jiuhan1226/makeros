@@ -4,6 +4,7 @@ import CbtSettingsPanel from "../components/CbtSettingsPanel";
 import ExamMiniNavigator from "../components/ExamMiniNavigator";
 import { circled, formatExamRound, formatTime } from "../utils/exam";
 import { readCbtSettings, saveCbtSettings, shouldIgnoreExamShortcut } from "../utils/cbtPreferences";
+import { calculateCbtBlockProgress } from "../utils/continuousCbt";
 import {
   explanationFingerprint,
   hasQuestionImages,
@@ -110,7 +111,7 @@ function QualityReport({ report }) {
   );
 }
 
-export default function ExamPage({ session, onExit, onSaveConfidence, onBookmarkChange, isQuestionBookmarked, getDifficulty, onOpenPdfSource }) {
+export default function ExamPage({ session, onExit, onContinueStudyBlock, onFinishStudyBlock, onSaveConfidence, onBookmarkChange, isQuestionBookmarked, getDifficulty, onOpenPdfSource }) {
   const {
     questions,
     exam,
@@ -145,6 +146,12 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
   const revealCurrent = submitted || practiceAnswered;
   const currentExplanationFingerprint = explanationFingerprint(q || {});
   const answeredCount = Object.values(answers).filter((value) => value !== undefined).length;
+  const studyBlockProgress = exam?.studyBlockTargetMinutes ? calculateCbtBlockProgress({
+    targetMinutes: exam.studyBlockTargetMinutes,
+    completedMinutes: exam.studyBlockCompletedMinutes,
+    elapsedSeconds: session.elapsedSeconds,
+    answeredCount: result.answered,
+  }) : null;
   const displayBookmarks = useMemo(() => Object.fromEntries(questions.map((question, index) => [
     index,
     bookmarks[index] === undefined ? Boolean(isQuestionBookmarked?.(question)) : Boolean(bookmarks[index]),
@@ -364,7 +371,7 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
         </div>}
 
         {exam?.generationNotice && <div className={`diagnostic-source-notice ${exam.generationMode === "ai" ? "ai" : "fallback"}`}>
-          <strong>{exam.generationMode === "ai" ? "AI 맞춤 출제" : "기출 선별 진단"}</strong>
+          <strong>{exam.generationMode === "ai" ? "AI 맞춤 출제" : exam.generationMode === "past-question-routine" ? "과년도 기출 루틴" : "기출 선별 진단"}</strong>
           <span>{exam.generationNotice}</span>
         </div>}
         {exam?.generationMode === "ai" && <QualityReport report={exam?.qualityReport} />}
@@ -376,15 +383,21 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
               <span>{result.correct}/{result.total} 정답</span>
             </div>
             <div className="result-status">
-              <strong>{exam?.studyScope === "diagnostic" ? "진단 완료" : result.resultLabel}</strong>
+              <strong>{studyBlockProgress ? `${exam.studyBlockRound || 1}세트 완료` : exam?.studyScope === "diagnostic" ? "진단 완료" : result.resultLabel}</strong>
               <span>
-                {exam?.studyScope === "diagnostic"
+                {studyBlockProgress
+                  ? `실제 ${studyBlockProgress.roundMinutes}분 학습 · 오늘 ${studyBlockProgress.completedMinutes}/${studyBlockProgress.targetMinutes}분 · ${studyBlockProgress.remainingMinutes}분 남음`
+                  : exam?.studyScope === "diagnostic"
                   ? "과목별 정답률과 취약 영역이 목표 계획에 자동으로 반영됩니다."
                   : isPracticeAssessment
                   ? `연습 결과는 답한 ${result.total}문제를 기준으로 계산했어요. 미응답 ${result.unanswered}문제는 점수에 포함되지 않아요.`
                   : `평균 ${result.passScore}점 이상${result.cutoffEnabled ? ` · 과목별 ${result.cutoffScore}점 이상` : ""}`}
               </span>
             </div>
+            {studyBlockProgress && <div className="study-block-result-actions">
+              <button type="button" className="secondary" onClick={onFinishStudyBlock}>오늘은 여기까지</button>
+              <button type="button" className="primary" onClick={onContinueStudyBlock}>{studyBlockProgress.completed ? "학습 저장하기" : `다음 기출 ${questions.length}문제`}</button>
+            </div>}
           </section>
         )}
 
@@ -591,7 +604,9 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
           <div className="exam-navigation-center">
             <button type="button" className="secondary" onClick={onExit}>나가기</button>
             {submitted ? (
-              <button type="button" className="primary" onClick={onExit}>결과 저장 후 종료</button>
+              studyBlockProgress
+                ? <button type="button" className="secondary" onClick={onExit}>진행 저장 후 나가기</button>
+                : <button type="button" className="primary" onClick={onExit}>결과 저장 후 종료</button>
             ) : (
               <button type="button" className="primary" onClick={session.submit}>
                 {isPracticeAssessment ? "학습 결과 확인" : "시험 제출"}
