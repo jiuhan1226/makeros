@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { gradeExam } from "../utils/exam.js";
+import { createStudyClock, tickStudyClock, studyDayEndsAt } from "../utils/studyClock.js";
 import { clearExamCheckpoint, examCheckpointKey, listExamCheckpointMeta, readExamCheckpoint, readExamCheckpointMeta, remainingForCheckpoint, writeExamCheckpoint } from "../utils/examCheckpoint.js";
 
 const EXAM_SESSION_KEY = "makeros:active-exam-session:v1";
@@ -18,7 +19,7 @@ export function readSavedExamSession(storage = globalThis.localStorage) {
   }
 }
 
-export function useExamSession({ userId = "" } = {}) {
+export function useExamSession({ userId = "", active = true } = {}) {
   const restored = useRef(readSavedExamSession()).current;
   const savedMeta = useRef(readExamCheckpointMeta()).current;
   const [questions, setQuestions] = useState(restored?.questions || []);
@@ -42,6 +43,33 @@ export function useExamSession({ userId = "" } = {}) {
   const [drafts, setDrafts] = useState(() => listExamCheckpointMeta());
   const checkpointGeneration = useRef(0);
   const writeQueue = useRef(Promise.resolve());
+  const lastCloudCheckpoint = useRef({ at: 0, signature: '' });
+  const studyClock = useRef(createStudyClock(restored?.activeStudySeconds));
+  const [clockRevision, setClockRevision] = useState(0);
+  useEffect(() => {
+    studyClock.current.lastTick = Date.now();
+    if (!active || !exam || submitted) return undefined;
+    studyClock.current.lastInteraction = Date.now();
+    let wasVisible = document.visibilityState === 'visible';
+    const tick = () => {
+      studyClock.current = tickStudyClock(studyClock.current, { now: Date.now(), active, visible: wasVisible, submitted, stopAt: studyDayEndsAt(exam.studyBlockDate) });
+      setClockRevision((value) => value + 1);
+    };
+    const visibilityChanged = () => {
+      tick();
+      wasVisible = document.visibilityState === 'visible';
+      if (wasVisible) studyClock.current.lastInteraction = Date.now();
+    };
+    const interact = () => { tick(); studyClock.current.lastInteraction = Date.now(); };
+    const timer = window.setInterval(tick, 5000);
+    for (const event of ['pointerdown', 'keydown', 'scroll']) window.addEventListener(event, interact, { passive: true, capture: true });
+    document.addEventListener('visibilitychange', visibilityChanged);
+    return () => {
+      tick(); window.clearInterval(timer);
+      for (const event of ['pointerdown', 'keydown', 'scroll']) window.removeEventListener(event, interact, true);
+      document.removeEventListener('visibilitychange', visibilityChanged);
+    };
+  }, [active, exam, submitted]);
 
   useEffect(() => {
     if (restored || !savedMeta) return undefined;
@@ -55,6 +83,7 @@ export function useExamSession({ userId = "" } = {}) {
           return;
         }
         setExam(saved.exam);
+        studyClock.current = createStudyClock(saved.activeStudySeconds);
         setQuestions(saved.questions);
         setMode(saved.mode || "시험모드");
         setAnswers(saved.answers || {});
@@ -117,6 +146,7 @@ export function useExamSession({ userId = "" } = {}) {
           deadlineAt,
           startedAt,
           submittedAt,
+          activeStudySeconds: studyClock.current.seconds,
           savedAt: Date.now(),
           checkpointKey,
         });
@@ -126,7 +156,14 @@ export function useExamSession({ userId = "" } = {}) {
           if (generation !== checkpointGeneration.current) return;
           setLastSavedAt(Number(checkpoint?.savedAt || 0));
           setDrafts(listExamCheckpointMeta());
-          if (userId && checkpoint) loadCloudDraftApi().then(({ saveCloudExamDraft }) => saveCloudExamDraft(userId, checkpoint)).catch((error) => console.warn("CBT 진행 상태 클라우드 저장 실패", error));
+          const signature = JSON.stringify([checkpointKey, answers, bookmarks, submitted]);
+          if (userId && checkpoint && (signature !== lastCloudCheckpoint.current.signature || Date.now() - lastCloudCheckpoint.current.at >= 30000)) {
+            lastCloudCheckpoint.current = { at: Date.now(), signature };
+            loadCloudDraftApi().then(({ saveCloudExamDraft }) => saveCloudExamDraft(userId, checkpoint)).catch((error) => {
+              lastCloudCheckpoint.current = { at: 0, signature: '' };
+              console.warn("CBT 진행 상태 클라우드 저장 실패", error);
+            });
+          }
           setCheckpointStatus("saved");
         })
         .catch((error) => {
@@ -136,7 +173,7 @@ export function useExamSession({ userId = "" } = {}) {
         });
     }, 250);
     return () => window.clearTimeout(id);
-  }, [answers, bookmarks, checkpointEnabled, checkpointKey, confidenceByQuestion, current, deadlineAt, exam, mode, questions, restoring, reviewChecks, startedAt, submitted, submittedAt, userId]);
+  }, [answers, bookmarks, checkpointEnabled, checkpointKey, confidenceByQuestion, current, deadlineAt, exam, mode, questions, restoring, reviewChecks, startedAt, submitted, submittedAt, userId, clockRevision]);
 
   useEffect(() => {
     if (!exam || mode !== "실전모드" || submitted) return undefined;
@@ -169,7 +206,7 @@ export function useExamSession({ userId = "" } = {}) {
         clearExamCheckpoint({ key: checkpointKey }).catch(() => undefined);
         if (userId) loadCloudDraftApi().then(({ deleteCloudExamDraft }) => deleteCloudExamDraft(userId, checkpointKey)).catch(() => undefined);
       } else {
-        const currentCheckpoint = { exam, questions, mode, answers, bookmarks, reviewChecks, confidenceByQuestion, current, submitted, remaining, deadlineAt, startedAt, submittedAt, savedAt: Date.now(), checkpointKey };
+        const currentCheckpoint = { exam, questions, mode, answers, bookmarks, reviewChecks, confidenceByQuestion, current, submitted, remaining, deadlineAt, startedAt, submittedAt, activeStudySeconds: studyClock.current.seconds, savedAt: Date.now(), checkpointKey };
         writeExamCheckpoint(currentCheckpoint, { makeActive: false }).then((saved) => userId && saved ? loadCloudDraftApi().then(({ saveCloudExamDraft }) => saveCloudExamDraft(userId, saved)) : null).catch(() => undefined);
       }
     }
@@ -187,6 +224,7 @@ export function useExamSession({ userId = "" } = {}) {
     setSubmitted(false);
     setSubmittedAt(0);
     const startTime = Date.now();
+    studyClock.current = createStudyClock(0, startTime);
     const durationSeconds = (nextExam?.durationMinutes || Math.max(1, nextQuestions.length)) * 60;
     setRemaining(durationSeconds);
     setDeadlineAt(nextMode === "실전모드" ? startTime + durationSeconds * 1000 : 0);
@@ -218,7 +256,7 @@ export function useExamSession({ userId = "" } = {}) {
   }
 
   async function flushCheckpoint() {
-    if (restoring || !checkpointEnabled || !exam || !questions.length || submitted) return null;
+    if (restoring || !checkpointEnabled || !exam || !questions.length) return null;
     const generation = checkpointGeneration.current;
     const snapshot = {
       exam,
@@ -234,6 +272,7 @@ export function useExamSession({ userId = "" } = {}) {
       deadlineAt,
       startedAt,
       submittedAt,
+      activeStudySeconds: studyClock.current.seconds,
       savedAt: Date.now(),
       checkpointKey,
     };
@@ -266,6 +305,7 @@ export function useExamSession({ userId = "" } = {}) {
     try {
       const saved = await readExamCheckpoint({ key });
       if (!saved) return false;
+      studyClock.current = createStudyClock(saved.activeStudySeconds);
       checkpointGeneration.current += 1;
       setExam(saved.exam); setQuestions(saved.questions); setMode(saved.mode || "시험모드");
       setAnswers(saved.answers || {}); setBookmarks(saved.bookmarks || {}); setReviewChecks(saved.reviewChecks || {});
@@ -314,7 +354,7 @@ export function useExamSession({ userId = "" } = {}) {
     remaining,
     startedAt,
     submittedAt,
-    elapsedSeconds: startedAt ? Math.max(0, Math.round(((submittedAt || Date.now()) - startedAt) / 1000)) : 0,
+    elapsedSeconds: Math.floor(studyClock.current.seconds),
     resumable: Boolean(checkpointEnabled && exam && questions.length && !submitted),
     restoring,
     checkpointStatus,
@@ -330,8 +370,12 @@ export function useExamSession({ userId = "" } = {}) {
     toggleReviewCheck,
     setConfidence,
     setCurrent,
-    submit: () => { setSubmittedAt(Date.now()); setSubmitted(true); },
+    submit: () => {
+      studyClock.current = tickStudyClock(studyClock.current, { now: Date.now(), active, visible: document.visibilityState === 'visible', submitted, stopAt: studyDayEndsAt(exam?.studyBlockDate) });
+      setSubmittedAt(Date.now()); setSubmitted(true);
+    },
     clearCheckpoint,
+    detachDailyBlock: () => setExam((previous) => previous ? { ...previous, studyBlockTargetMinutes: 0, studyBlockDate: '', partnerGoalId: '', partnerItemId: '', generationNotice: '날짜가 바뀌어 이전 세트는 일반 연습으로 보관했습니다. 오늘 목표 학습은 오늘 탭에서 새로 시작할 수 있습니다.' } : previous),
     flushCheckpoint,
     resumeDraft,
     clearAllDrafts,
