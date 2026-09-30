@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { applyCardResult, buildQuizChoices, cardMastery, filterCardsByMastery, shuffleCards } from "../utils/flashcardLearning";
 import { buildStudyAssetGroups, studyAssetGroup as sourceGroup } from "../utils/studyAssetGroups";
 import { sourcePageLabel } from "../utils/pdfSource";
+import { notifyUser } from "../utils/uiFeedback";
 
 const masteryLabels = { new: "새 카드", learning: "학습 중", known: "암기 완료" };
 
@@ -78,7 +79,7 @@ export default function NotesCardsPage({ assets, onDelete, onUpdate, onDeleteFol
 
   function startStudy(mode) {
     if (!items.length) return;
-    if (mode === "quiz" && items.length < 2) { window.alert("선택 퀴즈는 카드가 2개 이상 필요합니다."); return; }
+    if (mode === "quiz" && items.length < 2) { notifyUser("선택 퀴즈는 카드가 2개 이상 필요합니다."); return; }
     setSession({ mode, cards: shuffleCards(items), index: 0, flipped: false, answered: "", correct: 0, wrong: 0, finished: false });
   }
 
@@ -121,7 +122,7 @@ export default function NotesCardsPage({ assets, onDelete, onUpdate, onDeleteFol
   }
 
   return <main className="page-shell">
-    <section className="page-title"><div><span className="eyebrow">AI STUDY ASSETS</span><h1>AI 노트 · 개념카드</h1><p>자료별 핵심을 확인하고, 카드 학습과 퀴즈로 기억 상태를 점검하세요.</p></div><button className="primary" disabled={busy} onClick={onGenerateFromWrong}>{busy ? "AI 생성 중…" : "현재 CBT 오답으로 생성"}</button></section>
+    <section className="page-title"><div><span className="eyebrow">AI 학습자료</span><h1>AI 노트 · 개념카드</h1><p>자료별 핵심을 확인하고, 카드 학습과 퀴즈로 기억 상태를 점검하세요.</p></div><button className="primary" disabled={busy} onClick={onGenerateFromWrong}>{busy ? "AI 생성 중…" : "현재 CBT 오답으로 생성"}</button></section>
     <div className="tab-switch"><button className={tab === "notes" ? "active" : ""} onClick={() => resetFilters("notes")}>AI 노트 {assets.notes?.length || 0}</button><button className={tab === "cards" ? "active" : ""} onClick={() => resetFilters("cards")}>개념카드 {assets.cards?.length || 0}</button></div>
     <section className="asset-folder-layout">
       <aside className="panel asset-folder-sidebar"><strong>자료 폴더</strong>{["전체", "CBT", "PDF"].map((value) => <button key={value} className={root === value ? "active" : ""} onClick={() => { setRoot(value); setFolder("전체"); }}>{value}<span>{value === "전체" ? all.length : counts[value]}</span></button>)}{root !== "전체" && <><div className="folder-divider"/><small>{root} 세부 폴더</small><button className={folder === "전체" ? "active" : ""} onClick={() => setFolder("전체")}>전체 보기<span>{rootItems.length}</span></button>{folders.map((group) => <button key={group.key} className={folder === group.key ? "active" : ""} onClick={() => setFolder(group.key)}>📁 {group.label}<span>{rootItems.filter((item) => sourceGroup(item).key === group.key).length}</span></button>)}</>}</aside>
