@@ -55,7 +55,7 @@ export default function PastExamsPage({ exams = [], loadQuestions, resumeSession
 
     <section className="cbt-learning-content">
       <div className="page-heading">
-        <span className="eyebrow">OFFICIAL CBT</span>
+        <span className="eyebrow">기출문제</span>
         <h1>CBT 기출문제</h1>
         <p>회차별 기출과 과목별 문제를 원하는 방식으로 풀어보세요.</p>
       </div>
@@ -67,7 +67,7 @@ export default function PastExamsPage({ exams = [], loadQuestions, resumeSession
 
       <section className="panel cbt-subject-overview">
         <div className="section-title">
-          <div><span className="eyebrow">SUBJECTS</span><h2>과목별 CBT</h2><p>과목별 문제 수와 출제 회차를 한눈에 확인하고 바로 학습할 수 있어요.</p></div>
+          <div><span className="eyebrow">과목별 학습</span><h2>과목별 CBT</h2><p>과목별 문제 수와 출제 회차를 한눈에 확인하고 바로 학습할 수 있어요.</p></div>
           <button className="secondary" onClick={() => onNavigate?.("subject")}>과목별 전체 화면</button>
         </div>
         {loadingSubjects ? <div className="empty-state compact">과목별 문제를 준비하고 있어요.</div> : <div className="cbt-subject-card-grid">
