@@ -5,7 +5,7 @@ export default function PdfLibraryPage({ library, onRefresh, onOpen, onCreateAss
   const [query, setQuery] = useState("");
   const list = useMemo(() => library.filter((item) => item.name.toLowerCase().includes(query.toLowerCase())), [library, query]);
   return <main className="page-shell">
-    <section className="page-title"><div><span className="eyebrow">PDF LIBRARY</span><h1>PDF 라이브러리</h1><p>교과서나 학습 자료를 올리고, 필요한 페이지부터 학습하세요.</p></div><button className="primary" onClick={() => onOpen(null, 1)}>새 PDF 업로드</button></section>
+    <section className="page-title"><div><span className="eyebrow">학습자료</span><h1>PDF 라이브러리</h1><p>교과서나 학습 자료를 올리고, 필요한 페이지부터 학습하세요.</p></div><button className="primary" onClick={() => onOpen(null, 1)}>새 PDF 업로드</button></section>
 
     <details className="panel school-study-tutorial" open={!library.length}>
       <summary><span>내신 처음 사용</span><strong>PDF를 먼저 업로드하세요</strong></summary>
