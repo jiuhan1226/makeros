@@ -7,7 +7,7 @@ const today = fs.readFileSync(new URL("../src/pages/PartnerTodayPage.jsx", impor
 const data = fs.readFileSync(new URL("../src/pages/DataManagementPage.jsx", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
-assert.match(main, /activate: !getActivePartnerPlan\(baseState\)/, "first plan should activate and later recalculations should remain pending");
+assert.match(main, /activate: !getActivePartnerPlan\(latest\)/, "first plan should activate using latest state and later recalculations should remain pending");
 assert.ok((main.match(/createPlanVersion\(next, replanned, \{ activate: false \}\)/g) || []).length >= 2, "CBT and PDF results should create reviewable plan drafts");
 assert.equal((goals.match(/내 계획 자동으로 만들기/g) || []).length, 1, "goal setup should expose one primary generation CTA");
 assert.match(goals, /partner-optional-profile/);
