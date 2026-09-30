@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   applyTeacherReview,
   auditTeacherQuestionSet,
+  balanceAnswerPositions,
   buildTeacherQuestionBlueprint,
   deduplicateTeacherQuestions,
   questionSimilarity,
@@ -55,6 +56,17 @@ assert.equal(reviewed[0].teacherReviewStatus, "verified");
 assert.equal(reviewed[0].teacherReviewModel, "review-model");
 assert.equal(reviewed[0].reviewMethod, "teacher-survey-ai-review");
 
+const balanced = balanceAnswerPositions(Array.from({ length: 5 }, (_, index) => ({
+  ...valid,
+  question: `직렬 회로의 전류 특성을 확인하는 ${index + 1}번 문항은 무엇인가?`,
+  answerIndex: 0,
+})), 5);
+assert.deepEqual(balanced.map((item) => item.answerIndex), [0, 1, 2, 3, 4], "정답 위치가 한 번호에 몰리면 안 됩니다.");
+balanced.forEach((item) => {
+  assert.equal(item.choices[item.answerIndex], valid.choices[0], "선택지를 옮겨도 정답 내용은 유지되어야 합니다.");
+  assert.equal(item.choiceExplanations[item.answerIndex], valid.choiceExplanations[0], "정답 선택지의 해설도 함께 이동해야 합니다.");
+});
+
 const audited = auditTeacherQuestionSet([
   { ...valid, difficulty: "쉬움", questionType: "핵심 개념 확인", answerIndex: 0 },
   { ...valid, question: "병렬 회로의 전압 관계를 고르시오.", difficulty: "보통", questionType: "원리 이해", answerIndex: 1 },
@@ -65,5 +77,14 @@ const audited = auditTeacherQuestionSet([
 assert.equal(audited.humanReviewed, false, "AI 자동검수를 사람 검수로 표시하면 안 됩니다.");
 assert.equal(audited.verifiedCount, 5);
 assert.equal(audited.answerPositions.reduce((sum, count) => sum + count, 0), 5);
+assert.equal(audited.passed, true);
+
+const blocked = auditTeacherQuestionSet(Array.from({ length: 5 }, (_, index) => ({
+  ...valid,
+  question: `회로 원리를 확인하는 서로 다른 문항 ${index + 1}은 무엇인가?`,
+  answerIndex: 0,
+})), buildTeacherQuestionBlueprint({ count: 5 }));
+assert.equal(blocked.passed, false, "정답 위치가 과도하게 몰린 문항 묶음은 출제되면 안 됩니다.");
+assert.ok(blocked.blockingIssues.some((issue) => issue.includes("정답 위치")));
 
 console.log("teacher-question-design-test: ok");
