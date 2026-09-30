@@ -142,7 +142,7 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
 
   return <main className="partner-page">
     <nav className="school-life-tabs" aria-label="학교 생활 메뉴"><button className="active">월간 일정</button><button onClick={() => onNavigate("timetable")}>학교 시간표</button><button onClick={() => onNavigate("meals")}>급식</button></nav>
-    <section className="partner-page-head"><div><span className="partner-kicker">ONE CALENDAR</span><h1>통합 일정</h1><p>일정을 눌러 색을 바꾸고, 빈 날짜를 눌러 새 일정을 추가하세요.</p></div><div className="partner-calendar-head-actions"><button className="partner-secondary" onClick={() => onNavigate("partnerGoals")}>일정 정보 수정</button></div></section>
+    <section className="partner-page-head"><div><span className="partner-kicker">한눈에 보는 일정</span><h1>통합 일정</h1><p>일정을 눌러 색을 바꾸고, 빈 날짜를 눌러 새 일정을 추가하세요.</p></div><div className="partner-calendar-head-actions"><button className="partner-secondary" onClick={() => onNavigate("partnerGoals")}>일정 정보 수정</button></div></section>
     <section className="partner-calendar-layout">
       <section className="partner-month-calendar partner-panel">
         <header className="partner-calendar-toolbar">
@@ -178,7 +178,7 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
       </section>
 
       <aside className="partner-panel partner-calendar-help partner-upcoming-card">
-        <span className="partner-kicker">UPCOMING</span><h2>가까운 일정</h2><p>마감이 가까운 순서로 확인하세요.</p>
+        <span className="partner-kicker">다가오는 일정</span><h2>가까운 일정</h2><p>마감이 가까운 순서로 확인하세요.</p>
         <div className="partner-upcoming-list">
           {upcoming.map((item) => {
             const dueDate = item.rangeEnd || item.date;
@@ -198,7 +198,7 @@ export default function PartnerCalendarPage({ state, onChange, onNavigate }) {
     {editor && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditor(null)}>
       <section className="modal partner-calendar-editor" role="dialog" aria-modal="true" aria-labelledby="calendar-editor-title">
         <button className="modal-close" onClick={() => setEditor(null)} aria-label="닫기">×</button>
-        <span className="partner-kicker">SCHEDULE</span><h2 id="calendar-editor-title">{editor.generated ? "일정 색상" : editor.id ? "일정 수정" : "일정 추가"}</h2>
+        <span className="partner-kicker">일정 설정</span><h2 id="calendar-editor-title">{editor.generated ? "일정 색상" : editor.id ? "일정 수정" : "일정 추가"}</h2>
         {editor.generated ? <div className="partner-generated-schedule"><span>{labels[editor.type] || "일정"}</span><strong>{editor.title}</strong><small>{editor.startDate}{editor.endDate !== editor.startDate ? ` ~ ${editor.endDate}` : ""}</small><p>이 일정의 내용과 기간은 목표 탭에서 수정할 수 있습니다.</p></div> : <>
           <label>일정 이름<input value={editor.title} onChange={(event) => setEditor({ ...editor, title: event.target.value })} placeholder="예: 전기기기 시험 준비" autoFocus /></label>
           <label className="partner-single-day-check"><input type="checkbox" checked={editor.isSingleDay} onChange={(event) => setEditor({ ...editor, isSingleDay: event.target.checked, endDate: event.target.checked ? editor.startDate : editor.endDate })}/> 하루 일정으로 등록</label>
