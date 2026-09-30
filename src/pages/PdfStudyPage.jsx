@@ -75,14 +75,16 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
         lastPage: 1,
         createdAt: Date.now(),
       };
-      upsertPdfDocument(next);
+      setStatus("PDF 분석을 마쳤습니다. 학습자료를 이 기기에 저장하고 있습니다…");
+      const persisted = await upsertPdfDocument(next);
+      if (persisted?.storageError) throw persisted.storageError;
       onRefresh?.();
       setDoc(next);
       setAssets(assetsForDocument(next));
       setStartPage(1);
       setEndPage(pages.length);
       setStatus(pages.some((page) => String(page.text || "").trim())
-        ? `${pages.length}쪽을 읽었습니다. 텍스트가 없는 페이지는 학습 생성에 포함되지 않습니다.`
+        ? `${pages.length}쪽을 읽고 저장했습니다. 텍스트가 없는 페이지는 학습 생성에 포함되지 않습니다.`
         : "이 PDF에서 글자를 읽지 못했습니다. 이미지로 스캔된 PDF는 현재 OCR을 지원하지 않습니다. 글자를 선택할 수 있는 PDF를 올려 주세요.");
     } catch (error) {
       setStatus(error.message || "PDF 분석에 실패했습니다.");
@@ -221,7 +223,7 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
   return <main className="page-shell pdf-native-page">
     <section className="page-title">
       <div>
-        <span className="eyebrow">AI PDF STUDY</span>
+        <span className="eyebrow">AI PDF 학습</span>
         <h1>PDF 학습</h1>
         <p>PDF를 업로드하고 AI 노트, 개념카드, 퀴즈로 반복 학습해 보세요.</p>
       </div>
@@ -276,18 +278,18 @@ export default function PdfStudyPage({ library, onRefresh, onStartQuiz, onOpenTu
         </>}
 
         {tab === "summary" && <section className="panel pdf-feature-panel">
-          <div className="section-title"><div><span className="eyebrow">DETAILED AI NOTES</span><h2>전체 범위 상세 노트</h2><p>전체 범위를 구간별로 정리해 핵심 개념과 세부 내용을 함께 보여드려요.</p></div><button className="primary" disabled={busy || readableLength < 200} onClick={generateQuiz}>이 범위로 퀴즈 풀기</button></div>
+          <div className="section-title"><div><span className="eyebrow">상세 AI 노트</span><h2>전체 범위 상세 노트</h2><p>전체 범위를 구간별로 정리해 핵심 개념과 세부 내용을 함께 보여드려요.</p></div><button className="primary" disabled={busy || readableLength < 200} onClick={generateQuiz}>이 범위로 퀴즈 풀기</button></div>
           <div className="pdf-note-outline">{assets.notes.map((note, index) => <a key={note.id} href={`#pdf-note-${index}`}>{sourcePageLabel(note) ? `${sourcePageLabel(note)} · ` : ""}{note.title}</a>)}</div>
           <div className="note-grid pdf-detailed-note-grid">{assets.notes.map((note, index) => <article className="ai-note-card" id={`pdf-note-${index}`} key={note.id}><span className="result-type">근거 · {sourcePageLabel(note) || "PDF"}</span><h3>{note.title}</h3><p>{note.summary}</p>{note.details && <p className="pdf-note-details">{note.details}</p>}<ul>{(note.keyPoints || []).map((point, pointIndex) => <li key={pointIndex}>{point}</li>)}</ul><div className="asset-card-actions"><button className="text-button" onClick={() => startAssetEdit("notes", note)}>수정</button><button className="text-button danger-text" onClick={() => deleteDocumentAsset("notes", note.id)}>삭제</button></div></article>)}</div>
         </section>}
 
         {tab === "cards" && <section className="panel pdf-feature-panel">
-          <div className="section-title"><div><span className="eyebrow">CONCEPT CARDS</span><h2>AI 개념카드</h2></div><span>{assets.cards.length}장</span></div>
+          <div className="section-title"><div><span className="eyebrow">개념카드</span><h2>AI 개념카드</h2></div><span>{assets.cards.length}장</span></div>
           <div className="flashcard-grid">{assets.cards.map((card) => <article className={`flashcard ${flipped[card.id] ? "flipped" : ""}`} key={card.id}><button className="flashcard-flip" onClick={() => setFlipped((value) => ({ ...value, [card.id]: !value[card.id] }))}><span>{flipped[card.id] ? "정답" : "질문"}</span><strong>{flipped[card.id] ? card.back : card.front}</strong><small>{sourcePageLabel(card) ? `근거 · ${sourcePageLabel(card)} · ` : ""}카드를 눌러 뒤집기</small></button><div className="asset-card-actions"><button className="text-button" onClick={() => startAssetEdit("cards", card)}>수정</button><button className="text-button danger-text" onClick={() => deleteDocumentAsset("cards", card.id)}>삭제</button></div></article>)}</div>
         </section>}
 
         {tab === "mindmap" && <section className="panel pdf-feature-panel">
-          <div className="section-title"><div><span className="eyebrow">PDF CONCEPT STRUCTURE</span><h2>PDF 개념 구조</h2><p>이 PDF의 핵심 개념과 연결 관계를 한눈에 확인하세요.</p></div></div>
+          <div className="section-title"><div><span className="eyebrow">개념 연결</span><h2>PDF 개념 구조</h2><p>이 PDF의 핵심 개념과 연결 관계를 한눈에 확인하세요.</p></div></div>
           <div className="pdf-mindmap"><div className="mindmap-center">{sourceName.replace(/\.pdf$/i, "")}</div>{mindmap.map((node) => <article key={node.index}><h3>{node.title}</h3>{node.children.map((point, pointIndex) => <span key={pointIndex}>{point}</span>)}</article>)}</div>
         </section>}
       </section>
