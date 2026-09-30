@@ -69,7 +69,7 @@ export default function UnifiedSearchPage({ searchCbt, pdfLibrary, wrongNotes, b
   }
 
   return <main className="page-shell">
-    <section className="page-title"><div><span className="eyebrow">MAKEROS SEARCH</span><h1>통합 검색</h1><p>MakerOS 기능, 자격증 문제, 내신 자료를 한 번에 찾습니다.</p></div></section>
+    <section className="page-title"><div><span className="eyebrow">통합 검색</span><h1>기능·문제·학습자료 찾기</h1><p>MakerOS 기능, 자격증 문제, 내신 자료를 한 번에 찾습니다.</p></div></section>
     <section className="knowledge-search-sources" aria-label="검색 범위">
       <article><span>바로가기</span><strong>메뉴·기능</strong><small>전체 자격증, 급식, 시간표, 진로 등</small></article>
       <article><span>자격증</span><strong>CBT 문제·과목명</strong><small>기출문제, 저장한 오답과 북마크</small></article>
