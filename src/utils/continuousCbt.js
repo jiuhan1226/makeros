@@ -1,27 +1,33 @@
 import { getQuestionTags, questionProgressId } from "./learningEngine.js";
-import { deduplicateQuestions } from "./questionDedup.js";
+import { deduplicateQuestions, questionContentKey } from "./questionDedup.js";
 
 export const CBT_ROUND_SIZE = 15;
 
 export function calculateCbtBlockProgress({
   targetMinutes = 0,
   completedMinutes = 0,
+  completedSeconds,
   elapsedSeconds = 0,
   answeredCount = 0,
   forceComplete = false,
 } = {}) {
   const target = Math.max(1, Math.round(Number(targetMinutes) || 1));
-  const previous = Math.max(0, Math.round(Number(completedMinutes) || 0));
-  const actualMinutes = answeredCount > 0 ? Math.max(1, Math.ceil(Math.max(0, Number(elapsedSeconds) || 0) / 60)) : 0;
-  const total = forceComplete ? target : Math.min(target, previous + actualMinutes);
+  const previousSeconds = Math.max(0, Number(completedSeconds ?? Number(completedMinutes) * 60) || 0);
+  const roundSeconds = answeredCount > 0 ? Math.max(0, Number(elapsedSeconds) || 0) : 0;
+  const totalSeconds = previousSeconds + roundSeconds;
+  const previous = Math.floor(previousSeconds / 60);
+  const actualMinutes = Math.floor(roundSeconds / 60);
+  const total = Math.floor(totalSeconds / 60);
   return {
     targetMinutes: target,
     previousMinutes: previous,
     roundMinutes: actualMinutes,
     completedMinutes: total,
-    remainingMinutes: Math.max(0, target - total),
-    completed: forceComplete || total >= target,
-    progressPercent: Math.min(100, Math.round((total / target) * 100)),
+    completedSeconds: totalSeconds,
+    remainingMinutes: Math.max(0, Math.ceil((target * 60 - totalSeconds) / 60)),
+    completed: forceComplete || totalSeconds >= target * 60,
+    endedEarly: forceComplete && totalSeconds < target * 60,
+    progressPercent: Math.min(100, Math.floor(totalSeconds / (target * 60) * 100)),
   };
 }
 
@@ -39,14 +45,28 @@ export function selectContinuousPastQuestions({
   seenQuestionIds = [],
   recentWrongQuestions = [],
   limit = CBT_ROUND_SIZE,
+  now = Date.now(),
 } = {}) {
-  const unique = deduplicateQuestions(questions).questions;
+  const valid = questions.filter((q) => Array.isArray(q.choices) && q.choices.length >= 2
+    && Number.isInteger(Number(q.answerIndex)) && Number(q.answerIndex) >= 0 && Number(q.answerIndex) < q.choices.length
+    && (String(q.question || '').trim() || q.imageUrl || q.questionImageUrls?.length));
+  const unique = deduplicateQuestions(valid).questions;
   const progressById = new Map(progress.map((item) => [String(item.questionId || questionProgressId(item)), item]));
+  const byContent = new Map();
+  progress.forEach((row) => {
+    const key = questionContentKey({ ...row, answerIndex: row.answerIndex ?? row.correctAnswerIndex });
+    if (!byContent.has(key) || Number(row.lastSolvedAt || 0) > Number(byContent.get(key).lastSolvedAt || 0)) byContent.set(key, row);
+  });
   const seen = new Set(seenQuestionIds.map(String));
   const weakSubjects = new Set();
   const weakTags = new Set();
 
-  [...recentWrongQuestions, ...progress.filter((item) => item.isCorrect === false || Number(item.wrongStreak || 0) > 0)]
+  const currentWrong = recentWrongQuestions.filter((q) => {
+    const latest = progressById.get(questionProgressId(q)) || byContent.get(questionContentKey(q));
+    return !latest || latest.isCorrect === false;
+  });
+  const wrongIds = new Set(currentWrong.map(questionProgressId));
+  [...currentWrong, ...progress.filter((item) => item.isCorrect === false)]
     .forEach((item) => {
       const subject = String(item.subject || "").trim();
       if (subject) weakSubjects.add(subject);
@@ -55,7 +75,7 @@ export function selectContinuousPastQuestions({
 
   const scored = unique.map((question, index) => {
     const id = questionProgressId(question);
-    const saved = progressById.get(id);
+    const saved = progressById.get(id) || byContent.get(questionContentKey(question));
     const tags = getQuestionTags(question);
     const unseen = !seen.has(id);
     let score = unseen ? 100 : -120;
@@ -65,19 +85,44 @@ export function selectContinuousPastQuestions({
     if (weakSubjects.has(String(question.subject || "").trim())) score += 24;
     score += overlap(tags, weakTags) * 18;
     // 같은 조건이면 최신 회차 하나에 쏠리지 않도록 원래 DB 순서를 유지한다.
-    return { question, id, score, index, unseen };
+    const wrong = saved?.isCorrect === false || (!saved && wrongIds.has(id));
+    const due = Boolean(saved && Number(saved.nextReviewAt || Infinity) <= now);
+    const similar = overlap(tags.filter((tag) => tag && tag !== question.subject && !/공통|기타|미분류/.test(tag)), weakTags) > 0;
+    return { question, id, score, index, unseen, saved, wrong, due, similar };
   }).sort((a, b) => b.score - a.score || a.index - b.index);
 
-  let selected = scored.filter((item) => item.unseen).slice(0, limit);
-  if (selected.length < limit) {
-    const selectedIds = new Set(selected.map((item) => item.id));
-    selected = [...selected, ...scored.filter((item) => !selectedIds.has(item.id)).slice(0, limit - selected.length)];
-  }
+  const count = Math.min(unique.length, Math.max(1, Math.floor(Number(limit) || CBT_ROUND_SIZE)));
+  const selected = [];
+  const selectedIds = new Set();
+  const take = (pool, quota, reason) => {
+    for (const item of pool) {
+      if (quota <= 0 || selected.length >= count) break;
+      if (selectedIds.has(item.id)) continue;
+      selected.push({ ...item, reason }); selectedIds.add(item.id); quota -= 1;
+    }
+  };
+  // 복습 자리를 먼저 확보한다. 이미 본 오답을 미풀이 필터로 제거하지 않는다.
+  take(scored.filter((x) => x.wrong || x.due), Math.max(1, Math.floor(count * .4)), 'review');
+  take(scored.filter((x) => x.similar && !x.saved && x.unseen), Math.floor(count * .2), 'similar');
+  take(scored.filter((x) => !x.saved && x.unseen), count, 'new');
+  take(scored.filter((x) => x.wrong || x.due), count, 'review');
+  take([...scored].sort((a,b) => Number(a.saved?.lastSolvedAt || 0) - Number(b.saved?.lastSolvedAt || 0)), count, 'repeat');
 
   return {
     questions: selected.map((item) => item.question),
     questionIds: selected.map((item) => item.id),
-    unseenCount: selected.filter((item) => item.unseen && !progressById.has(item.id)).length,
-    reviewCount: selected.filter((item) => !item.unseen || progressById.has(item.id)).length,
+    unseenCount: selected.filter((item) => !item.saved && item.unseen).length,
+    reviewCount: selected.filter((item) => item.reason === 'review').length,
+    similarCount: selected.filter((item) => item.reason === 'similar').length,
+    repeatCount: selected.filter((item) => item.reason === 'repeat').length,
+    selectionReasons: selected.map((item) => ({ id: item.id, reason: item.reason })),
   };
+}
+
+export function roundQuestionCount(remainingMinutes, history = []) {
+  const usable = history.filter((s) => Number(s.answered) > 0 && Number(s.durationSeconds) > 0);
+  const answers = usable.reduce((sum,s) => sum + s.answered, 0);
+  const seconds = usable.reduce((sum,s) => sum + s.durationSeconds, 0);
+  const perQuestion = Math.min(180, Math.max(20, answers >= 10 ? seconds / answers : 60));
+  return Math.max(1, Math.min(CBT_ROUND_SIZE, Math.floor(Math.max(0, remainingMinutes) * 60 / perQuestion)));
 }
