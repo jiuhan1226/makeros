@@ -86,6 +86,30 @@ function resultToExplanationState(result) {
   };
 }
 
+function QualityReport({ report }) {
+  if (!report || typeof report !== "object") return null;
+  const difficulty = Object.entries(report.difficulty || {}).filter(([, count]) => Number(count) > 0);
+  const types = Object.entries(report.questionTypes || {}).filter(([, count]) => Number(count) > 0);
+  const answerPositions = (report.answerPositions || []).map((count, index) => `${index + 1}번 ${count}개`);
+  const warnings = Array.isArray(report.warnings) ? report.warnings : [];
+  return (
+    <details className={`question-quality-report ${report.passed ? "passed" : "blocked"}`}>
+      <summary>
+        <span>{report.passed ? "품질검사 통과" : "품질검사 확인 필요"}</span>
+        <strong>{report.verifiedCount || 0}/{report.requestedCount || report.verifiedCount || 0}문항</strong>
+      </summary>
+      <div className="question-quality-grid">
+        <p><b>난이도</b><span>{difficulty.map(([label, value]) => `${label} ${value}`).join(" · ") || "분류 없음"}</span></p>
+        <p><b>문항 유형</b><span>{types.map(([label, value]) => `${label} ${value}`).join(" · ") || "분류 없음"}</span></p>
+        <p><b>정답 위치</b><span>{answerPositions.join(" · ") || "확인 전"}</span></p>
+        <p><b>최대 문항 유사도</b><span>{Math.round(Number(report.maxSimilarity || 0) * 100)}%</span></p>
+      </div>
+      {warnings.length > 0 && <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+      <small>PDF·기출 근거와 형식을 AI가 자동 확인한 결과이며, 사람 교사의 직접 검수 결과는 아닙니다.</small>
+    </details>
+  );
+}
+
 export default function ExamPage({ session, onExit, onSaveConfidence, onBookmarkChange, isQuestionBookmarked, getDifficulty, onOpenPdfSource }) {
   const {
     questions,
@@ -343,6 +367,7 @@ export default function ExamPage({ session, onExit, onSaveConfidence, onBookmark
           <strong>{exam.generationMode === "ai" ? "AI 맞춤 출제" : "기출 선별 진단"}</strong>
           <span>{exam.generationNotice}</span>
         </div>}
+        {exam?.generationMode === "ai" && <QualityReport report={exam?.qualityReport} />}
 
         {submitted && (
           <section className={`result-banner ${isPracticeAssessment ? "practice" : result.passed ? "pass" : "fail"}`}>
