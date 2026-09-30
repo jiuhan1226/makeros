@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { postJson } from "../utils/api";
 import { searchSchools } from "../utils/schoolApi";
+import { notifyUser } from "../utils/uiFeedback";
 
 const SELF_SECTIONS = [["selfIntro", "자기소개"], ["strengths", "성격의 장단점"], ["motivation", "지원동기"], ["aspiration", "입사 후 포부"]];
 const EMPTY = {
@@ -78,12 +79,12 @@ export default function PortfolioPage({ buildProjects = [], resumeProfile = {}, 
   const education = Array.isArray(resumeProfile.education) ? resumeProfile.education : [];
   const update = (patch) => onChangeResumeProfile({ ...resumeProfile, ...patch });
 
-  async function findSchool() { if (schoolQuery.trim().length < 2) return alert("학교 이름을 두 글자 이상 입력해 주세요."); setSchoolBusy(true); try { setSchools((await searchSchools(schoolQuery.trim())).schools || []); } catch (e) { alert(e.message); } finally { setSchoolBusy(false); } }
-  async function loadPhoto(event) { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith("image/")) return alert("이미지 파일을 선택해 주세요."); if (file.size > 8 * 1024 * 1024) return alert("원본 사진은 8MB 이하만 사용할 수 있습니다."); try { update({ photo: await compressResumePhoto(file) }); } catch (error) { alert(error.message); } }
+  async function findSchool() { if (schoolQuery.trim().length < 2) return notifyUser("학교 이름을 두 글자 이상 입력해 주세요."); setSchoolBusy(true); try { setSchools((await searchSchools(schoolQuery.trim())).schools || []); } catch (e) { notifyUser(e.message, "error"); } finally { setSchoolBusy(false); } }
+  async function loadPhoto(event) { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith("image/")) return notifyUser("이미지 파일을 선택해 주세요."); if (file.size > 8 * 1024 * 1024) return notifyUser("원본 사진은 8MB 이하만 사용할 수 있습니다."); try { update({ photo: await compressResumePhoto(file) }); } catch (error) { notifyUser(error.message, "error"); } }
   function selectType(type) { setDraftType(type); setDraft({ ...EMPTY[type] }); }
   function storeRecord() {
     const maps = { certification: [certifications,onChangeCertifications,"name"], award: [awards,onChangeAwards,"title"], activity: [portfolioItems,onChangePortfolioItems,"title"] };
-    const [items,setter,required] = maps[draftType]; if (!String(draft[required] || "").trim()) return alert(`${required === "name" ? "자격증명" : "항목명"}을 입력해 주세요.`);
+    const [items,setter,required] = maps[draftType]; if (!String(draft[required] || "").trim()) return notifyUser(`${required === "name" ? "자격증명" : "항목명"}을 입력해 주세요.`);
     const item = { ...draft, id: draft.id || id(draftType) }; setter(items.some((x) => x.id === item.id) ? items.map((x) => x.id === item.id ? item : x) : [item, ...items]); setDraft({ ...EMPTY[draftType] });
   }
   async function askAi() { setAiBusy(true); setAiResult(null); try { setAiResult(await postJson("/api/resume/assist", { section: aiSection, mode: aiMode, currentText: text(resumeProfile, aiSection), desiredRole: text(resumeProfile,"desiredRole"), targetCompany: text(resumeProfile,"targetCompany"), profile: { school: text(resumeProfile,"school"), major: text(resumeProfile,"major") }, evidence: { projects: buildProjects.slice(0,8), awards: awards.slice(0,8), certifications: certifications.slice(0,8), activities: portfolioItems.slice(0,8) } }, "자소서 작성을 돕지 못했습니다.")); } catch (e) { setAiResult({ error: e.message }); } finally { setAiBusy(false); } }
