@@ -24,8 +24,9 @@ function transact(db, mode, action) {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, mode);
     const request = action(transaction.objectStore(STORE_NAME));
-    request.onsuccess = () => resolve(request.result);
+    transaction.oncomplete = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error("학습 진행 상태를 저장하지 못했습니다."));
+    transaction.onerror = () => reject(transaction.error || new Error("학습 저장을 확정하지 못했습니다."));
     transaction.onabort = () => reject(transaction.error || new Error("학습 저장 작업이 중단되었습니다."));
   });
 }
