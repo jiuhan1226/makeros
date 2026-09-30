@@ -21,13 +21,13 @@ export default function BookmarkPage({ wrongNotes, history, certificateName, onS
   return <main className="page-shell cbt-only-page">
     <div className="page-heading cbt-page-heading">
       <div className="learning-type-badge cbt-badge">자격증 CBT</div>
-      <span className="eyebrow">CBT WRONG NOTE</span>
+      <span className="eyebrow">CBT 오답노트</span>
       <h1>{certificateName || "자격증"} CBT 오답노트</h1>
       <p>틀린 문제를 과목별로 모아 다시 풀고, 반복 오답을 집중 복습하세요.</p>
     </div>
 
     <section className="ai-wrong-summary panel">
-      <div><span className="eyebrow">AI CBT ANALYSIS</span><h2>{analysis.headline}</h2><p>{analysis.summary}</p></div>
+      <div><span className="eyebrow">AI 학습 분석</span><h2>{analysis.headline}</h2><p>{analysis.summary}</p></div>
       <div className="recommendation-list">{analysis.recommendations.map((item) => <article key={item.title}><span>우선순위 {item.priority}</span><strong>{item.title}</strong><small>{item.detail}</small><button className="secondary" onClick={() => onStartRecommended?.(item.title.replace(" 취약문제 복습", ""), item.count)}>추천 CBT 풀기</button></article>)}</div>
     </section>
 
