@@ -117,6 +117,7 @@ export function normalizePartnerState(input = {}) {
   state.learningSignals = Array.isArray(input?.learningSignals) ? input.learningSignals : [];
   state.studyLinks = Array.isArray(input?.studyLinks) ? input.studyLinks : [];
   state.cbtStudySessions = Array.isArray(input?.cbtStudySessions) ? input.cbtStudySessions : [];
+  state.allocationHistory = Array.isArray(input?.allocationHistory) ? input.allocationHistory : [];
   state.careerGoal = { ...base.careerGoal, ...(input?.careerGoal || {}) };
   state.certificateGoals = Array.isArray(input?.certificateGoals)
     ? input.certificateGoals
@@ -475,7 +476,7 @@ function splitStudyMinutes(totalMinutes, maxSessionMinutes = 110) {
 }
 
 // Allocate on real dates first; weekly totals are a sum, never a second schedule.
-function allocateWeekDays(week, allocations, state, today) {
+function allocateWeekDays(week, allocations, state, today, fairnessTotals) {
   const daily = {};
   const totals = new Map(allocations.map((entry) => [entry.goal.goalId, 0]));
   for (let day = dateAtNoon(week.startsAt), index = 0; index < 7; day = addDays(day, 1), index++) {
@@ -488,7 +489,7 @@ function allocateWeekDays(week, allocations, state, today) {
         desired: entry.requestedMinutes * capacity / Math.max(1, goalWeekAvailability(entry.goal, week, state, today)),
       }));
     // Rotate equally urgent goals through scarce slots instead of always taking array order.
-    entries.sort((a,b) => (totals.get(a.goal.goalId) + 15) / a.goal.priority - (totals.get(b.goal.goalId) + 15) / b.goal.priority);
+    entries.sort((a,b) => ((fairnessTotals.get(a.goal.goalId) || 0) + 15) / a.goal.priority - ((fairnessTotals.get(b.goal.goalId) || 0) + 15) / b.goal.priority);
     entries = entries.slice(0, Math.min(5, Math.floor(budget / 15)));
     const assigned = Object.fromEntries(entries.map((entry) => [entry.goal.goalId, 15]));
     let remaining = budget - entries.length * 15;
@@ -499,7 +500,10 @@ function allocateWeekDays(week, allocations, state, today) {
       assigned[next.goal.goalId] += 5; remaining -= 5;
     }
     daily[date] = assigned;
-    for (const [goalId, minutes] of Object.entries(assigned)) totals.set(goalId, totals.get(goalId) + minutes);
+    for (const [goalId, minutes] of Object.entries(assigned)) {
+      totals.set(goalId, totals.get(goalId) + minutes);
+      fairnessTotals.set(goalId, (fairnessTotals.get(goalId) || 0) + minutes);
+    }
   }
   return { daily, totals };
 }
@@ -540,6 +544,21 @@ export function buildDeterministicPlan(state, options = {}) {
   const allocations = weeks.map(() => []);
   const weekLimit = weeklyAvailableMinutes(normalized, today);
   const warnings = [];
+  // Keep scarce-slot rotation across midnight and week boundaries. Drafts are not allocations.
+  const fairnessTotals = new Map();
+  const priorDates = new Set();
+  const cutoff = isoDate(addDays(today, -14));
+  for (const version of normalized.planVersions) {
+    const date = version.today?.date;
+    if (!date || date < cutoff || date >= isoDate(today) || priorDates.has(date) || !['active', 'superseded'].includes(version.status)) continue;
+    priorDates.add(date);
+    for (const item of version.today.items || []) fairnessTotals.set(item.goalId, (fairnessTotals.get(item.goalId) || 0) + Number(item.durationMinutes || 0));
+  }
+  for (const day of normalized.allocationHistory) {
+    if (!day.date || day.date < cutoff || day.date >= isoDate(today) || priorDates.has(day.date)) continue;
+    priorDates.add(day.date);
+    for (const item of day.items || []) fairnessTotals.set(item.goalId, (fairnessTotals.get(item.goalId) || 0) + Number(item.durationMinutes || 0));
+  }
 
   for (const goal of goals) {
     const templates = milestoneTemplates(goal);
@@ -595,7 +614,7 @@ export function buildDeterministicPlan(state, options = {}) {
     week.availableMinutes = availableMinutes;
     const requestedTotal = allocations[weekIndex].reduce((sum, item) => sum + item.requestedMinutes, 0);
     const studyBudget = Math.floor((availableMinutes * 0.88) / 5) * 5;
-    const distribution = allocateWeekDays(week, allocations[weekIndex], normalized, today);
+    const distribution = allocateWeekDays(week, allocations[weekIndex], normalized, today, fairnessTotals);
     week.dailyAllocations = distribution.daily;
     if (requestedTotal > studyBudget && allocations[weekIndex].length) {
       const shortageMinutes = Math.ceil((requestedTotal - studyBudget) / 5) * 5;
@@ -677,7 +696,7 @@ export function buildDeterministicPlan(state, options = {}) {
   }
 
   const plan = {
-    algorithmVersion: 5,
+    algorithmVersion: 6,
     versionId: partnerId("version"),
     inputSnapshotId: partnerId("snapshot"),
     createdAt: Date.now(),
@@ -740,16 +759,18 @@ export function validatePartnerPlan(plan, state) {
   }
 
   const todayLimit = todayAvailableMinutes(normalized, dateAtNoon(output.today.date) || new Date());
-  let todayTotal = output.today.items.reduce((sum, item) => sum + Math.max(0, Number(item.durationMinutes) || 0), 0);
+  const isScheduled = (item) => !['skipped', 'deferred'].includes(item.status);
+  let todayTotal = output.today.items.filter(isScheduled).reduce((sum, item) => sum + Math.max(0, Number(item.durationMinutes) || 0), 0);
   if (todayTotal > todayLimit && todayTotal > 0) {
     let remainingMinutes = todayLimit;
     output.today.items = output.today.items.flatMap((item) => {
+      if (!isScheduled(item)) return [item];
       const durationMinutes = Math.floor(Math.min(Number(item.durationMinutes || 0), remainingMinutes) / 5) * 5;
       if (durationMinutes < 15) return [];
       remainingMinutes -= durationMinutes;
       return [{ ...item, durationMinutes }];
     });
-    todayTotal = output.today.items.reduce((sum, item) => sum + item.durationMinutes, 0);
+    todayTotal = output.today.items.filter(isScheduled).reduce((sum, item) => sum + item.durationMinutes, 0);
     output.warnings.push("오늘 계획이 가능 시간을 초과해 자동 축소되었습니다.");
   }
   output.today.availableMinutes = todayLimit;
@@ -805,15 +826,28 @@ export function planDiff(before, after) {
   return { added, removed, changed, summary: `추가 ${added.length} · 이동/분량 ${changed.length} · 제거 ${removed.length}` };
 }
 
+function rememberAllocations(state, versions) {
+  const days = new Map();
+  for (const plan of versions) {
+    if (!['active', 'superseded'].includes(plan.status) || !plan.today?.date || days.has(plan.today.date)) continue;
+    days.set(plan.today.date, { date: plan.today.date, items: (plan.today.items || []).map(({ goalId, durationMinutes }) => ({ goalId, durationMinutes })) });
+  }
+  for (const day of state.allocationHistory || []) if (!days.has(day.date)) days.set(day.date, day);
+  return [...days.values()].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 30);
+}
+
 export function createPlanVersion(state, plan, { activate = false } = {}) {
   const normalized = normalizePartnerState(state);
   const withProgress = transferPlanProgress(getActivePartnerPlan(normalized), plan);
   const version = applyDailyCbtProgress(validatePartnerPlan({ ...withProgress, versionId: plan.versionId || partnerId("version"), status: activate ? "active" : "draft" }, normalized), normalized.cbtStudySessions);
   let versions = normalized.planVersions.map((item) => activate && item.status === "active" ? { ...item, status: "superseded" } : item);
-  versions = [version, ...versions.filter((item) => item.versionId !== version.versionId)].slice(0, 30);
+  const preservedActive = !activate ? versions.find((item) => item.versionId === normalized.activePlanVersionId && item.versionId !== version.versionId) : null;
+  versions = [version, ...(preservedActive ? [preservedActive] : []),
+    ...versions.filter((item) => item.versionId !== version.versionId && item.versionId !== preservedActive?.versionId)].slice(0, 30);
   return {
     ...normalized,
     planVersions: versions,
+    allocationHistory: rememberAllocations(normalized, versions),
     activePlanVersionId: activate ? version.versionId : normalized.activePlanVersionId,
     pendingPlanVersionId: activate ? "" : version.versionId,
     lastUpdatedAt: Date.now(),
@@ -825,11 +859,11 @@ export function confirmPendingPlan(state) {
   const pendingId = normalized.pendingPlanVersionId;
   if (!pendingId) return normalized;
   const versions = normalized.planVersions.map((item) => {
-    if (item.versionId === pendingId) return applyDailyCbtProgress({ ...transferPlanProgress(getActivePartnerPlan(normalized), item), status: "active", confirmedAt: Date.now() }, normalized.cbtStudySessions);
+    if (item.versionId === pendingId) return applyDailyCbtProgress(validatePartnerPlan({ ...transferPlanProgress(getActivePartnerPlan(normalized), item), status: "active", confirmedAt: Date.now() }, normalized), normalized.cbtStudySessions);
     if (item.status === "active") return { ...item, status: "superseded" };
     return item;
   });
-  return { ...normalized, planVersions: versions, activePlanVersionId: pendingId, pendingPlanVersionId: "", lastUpdatedAt: Date.now() };
+  return { ...normalized, planVersions: versions, allocationHistory: rememberAllocations(normalized, versions), activePlanVersionId: pendingId, pendingPlanVersionId: "", lastUpdatedAt: Date.now() };
 }
 
 export function rollbackPartnerPlan(state, targetVersionId) {
@@ -904,14 +938,19 @@ export function transferPlanProgress(previousPlan, nextPlan) {
     ...(previousPlan.today?.items || []),
   ];
   previousItems.forEach((item) => {
-    if (!["completed", "skipped", "deferred", "in_progress"].includes(item?.status)) return;
+    if (!["completed", "skipped", "deferred", "in_progress"].includes(item?.status) && !item?.durationOverrideMinutes) return;
     const key = progressKey(item);
     const saved = progress.get(key);
     if (!saved || Number(item.updatedAt || 0) >= Number(saved.updatedAt || 0)) progress.set(key, item);
   });
   const apply = (item) => {
     const saved = progress.get(progressKey(item));
-    return saved ? { ...item, status: saved.status, result: saved.result || {}, updatedAt: saved.updatedAt || Date.now() } : item;
+    if (!saved) return item;
+    // A daily adjustment belongs to this dated task only; recalculation may reduce it further.
+    const durationMinutes = saved.durationOverrideMinutes
+      ? Math.min(item.durationMinutes, saved.durationOverrideMinutes) : item.durationMinutes;
+    return { ...item, durationMinutes, ...(saved.durationOverrideMinutes ? { durationOverrideMinutes: saved.durationOverrideMinutes } : {}),
+      status: saved.status, deferredUntil: saved.deferredUntil || '', result: saved.result || {}, updatedAt: saved.updatedAt || Date.now() };
   };
   return {
     ...nextPlan,
@@ -1012,13 +1051,13 @@ export function adjustTodayPlanItem(state, itemId, action) {
       if (item.id !== itemId) return item;
       if (action === 'reduce') {
         const durationMinutes = Math.min(item.durationMinutes, Math.max(15, item.durationMinutes - 15));
-        return { ...item, durationMinutes, result: { ...item.result, targetMinutes: durationMinutes,
+        return { ...item, durationMinutes, durationOverrideMinutes: durationMinutes, result: { ...item.result, targetMinutes: durationMinutes,
           remainingMinutes: Math.max(0, Math.ceil(durationMinutes - Number(item.result?.completedSeconds || 0) / 60)) }, updatedAt: now };
       }
       return { ...item, status: action === 'skip' ? 'skipped' : 'deferred', deferredUntil: action === 'defer' ? deferredUntil : '', updatedAt: now };
     });
 
-    return {
+    return applyDailyCbtProgress({
       ...version,
       weeks: version.weeks,
       today: {
@@ -1027,7 +1066,7 @@ export function adjustTodayPlanItem(state, itemId, action) {
         totalMinutes: todayItems.filter((item) => !['skipped','deferred'].includes(item.status)).reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0),
         adjustments: [{ id: partnerId("adjustment"), itemTitle: target.title, action, createdAt: now }, ...(version.today?.adjustments || [])].slice(0, 5),
       },
-    };
+    }, normalized.cbtStudySessions);
   });
   return { ...normalized, planVersions: versions, lastUpdatedAt: Date.now() };
 }
