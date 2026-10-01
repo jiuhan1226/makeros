@@ -64,7 +64,7 @@ export function mergeAttemptEvents(events = [], payload = {}) {
   const index = events.findIndex((item) => item.attemptId === nextEvent.attemptId);
   if (index < 0) return [nextEvent, ...events].slice(0, 3000);
   const copy = [...events];
-  copy[index] = { ...copy[index], ...nextEvent, updatedAt: Date.now() };
+  copy[index] = { ...copy[index], ...nextEvent, answeredAt: copy[index].answeredAt, updatedAt: Date.now() };
   return copy;
 }
 
