@@ -176,13 +176,13 @@ function officialLinkFromHtml(html = "", candidate = {}) {
   return links[0]?.url || "";
 }
 
-function verifyCandidate(candidate, detailText = "", { requireOfficial = false } = {}) {
+function verifyCandidate(candidate, detailText = "", { requireOfficial = false, now = Date.now() } = {}) {
   const { source, title, url } = candidate;
   const context = decode(`${candidate.context || ""} ${detailText || ""}`);
   if (NON_ANNOUNCEMENT_WORDS.test(title) || !CONTEST_WORDS.test(title) || !ANNOUNCEMENT_WORDS.test(`${title} ${context}`)) return null;
   const audience = audienceEvidence(`${title} ${context}`, source);
   if (!audience.eligible) return null;
-  const date = opportunityDateParts(context);
+  const date = opportunityDateParts(context, now);
   const ongoing = /(?:상시\s*(?:모집|접수|공모)|마감\s*시까지)/i.test(context);
   if (!date.deadlineValid && !ongoing) return null;
   const officialUrl = officialLinkFromHtml(detailText, candidate);
@@ -208,8 +208,8 @@ function verifyCandidate(candidate, detailText = "", { requireOfficial = false }
   };
 }
 
-export function parseOpportunityHtml(html = "", source = OPPORTUNITY_SOURCES[0]) {
-  return parseOpportunityCandidates(html, source).map((candidate) => verifyCandidate(candidate)).filter(Boolean);
+export function parseOpportunityHtml(html = "", source = OPPORTUNITY_SOURCES[0], now = Date.now()) {
+  return parseOpportunityCandidates(html, source).map((candidate) => verifyCandidate(candidate, '', { now })).filter(Boolean);
 }
 
 export function dedupeOpportunities(items = []) {
