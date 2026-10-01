@@ -70,13 +70,13 @@ export default function LearningCenterPage({
 
   return <main className="page-shell simple-ai-learning">
     <section className="simple-learning-head">
-      <div><span className="eyebrow">AI 추천 학습</span><h1>지금 필요한 공부</h1></div>
+      <div><span className="eyebrow">풀이 기록 기반 추천</span><h1>지금 필요한 공부</h1></div>
       <button className="primary" onClick={() => onStartRecommended?.(top, recommendedCount)}>바로 시작</button>
     </section>
 
     <section className="panel simple-ai-focus">
       <div><span>{certificate?.name}</span><h2>{top} 중심 {recommendedCount}문제</h2><p>오답과 최근 풀이를 반영한 추천입니다.</p></div>
-      <button className="primary" onClick={() => onStartRecommended?.(top, recommendedCount)}>AI 추천 문제 시작</button>
+      <button className="primary" onClick={() => onStartRecommended?.(top, recommendedCount)}>추천 기출 시작</button>
     </section>
 
     <section className="panel simple-today-tasks">
