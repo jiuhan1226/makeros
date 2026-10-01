@@ -47,12 +47,15 @@ export function useExamSession({ userId = "", active = true } = {}) {
   const studyClock = useRef(createStudyClock(restored?.activeStudySeconds));
   const [clockRevision, setClockRevision] = useState(0);
   useEffect(() => {
+    const activeClock = studyClock.current;
     studyClock.current.lastTick = Date.now();
     if (!active || !exam || submitted) return undefined;
     studyClock.current.lastInteraction = Date.now();
     let wasVisible = document.visibilityState === 'visible';
     const tick = () => {
-      studyClock.current = tickStudyClock(studyClock.current, { now: Date.now(), active, visible: wasVisible, submitted, stopAt: studyDayEndsAt(exam.studyBlockDate) });
+      // Starting/restoring another set replaces the clock before this effect cleans up.
+      if (studyClock.current !== activeClock) return;
+      Object.assign(activeClock, tickStudyClock(activeClock, { now: Date.now(), active, visible: wasVisible, submitted, stopAt: studyDayEndsAt(exam.studyBlockDate) }));
       setClockRevision((value) => value + 1);
     };
     const visibilityChanged = () => {
@@ -371,11 +374,12 @@ export function useExamSession({ userId = "", active = true } = {}) {
     setConfidence,
     setCurrent,
     submit: () => {
-      studyClock.current = tickStudyClock(studyClock.current, { now: Date.now(), active, visible: document.visibilityState === 'visible', submitted, stopAt: studyDayEndsAt(exam?.studyBlockDate) });
+      Object.assign(studyClock.current, tickStudyClock(studyClock.current, { now: Date.now(), active, visible: document.visibilityState === 'visible', submitted, stopAt: studyDayEndsAt(exam?.studyBlockDate) }));
       setSubmittedAt(Date.now()); setSubmitted(true);
     },
     clearCheckpoint,
-    detachDailyBlock: () => setExam((previous) => previous ? { ...previous, studyBlockTargetMinutes: 0, studyBlockDate: '', partnerGoalId: '', partnerItemId: '', generationNotice: '날짜가 바뀌어 이전 세트는 일반 연습으로 보관했습니다. 오늘 목표 학습은 오늘 탭에서 새로 시작할 수 있습니다.' } : previous),
+    updateDailyBlock: (metadata) => setExam((previous) => previous && Object.entries(metadata).some(([key, value]) => previous[key] !== value) ? { ...previous, ...metadata } : previous),
+    detachDailyBlock: (message) => setExam((previous) => previous ? { ...previous, studyBlockTargetMinutes: 0, studyBlockDate: '', partnerGoalId: '', partnerItemId: '', generationNotice: message || '날짜가 바뀌어 이전 세트는 일반 연습으로 보관했습니다. 오늘 목표 학습은 오늘 탭에서 새로 시작할 수 있습니다.' } : previous),
     flushCheckpoint,
     resumeDraft,
     clearAllDrafts,
