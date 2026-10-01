@@ -43,7 +43,7 @@ assert.ok(plan.weeks.at(-1).endsAt >= '2027-01-10', '계획 마지막 주가 가
 assert.ok(plan.today.items.length >= 1 && plan.today.items.length <= 5, '오늘 계획은 1~5개여야 합니다.');
 assert.ok(plan.weeks.every((week) => week.totalMinutes <= plan.constraints.weeklyAvailableMinutes), '주간 계획이 가능 시간을 넘으면 안 됩니다.');
 assert.ok(plan.today.totalMinutes <= plan.today.availableMinutes, '오늘 계획이 오늘 가능 시간을 넘으면 안 됩니다.');
-assert.equal(plan.algorithmVersion, 5, '날짜 경계와 실제 학습량을 구분하는 분배 알고리즘을 사용해야 합니다.');
+assert.equal(plan.algorithmVersion, 6, '날짜 경계와 실제 학습량을 구분하는 분배 알고리즘을 사용해야 합니다.');
 assert.ok(plan.roadmap.some((goal) => goal.type === 'academic'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'certificate'));
 assert.ok(plan.roadmap.some((goal) => goal.type === 'career'));
