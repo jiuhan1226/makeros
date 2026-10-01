@@ -66,9 +66,9 @@ export default function CertificateHomePage({
         <span>추천 학습 시작</span>
         <h2>{recommendedSubject}부터 {recommendedCount}문제</h2>
         <p>{history.length ? "최근 오답과 풀이 기록을 반영했습니다." : "첫 학습은 전체 과목을 고르게 확인합니다."}</p>
-        {!!availableSubjects.length && <label className="simple-subject-change"><span>다른 CBT 과목</span><select value={selectedSubject} onChange={(event) => setSelectedSubject(event.target.value)}><option value="">AI 추천 · {weakSubject}</option>{availableSubjects.map((subject) => <option value={subject} key={subject}>{subject}</option>)}</select></label>}
+        {!!availableSubjects.length && <label className="simple-subject-change"><span>다른 CBT 과목</span><select value={selectedSubject} onChange={(event) => setSelectedSubject(event.target.value)}><option value="">기록 기반 추천 · {weakSubject}</option>{availableSubjects.map((subject) => <option value={subject} key={subject}>{subject}</option>)}</select></label>}
       </div>
-      <button className="primary" onClick={() => onStartRecommended?.(recommendedSubject, recommendedCount)}>AI 추천 학습 시작</button>
+      <button className="primary" onClick={() => onStartRecommended?.(recommendedSubject, recommendedCount)}>추천 기출 시작</button>
     </section>
 
     <section className="simple-learning-summary" aria-label="오늘 학습 요약">
