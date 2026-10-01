@@ -48,25 +48,31 @@ export function selectContinuousPastQuestions({
   now = Date.now(),
 } = {}) {
   const valid = questions.filter((q) => Array.isArray(q.choices) && q.choices.length >= 2
+    && (typeof q.answerIndex === 'number' || typeof q.answerIndex === 'string' && q.answerIndex.trim() !== '')
     && Number.isInteger(Number(q.answerIndex)) && Number(q.answerIndex) >= 0 && Number(q.answerIndex) < q.choices.length
+    && q.choices.every((choice, i) => String(choice ?? '').trim() || q.choiceImageUrls?.[i])
     && (String(q.question || '').trim() || q.imageUrl || q.questionImageUrls?.length));
   const unique = deduplicateQuestions(valid).questions;
-  const progressById = new Map(progress.map((item) => [String(item.questionId || questionProgressId(item)), item]));
+  const latestOf = (a, b) => !a || Number(b?.lastSolvedAt || 0) > Number(a.lastSolvedAt || 0) ? b : a;
+  const progressById = new Map();
   const byContent = new Map();
   progress.forEach((row) => {
+    const id = String(row.questionId || questionProgressId(row));
+    progressById.set(id, latestOf(progressById.get(id), row));
     const key = questionContentKey({ ...row, answerIndex: row.answerIndex ?? row.correctAnswerIndex });
     if (!byContent.has(key) || Number(row.lastSolvedAt || 0) > Number(byContent.get(key).lastSolvedAt || 0)) byContent.set(key, row);
   });
+  const latestProgress = (q) => latestOf(progressById.get(questionProgressId(q)), byContent.get(questionContentKey(q)));
   const seen = new Set(seenQuestionIds.map(String));
   const weakSubjects = new Set();
   const weakTags = new Set();
 
   const currentWrong = recentWrongQuestions.filter((q) => {
-    const latest = progressById.get(questionProgressId(q)) || byContent.get(questionContentKey(q));
+    const latest = latestProgress(q);
     return !latest || latest.isCorrect === false;
   });
   const wrongIds = new Set(currentWrong.map(questionProgressId));
-  [...currentWrong, ...progress.filter((item) => item.isCorrect === false)]
+  [...currentWrong, ...unique.map(latestProgress).filter((item) => item?.isCorrect === false)]
     .forEach((item) => {
       const subject = String(item.subject || "").trim();
       if (subject) weakSubjects.add(subject);
@@ -75,7 +81,7 @@ export function selectContinuousPastQuestions({
 
   const scored = unique.map((question, index) => {
     const id = questionProgressId(question);
-    const saved = progressById.get(id) || byContent.get(questionContentKey(question));
+    const saved = latestProgress(question);
     const tags = getQuestionTags(question);
     const unseen = !seen.has(id);
     let score = unseen ? 100 : -120;
@@ -104,7 +110,17 @@ export function selectContinuousPastQuestions({
   // 복습 자리를 먼저 확보한다. 이미 본 오답을 미풀이 필터로 제거하지 않는다.
   take(scored.filter((x) => x.wrong || x.due), Math.max(1, Math.floor(count * .4)), 'review');
   take(scored.filter((x) => x.similar && !x.saved && x.unseen), Math.floor(count * .2), 'similar');
-  take(scored.filter((x) => !x.saved && x.unseen), count, 'new');
+  const subjectPools = new Map();
+  for (const candidate of scored.filter((x) => !x.saved && x.unseen)) {
+    const subject = candidate.question.subject || '공통';
+    if (!subjectPools.has(subject)) subjectPools.set(subject, []);
+    subjectPools.get(subject).push(candidate);
+  }
+  const diversified = [];
+  while (diversified.length < count + selected.length && [...subjectPools.values()].some((pool) => pool.length)) {
+    for (const pool of subjectPools.values()) if (pool.length) diversified.push(pool.shift());
+  }
+  take(diversified, count, 'new');
   take(scored.filter((x) => x.wrong || x.due), count, 'review');
   take([...scored].sort((a,b) => Number(a.saved?.lastSolvedAt || 0) - Number(b.saved?.lastSolvedAt || 0)), count, 'repeat');
 
@@ -120,9 +136,16 @@ export function selectContinuousPastQuestions({
 }
 
 export function roundQuestionCount(remainingMinutes, history = []) {
-  const usable = history.filter((s) => Number(s.answered) > 0 && Number(s.durationSeconds) > 0);
-  const answers = usable.reduce((sum,s) => sum + s.answered, 0);
-  const seconds = usable.reduce((sum,s) => sum + s.durationSeconds, 0);
+  const sessions = new Map();
+  history.forEach((s, index) => {
+    const key = s.sessionId || `unkeyed-${index}`;
+    const old = sessions.get(key);
+    if (!old || Number(s.durationSeconds) > Number(old.durationSeconds)) sessions.set(key, s);
+  });
+  const usable = [...sessions.values()].filter((s) => Number.isFinite(Number(s.answered)) && Number.isFinite(Number(s.durationSeconds))
+    && Number(s.answered) > 0 && Number(s.durationSeconds) > 0);
+  const answers = usable.reduce((sum,s) => sum + Number(s.answered), 0);
+  const seconds = usable.reduce((sum,s) => sum + Number(s.durationSeconds), 0);
   const perQuestion = Math.min(180, Math.max(20, answers >= 10 ? seconds / answers : 60));
   return Math.max(1, Math.min(CBT_ROUND_SIZE, Math.floor(Math.max(0, remainingMinutes) * 60 / perQuestion)));
 }
