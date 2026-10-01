@@ -19,6 +19,7 @@ import {
   getFirestore,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   Timestamp,
@@ -27,7 +28,7 @@ import {
 } from "firebase/firestore";
 import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { normalizeQuestionTopic } from "./utils/topicClassifier.js";
-import { resolveLearningType } from "./utils/learningEngine.js";
+import { resolveLearningType, mergeLearningProgress } from "./utils/learningEngine.js";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -533,59 +534,29 @@ export async function saveQuestionProgress({
   const normalizedStudyScope = String(studyScope || exam?.studyScope || (practice ? "exam-practice" : "exam"));
   const normalizedLearningType = String(learningType || resolveLearningType(exam || {}, mode, normalizedStudyScope));
   const progressRef = doc(db, "users", uid, progressCollection, normalizedQuestion.id);
-  const progressSnapshot = await getDoc(progressRef);
-  const previous = progressSnapshot.exists() ? progressSnapshot.data() : {};
   const normalizedAttemptId = String(attemptId || `${Date.now()}:${normalizedQuestion.id}`);
-  const sameAttempt = previous.lastAttemptId === normalizedAttemptId;
-  const baseLevel = sameAttempt
-    ? Number(previous.reviewLevelBeforeAttempt ?? previous.reviewLevel ?? 0)
-    : Number(previous.reviewLevel || 0);
-  const reviewLevel = reviewLevelForAttempt(baseLevel, Boolean(isCorrect), confidence);
-  const solvedDay = new Date().toISOString().slice(0, 10);
-  const previousCorrectDays = Array.isArray(previous.correctDayKeys) ? previous.correctDayKeys : [];
-  const correctDayKeys = Boolean(isCorrect) && !sameAttempt
-    ? [...new Set([...previousCorrectDays, solvedDay])].slice(-30)
-    : previousCorrectDays;
-
-  const progressData = {
-    questionId: normalizedQuestion.id,
-    examId: exam?.id || normalizedQuestion.examId || "",
-    sourceExamId: normalizedQuestion.sourceExamId || normalizedQuestion.examId || "",
-    examYear: Number(normalizedQuestion.examYear || normalizedQuestion.year || 0) || "",
-    certificateId: exam?.certificateId || normalizedQuestion.certificateId || "",
-    certificateName: exam?.certificateName || normalizedQuestion.certificateName || "",
-    subject: String(normalizedQuestion.subject || "공통").trim(),
-    topic: normalizedQuestion.topic,
-    topicSource: normalizedQuestion.topicSource,
-    topicConfidence: normalizedQuestion.topicConfidence,
-    tags: normalizedQuestion.tags,
-    mode: String(mode || ""),
-    studyScope: normalizedStudyScope,
-    learningType: normalizedLearningType,
-    attemptCount: Number(previous.attemptCount || 0) + (sameAttempt ? 0 : 1),
-    correctCount: Number(previous.correctCount || 0) + (!sameAttempt && isCorrect ? 1 : 0),
-    wrongCount: Number(previous.wrongCount || 0) + (!sameAttempt && !isCorrect ? 1 : 0),
-    wrongStreak: sameAttempt ? Number(previous.wrongStreak || 0) : (isCorrect ? 0 : Number(previous.wrongStreak || 0) + 1),
-    correctDayKeys,
-    distinctCorrectDays: correctDayKeys.length,
-    lastReviewSuccess: Boolean(isCorrect) && ["srsReview", "repeatedWrong"].includes(normalizedLearningType),
-    lastAnswerIndex: Number(selectedAnswerIndex),
-    correctAnswerIndex: Number(normalizedQuestion.answerIndex),
-    isCorrect: Boolean(isCorrect),
-    confidence,
-    reviewLevelBeforeAttempt: baseLevel,
-    reviewLevel,
-    nextReviewAt: calculateNextReviewDate({ isCorrect, confidence, reviewLevel }),
-    lastAttemptId: normalizedAttemptId,
-    lastSolvedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
-
-  await setDoc(progressRef, progressData, { merge: true });
-
   const attemptDocumentId = sanitizeDocumentId(normalizedAttemptId);
   const attemptRef = doc(db, "users", uid, "cbtAttempts", attemptDocumentId);
-  await setDoc(attemptRef, {
+  const requestedAt = Date.now();
+  return runTransaction(db, async (transaction) => {
+  const progressSnapshot = await transaction.get(progressRef);
+  const attemptSnapshot = await transaction.get(attemptRef);
+  const previous = progressSnapshot.exists() ? progressSnapshot.data() : {};
+  // Persisted attempt IDs provide idempotency even beyond the local recent-ID window.
+  if (attemptSnapshot.exists() && previous.lastAttemptId !== normalizedAttemptId) return previous;
+  const toMillis = (value) => Number(value?.toMillis?.() || value?.seconds * 1000 || value || 0);
+  const [merged] = mergeLearningProgress(previous.questionId ? [{ ...previous, lastSolvedAt: toMillis(previous.lastSolvedAt) }] : [], {
+    question: normalizedQuestion, exam, mode, studyScope: normalizedStudyScope, learningType: normalizedLearningType,
+    attemptId: normalizedAttemptId, selectedAnswerIndex, isCorrect, confidence, now: requestedAt,
+  });
+  const progressData = {
+    ...merged,
+    nextReviewAt: Timestamp.fromMillis(merged.nextReviewAt),
+    lastSolvedAt: Timestamp.fromMillis(merged.lastSolvedAt),
+    updatedAt: serverTimestamp(),
+  };
+  transaction.set(progressRef, progressData, { merge: true });
+  transaction.set(attemptRef, {
     attemptId: normalizedAttemptId,
     sessionId: String(sessionId || normalizedAttemptId.split(":")[0] || ""),
     questionId: normalizedQuestion.id,
@@ -616,13 +587,12 @@ export async function saveQuestionProgress({
       learningType: normalizedLearningType,
       title: exam?.title || "",
     },
-    answeredAt: previous.lastAttemptId === normalizedAttemptId
-      ? (previous.lastSolvedAt || serverTimestamp())
-      : serverTimestamp(),
+    answeredAt: attemptSnapshot.exists() ? attemptSnapshot.data().answeredAt : Timestamp.fromMillis(requestedAt),
     updatedAt: serverTimestamp(),
   }, { merge: true });
 
   return progressData;
+  });
 }
 
 export async function getTodayReviewProgress(uid) {
