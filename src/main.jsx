@@ -95,6 +95,7 @@ import {
 import { deduplicateQuestions, questionContentKey, removeQuestionFromList } from "./utils/questionDedup";
 import { CBT_ROUND_SIZE, calculateCbtBlockProgress, selectContinuousPastQuestions, roundQuestionCount } from "./utils/continuousCbt";
 import { applyDailyCbtProgress, studySessionSnapshot, upsertStudySession } from './utils/cbtStudyLedger';
+import { resolveDailyCbtSession } from './utils/dailyCbtSession';
 import "./styles.css";
 
 const AdminPage = lazy(() => import("./pages/AdminPage"));
@@ -204,6 +205,8 @@ function App() {
   const [careerProfile, setCareerProfile] = useState(makerInitial.careerProfile || {});
   const [opportunityBookmarks, setOpportunityBookmarks] = useState(makerInitial.opportunityBookmarks || []);
   const [partnerState, setPartnerState] = useState(() => readPartnerLocal());
+  const partnerStateRef = useRef(partnerState);
+  partnerStateRef.current = partnerState;
   const [workspaceSyncStatus, setWorkspaceSyncStatus] = useState("device");
   const [learningSyncStatus, setLearningSyncStatus] = useState("device");
   const syncStatus = !user ? "device"
@@ -217,22 +220,27 @@ function App() {
   const knownPartnerCertificateGoalIds = useRef(null);
   const session = useExamSession({ userId: user?.uid || "", active: page === 'exam' });
   const recordedSessionIds = useRef(new Set());
+  const recordedProgressSignatures = useRef({ key: '', entries: new Map() });
   const cbtLaunchBusy = useRef(false);
   const activePlanDate = getActivePartnerPlan(partnerState)?.today?.date;
   useEffect(() => {
-    if (!session.restoring && session.exam?.studyBlockDate && activePlanDate
-      && session.exam.studyBlockDate !== activePlanDate) {
+    if (session.restoring || !session.exam?.studyBlockTargetMinutes || !activePlanDate) return;
+    const context = resolveDailyCbtSession(session.exam, getActivePartnerPlan(partnerState), partnerState.cbtStudySessions,
+      studySessionSnapshot(session));
+    if (context?.detached) {
       saveStudyBlockProgress(false, true);
-      session.detachDailyBlock();
+      session.detachDailyBlock(context.message);
+    } else if (context) {
+      session.updateDailyBlock(context.metadata);
     }
-  }, [session.restoring, session.exam?.studyBlockDate, activePlanDate]);
+  }, [session.restoring, session.exam, partnerState]);
   useEffect(() => {
     if (!session.restoring && session.lastSavedAt && session.exam?.studyBlockTargetMinutes) saveStudyBlockProgress();
   }, [session.lastSavedAt, session.restoring]);
   useEffect(() => {
-    if (session.restoring || !session.exam?.studyBlockTargetMinutes) return;
+    if (session.restoring || !session.exam || (session.mode !== '연습모드' && !session.submitted)) return;
     recordAnsweredProgress(session.questions.map((question, index) => ({ question, index, answer: session.answers[index] })).filter((entry) => entry.answer !== undefined), resolveStudyScope(session.exam, session.mode));
-  }, [session.answers, session.restoring]);
+  }, [session.answers, session.confidenceByQuestion, session.restoring, session.submitted, user?.uid]);
   const partnerCertificateGoals = useMemo(() => normalizePartnerState(partnerState).certificateGoals, [partnerState]);
   const certificateShortcuts = useMemo(
     () => buildCertificateShortcuts(partnerCertificateGoals, certificates),
@@ -558,6 +566,9 @@ function App() {
   }
 
   function recordAnsweredProgress(answeredEntries, scope) {
+    const signatureKey = `${user?.uid || 'device'}:${session.startedAt}:${session.exam?.id}`;
+    if (recordedProgressSignatures.current.key !== signatureKey) recordedProgressSignatures.current = { key: signatureKey, entries: new Map() };
+    const signatures = recordedProgressSignatures.current.entries;
     const learningType = resolveLearningType(session.exam || {}, session.mode, scope);
     const payloads = answeredEntries.map(({ question, index, answer }) => {
       const isCorrect = Number(answer) === Number(question.answerIndex);
@@ -574,7 +585,13 @@ function App() {
         isCorrect,
         confidence,
       });
+    }).filter((payload) => {
+      const signature = `${payload.selectedAnswerIndex}:${payload.confidence}`;
+      if (signatures.get(payload.attemptId) === signature) return false;
+      signatures.set(payload.attemptId, signature);
+      return true;
     });
+    if (!payloads.length) return;
 
     setLearningProgress((previous) => payloads.reduce(
       (current, payload) => mergeLearningProgress(current, payload),
@@ -587,7 +604,10 @@ function App() {
 
     if (user?.uid) {
       payloads.forEach((payload) => {
-        saveQuestionProgress({ uid: user.uid, ...payload }).catch(console.error);
+        saveQuestionProgress({ uid: user.uid, ...payload }).catch((error) => {
+          signatures.delete(payload.attemptId);
+          console.error(error);
+        });
       });
     }
   }
@@ -989,8 +1009,8 @@ function App() {
       certificateId: target.id || "",
       certificateName: target.name || "",
     })));
-    if (questionPool.length < 4) {
-      const error = new Error(`${target.name}의 공개 문제는 ${questionPool.length}개뿐이라 이어풀기 세트를 만들 수 없습니다. 최소 4문제가 DB에 등록되어야 합니다.`);
+    if (!questionPool.length) {
+      const error = new Error(`${target.name}의 공개 회차에 등록된 문제가 없습니다. 관리자가 문제를 등록한 뒤 이용할 수 있습니다.`);
       error.actionPage = "catalog";
       error.actionLabel = "지원 자격증 보기";
       throw error;
@@ -1001,8 +1021,17 @@ function App() {
 
   async function startPartnerCbtAction(item) {
     if (cbtLaunchBusy.current) return;
-    if (session.exam?.partnerGoalId === item.goalId && session.resumable
-      && session.exam.studyBlockDate === getActivePartnerPlan(partnerState)?.today?.date) { setPage('exam'); return; }
+    const isShortcut = String(item.id).startsWith('certificate-shortcut:');
+    const currentItem = getActivePartnerPlan(partnerState)?.today?.items?.find((row) => row.action === 'cbt' && row.goalId === item.goalId);
+    if ((!currentItem && !isShortcut) || ['skipped', 'deferred', 'completed'].includes(currentItem?.status)) {
+      setPartnerLearningAction({ itemId: item.id, status: 'ready', message: '이 일정은 오늘 학습 대상이 아닙니다. 일반 기출 풀기는 자격증 탭에서 이용할 수 있습니다.' }); return;
+    }
+    if (session.exam?.partnerGoalId === item.goalId && session.resumable) {
+      const context = resolveDailyCbtSession(session.exam, getActivePartnerPlan(partnerState), partnerState.cbtStudySessions, studySessionSnapshot(session));
+      if (context && !context.detached && context.progress.status !== 'completed') {
+        session.updateDailyBlock(context.metadata); setPage('exam'); return;
+      }
+    }
     const linkedGoal = partnerCertificateGoal(item);
     const target = partnerTargetCertificate(item);
     if (!target) {
@@ -1020,8 +1049,13 @@ function App() {
       setActiveCertificateId(target.id || "");
       const questionPool = await loadCertificateQuestionPool(target);
       const targetProgress = certificate?.id === target.id ? certificateLearningProgress : learningProgress.filter((row) => row.certificateId === target.id);
-      const activePlan = getActivePartnerPlan(partnerState);
-      const savedItem = (activePlan?.today?.items || []).find((row) => row.id === item.id) || item;
+      const latestState = partnerStateRef.current;
+      const activePlan = getActivePartnerPlan(latestState);
+      const plannedItem = (activePlan?.today?.items || []).find((row) => row.action === 'cbt' && row.goalId === item.goalId);
+      if ((!plannedItem && !isShortcut) || ['skipped', 'deferred', 'completed'].includes(plannedItem?.status)) {
+        setPartnerLearningAction({ itemId: item.id, status: 'ready', message: '변경된 오늘 계획을 확인해 주세요.' }); return;
+      }
+      const savedItem = plannedItem || item;
       const targetMinutes = Math.max(15, Number(savedItem.durationMinutes || item.durationMinutes || 40));
       const completedMinutes = Math.max(0, Number(savedItem?.result?.completedMinutes || 0));
       const completedSeconds = Number(savedItem?.result?.completedSeconds ?? completedMinutes * 60);
@@ -1035,7 +1069,7 @@ function App() {
         progress: targetProgress,
         seenQuestionIds,
         recentWrongQuestions: wrongNotes.filter((row) => row.certificateId === target.id).slice(0, 100),
-        limit: roundQuestionCount(remainingMinutes, (partnerState.cbtStudySessions || []).filter((s) => s.certificateId === target.id)),
+        limit: roundQuestionCount(remainingMinutes, (latestState.cbtStudySessions || []).filter((s) => s.certificateId === target.id)),
       });
       if (!selection.questions.length) throw new Error('정답·선택지가 유효한 기출문제가 없습니다.');
       const generationNotice = `기출 ${selection.questions.length}문제 · 오답/복습 ${selection.reviewCount} · 같은 유형 ${selection.similarCount} · 미풀이 ${selection.unseenCount} (같은 유형 포함)`;
@@ -1050,12 +1084,12 @@ function App() {
         returnPage: "partnerToday",
         certificateId: target.id || "",
         certificateName: target.name || "",
-        partnerItemId: item.id,
-        partnerGoalId: item.goalId,
-        studyBlockDate: activePlan?.today?.date || new Date().toLocaleDateString('en-CA'),
+        partnerItemId: plannedItem?.id || '',
+        partnerGoalId: plannedItem?.goalId || '',
+        studyBlockDate: plannedItem ? activePlan.today.date : '',
         generationMode: "past-question-routine",
         generationNotice,
-        studyBlockTargetMinutes: targetMinutes,
+        studyBlockTargetMinutes: plannedItem ? targetMinutes : 0,
         studyBlockCompletedMinutes: completedMinutes,
         studyBlockCompletedSeconds: completedSeconds,
         studyBlockSeenIds: seenQuestionIds,
@@ -1076,15 +1110,9 @@ function App() {
     if (cbtLaunchBusy.current || !session.submitted || !session.exam?.studyBlockTargetMinutes) return;
     cbtLaunchBusy.current = true;
     const answeredCount = session.result.answered;
-    const blockProgress = calculateCbtBlockProgress({
-      targetMinutes: session.exam.studyBlockTargetMinutes,
-      completedMinutes: session.exam.studyBlockCompletedMinutes,
-      completedSeconds: session.exam.studyBlockCompletedSeconds,
-      elapsedSeconds: session.elapsedSeconds,
-      answeredCount,
-    });
+    let context = resolveDailyCbtSession(session.exam, getActivePartnerPlan(partnerStateRef.current), partnerStateRef.current.cbtStudySessions, studySessionSnapshot(session));
     recordFinishedSession();
-    if (blockProgress.completed || session.exam.studyBlockDate !== getActivePartnerPlan(partnerState)?.today?.date) {
+    if (!context || context.detached || context.progress.status === 'completed') {
       session.clearCheckpoint();
       setPage("partnerToday");
       cbtLaunchBusy.current = false;
@@ -1095,6 +1123,9 @@ function App() {
     try {
       setPartnerLearningAction({ itemId: session.exam.partnerItemId, status: "analyzing", message: "방금 틀린 문제와 같은 유형을 다음 기출에서 찾고 있어요." });
       const questionPool = await loadCertificateQuestionPool(target);
+      context = resolveDailyCbtSession(session.exam, getActivePartnerPlan(partnerStateRef.current), partnerStateRef.current.cbtStudySessions, studySessionSnapshot(session));
+      if (!context || context.detached || context.progress.status === 'completed') { setPage('partnerToday'); return; }
+      const blockProgress = context.progress;
       const wrongThisRound = session.questions.filter((question, index) => session.answers[index] !== undefined && Number(session.answers[index]) !== Number(question.answerIndex));
       const answeredQuestions = session.questions.filter((q,i) => session.answers[i] !== undefined);
       const seenQuestionIds = [...new Set([...(session.exam.studyBlockSeenIds || []), ...answeredQuestions.map(questionProgressId)])];
@@ -1107,13 +1138,14 @@ function App() {
         progress: targetProgress,
         seenQuestionIds,
         recentWrongQuestions: [...wrongThisRound, ...wrongNotes.filter((row) => row.certificateId === target.id).slice(0, 100)],
-        limit: roundQuestionCount(blockProgress.remainingMinutes, [...(partnerState.cbtStudySessions || []).filter((s) => s.certificateId === target.id), { answered: answeredCount, durationSeconds: session.elapsedSeconds }]),
+        limit: roundQuestionCount(blockProgress.remainingMinutes, context.ledger.filter((s) => s.certificateId === target.id)),
       });
       if (!selection.questions.length) throw new Error('정답·선택지가 유효한 기출문제가 없습니다.');
       const generationNotice = `남은 목표 ${blockProgress.remainingMinutes}분 · 미풀이 ${selection.unseenCount}문제와 방금 오답에 가까운 유형을 우선 배치했습니다.`;
       session.clearCheckpoint();
       session.start({
         ...session.exam,
+        ...context.metadata,
         id: `continuous-past-${Date.now()}`,
         title: "과년도 기출 이어풀기",
         studyBlockCompletedMinutes: blockProgress.completedMinutes,
@@ -1196,8 +1228,7 @@ function App() {
       learningType: "examPractice",
       returnPage: "search",
     };
-    session.start(pseudo, [question], "연습모드");
-    setPage("exam");
+    if (session.start(pseudo, [question], "연습모드")) setPage("exam");
   }
 
   function startWrongReview(items) {
@@ -1207,7 +1238,7 @@ function App() {
         : { ...item, questionNumber: index + 1 }
     ));
     if (!questions.length) return;
-    session.start({
+    const started = session.start({
       id: `wrong-review-${Date.now()}`,
       title: "CBT 반복 오답 집중복습",
       durationMinutes: questions.length,
@@ -1219,13 +1250,13 @@ function App() {
       certificateId: certificate?.id || "",
       certificateName: certificate?.name || "",
     }, questions, "연습모드");
-    setPage("exam");
+    if (started) setPage("exam");
   }
 
   function startDueReview(items) {
     const questions = (items || []).map(progressToQuestion).filter((question) => question.choices.length && Number.isInteger(question.answerIndex));
     if (!questions.length) { notifyUser("복습 가능한 문제 원문이 없습니다. 새 버전에서 푼 문제부터 복습할 수 있습니다.", "error"); return; }
-    session.start({
+    const started = session.start({
       id: `due-review-${Date.now()}`,
       title: "오늘의 자동 복습",
       durationMinutes: questions.length,
@@ -1237,10 +1268,13 @@ function App() {
       certificateId: certificate?.id || "",
       certificateName: certificate?.name || "",
     }, questions, "연습모드");
-    setPage("exam");
+    if (started) setPage("exam");
   }
 
   async function startRecommended(subjectOrTag, count = 20) {
+    if (cbtLaunchBusy.current) return;
+    cbtLaunchBusy.current = true;
+    try {
     const batches = await allQuestionBatches();
     const term = String(subjectOrTag || "전체 과목").trim();
     const pool = batches.flatMap((batch) => batch.questions).filter((question) => {
@@ -1248,10 +1282,14 @@ function App() {
       return question.subject === term || getQuestionTags(question).includes(term);
     });
     if (!pool.length) { notifyUser("추천 문제를 만들 수 있는 기출문제가 없습니다.", "error"); return; }
-    const questions = shuffle(pool).slice(0, Math.min(count, pool.length)).map((question, index) => ({ ...question, questionNumber: index + 1 }));
-    session.start({
+    const selection = selectContinuousPastQuestions({ questions: pool, progress: certificateLearningProgress,
+      recentWrongQuestions: certificateWrongNotes, limit: count });
+    const questions = selection.questions.map((question, index) => ({ ...question, questionNumber: index + 1 }));
+    if (!questions.length) { notifyUser('정답과 보기가 유효한 기출문제가 없습니다.', 'error'); return; }
+    const started = session.start({
       id: `recommended-${Date.now()}`,
-      title: `AI 추천 · ${term}`,
+      title: `풀이 기록 기반 추천 · ${term}`,
+      generationNotice: `오답·복습 ${selection.reviewCount}문제 · 미풀이 ${selection.unseenCount}문제`,
       durationMinutes: questions.length,
       hasSubjectCutoff: false,
       assessmentType: "practice",
@@ -1261,7 +1299,10 @@ function App() {
       certificateId: certificate?.id || "",
       certificateName: certificate?.name || "",
     }, questions, "연습모드");
-    setPage("exam");
+    if (started) setPage("exam");
+    } catch (error) {
+      notifyUser(error?.message || '추천 기출을 불러오지 못했습니다. 다시 시도해 주세요.', 'error');
+    } finally { cbtLaunchBusy.current = false; }
   }
 
   function openPdf(document, pageNumber = 1) {
@@ -1561,13 +1602,13 @@ function App() {
       {page === "tutor" && <AiTutorPage certificate={certificate} initialQuery={tutorSeed.question} initialPdfId={tutorSeed.pdfId} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} userKey={user?.uid || "guest"} searchCbt={searchQuestions} onOpenCbt={openSearchResult} onOpenPdf={openPdf} onOpenGraph={(query) => { setGraphQuery(query); setPage("graph"); }} />}
       {page === "graph" && <KnowledgeGraphPage initialQuery={graphQuery} wrongNotes={wrongNotes} pdfLibrary={pdfLibrary} assets={assets} searchCbt={searchQuestions} onOpenCbt={openSearchResult} onOpenPdf={openPdf} onOpenAsset={openStudyAsset} onAskTutor={(payload) => { const value = typeof payload === "string" ? { question: payload, pdfId: "" } : payload || { question: "", pdfId: "" }; setTutorSeed(value); setPage("tutor"); }} />}
       {page === "past" && <PastExamsPage exams={exams} loadQuestions={getExamQuestions} resumeSessions={certificateDraftSessions} onResume={resumeExamDraft} onOpen={openExam} onNavigate={navigate} />}
-      {page === "subject" && <SubjectStudyPage certificate={certificate} exams={exams} history={certificatePracticeHistory.filter((item) => item.studyScope === "subject")} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "subject", learningType: "subjectPractice", returnPage: "subject" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
-      {page === "all" && <AllQuestionsPage certificate={certificate} exams={exams} loadQuestions={getExamQuestions} resumeSession={session.resumable && session.exam?.studyScope === "all" && (!certificate?.id || session.exam?.certificateId === certificate.id) ? { title: session.exam?.title || "전체 문제 학습", current: session.current, total: session.questions.length, answered: Object.keys(session.answers).length } : null} onResume={() => setPage("exam")} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "all", learningType: "allPractice", returnPage: "all" }, questions, "연습모드"); setPage("exam"); }} onNavigate={navigate} />}
+      {page === "subject" && <SubjectStudyPage certificate={certificate} exams={exams} history={certificatePracticeHistory.filter((item) => item.studyScope === "subject")} loadQuestions={getExamQuestions} onStart={(questions, exam) => { const started = session.start({ ...exam, assessmentType: "practice", studyScope: "subject", learningType: "subjectPractice", returnPage: "subject" }, questions, "연습모드"); if (started) setPage("exam"); }} onNavigate={navigate} />}
+      {page === "all" && <AllQuestionsPage certificate={certificate} exams={exams} loadQuestions={getExamQuestions} resumeSession={session.resumable && session.exam?.studyScope === "all" && (!certificate?.id || session.exam?.certificateId === certificate.id) ? { title: session.exam?.title || "전체 문제 학습", current: session.current, total: session.questions.length, answered: Object.keys(session.answers).length } : null} onResume={() => setPage("exam")} onStart={(questions, exam) => { const started = session.start({ ...exam, assessmentType: "practice", studyScope: "all", learningType: "allPractice", returnPage: "all" }, questions, "연습모드"); if (started) setPage("exam"); }} onNavigate={navigate} />}
       {page === "mode" && <ModeSelectPage exam={selectedExam} onStart={startExam} onBack={() => setPage("past")} busy={examStartBusy} error={examStartError} />}
       {page === "exam" && (session.restoring ? <main className="loading-page"><div className="empty-state">저장된 학습 진행 상태를 불러오고 있습니다…</div></main> : <ExamPage session={session} onExit={finishExam} onContinueStudyBlock={continuePartnerCbtRound} onFinishStudyBlock={finishPartnerCbtBlock} onSaveConfidence={saveConfidenceRecord} onBookmarkChange={updateSavedBookmark} isQuestionBookmarked={(question) => savedBookmarkKeys.has(questionContentKey(question))} getDifficulty={getDifficulty} onOpenPdfSource={(pdfId, pageNumber) => { const document = pdfLibrary.find((item) => item.id === pdfId); if (document) openPdf(document, pageNumber); }} />)}
-      {page === "mock" && <MockExamPage exams={exams} loadQuestions={getExamQuestions} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "exam", studyScope: "mock", learningType: "mock", returnPage: "mock", certificateId: certificate?.id || "", certificateName: certificate?.name || "" }, questions, "실전모드"); setPage("exam"); }} />}
+      {page === "mock" && <MockExamPage exams={exams} loadQuestions={getExamQuestions} onStart={(questions, exam) => { const started = session.start({ ...exam, assessmentType: "exam", studyScope: "mock", learningType: "mock", returnPage: "mock", certificateId: certificate?.id || "", certificateName: certificate?.name || "" }, questions, "실전모드"); if (started) setPage("exam"); }} />}
       {page === "bookmark" && <BookmarkPage wrongNotes={certificateWrongNotes} certificateName={certificate?.name} history={certificateHistory} onStartRecommended={startRecommended} onStartWrongReview={startWrongReview} repeatedWrong={repeatedWrong} dueReviews={dueReviews} onStartDueReview={startDueReview} />}
-      {page === "saved" && <SavedBookmarksPage certificate={certificate} bookmarks={certificateBookmarks} onStart={(questions, exam) => { session.start({ ...exam, assessmentType: "practice", studyScope: "saved-bookmark", learningType: "bookmarkPractice", returnPage: "saved" }, questions, "연습모드"); setPage("exam"); }} onRemove={removeSavedBookmark} onNavigate={navigate} />}
+      {page === "saved" && <SavedBookmarksPage certificate={certificate} bookmarks={certificateBookmarks} onStart={(questions, exam) => { const started = session.start({ ...exam, assessmentType: "practice", studyScope: "saved-bookmark", learningType: "bookmarkPractice", returnPage: "saved" }, questions, "연습모드"); if (started) setPage("exam"); }} onRemove={removeSavedBookmark} onNavigate={navigate} />}
       {page === "search" && <SearchPage exams={exams} searchQuestions={async (term) => (await searchQuestions(term)).map((item) => item.q)} onOpenResult={(exam, question) => openSearchResult(exam, question)} />}
       {page === "planner" && <PlannerPage certificate={certificate} wrongNotes={certificateWrongNotes} history={certificateHistory} practiceHistory={certificatePracticeHistory} learningProgress={certificateLearningProgress} exams={exams} plan={plan} onSavePlan={setPlan} onStartRecommended={startRecommended} onStartDueReview={startDueReview} onStartRepeatedWrong={startWrongReview} pdfLibrary={pdfLibrary} />}
       {page === "admin" && isAdminUser(user) && <AdminPage />}
