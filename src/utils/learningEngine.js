@@ -174,28 +174,33 @@ export function mergeLearningProgress(records = [], payload = {}) {
   const previous = records.find((item) => item.questionId === id) || {};
   const attemptId = String(payload.attemptId || `${Date.now()}:${id}`);
   const sameAttempt = previous.lastAttemptId === attemptId;
+  const processedAttemptIds = previous.processedAttemptIds || (previous.lastAttemptId ? [previous.lastAttemptId] : []);
+  // A delayed retry of an older attempt must not replace the latest answer.
+  if (!sameAttempt && processedAttemptIds.includes(attemptId)) return records;
   const isCorrect = Boolean(payload.isCorrect);
   const confidence = ["high", "medium", "low"].includes(payload.confidence)
     ? payload.confidence
     : (isCorrect ? "medium" : "low");
-  const now = Number(payload.now) || Date.now();
+  const now = sameAttempt ? Number(previous.lastSolvedAt) || Number(payload.now) || Date.now() : Number(payload.now) || Date.now();
 
   const baseLevel = sameAttempt
     ? Number(previous.reviewLevelBeforeAttempt ?? previous.reviewLevel ?? 0)
     : Number(previous.reviewLevel || 0);
   const reviewLevel = nextReviewLevel(baseLevel, isCorrect, confidence);
   const attemptCount = Number(previous.attemptCount || 0) + (sameAttempt ? 0 : 1);
-  const correctCount = Number(previous.correctCount || 0) + (!sameAttempt && isCorrect ? 1 : 0);
-  const wrongCount = Number(previous.wrongCount || 0) + (!sameAttempt && !isCorrect ? 1 : 0);
-  const wrongStreak = sameAttempt
-    ? Number(previous.wrongStreak || 0)
-    : (isCorrect ? 0 : Number(previous.wrongStreak || 0) + 1);
+  const correctCount = Math.max(0, Number(previous.correctCount || 0) - (sameAttempt && previous.isCorrect ? 1 : 0) + (isCorrect ? 1 : 0));
+  const wrongCount = Math.max(0, Number(previous.wrongCount || 0) - (sameAttempt && previous.isCorrect === false ? 1 : 0) + (!isCorrect ? 1 : 0));
+  const wrongStreakBeforeAttempt = sameAttempt
+    ? Number(previous.wrongStreakBeforeAttempt ?? Math.max(0, Number(previous.wrongStreak || 0) - (previous.isCorrect ? 0 : 1)))
+    : Number(previous.wrongStreak || 0);
+  const wrongStreak = isCorrect ? 0 : wrongStreakBeforeAttempt + 1;
   const question = normalizeQuestionTopic(payload.question || payload);
   const studyScope = payload.studyScope || resolveStudyScope(payload.exam, payload.mode);
   const learningType = payload.learningType || resolveLearningType(payload.exam, payload.mode, studyScope);
   const dayKey = new Date(now).toISOString().slice(0, 10);
-  const previousCorrectDays = Array.isArray(previous.correctDayKeys) ? previous.correctDayKeys : [];
-  const correctDayKeys = isCorrect && !sameAttempt
+  const previousCorrectDays = sameAttempt && Array.isArray(previous.correctDayKeysBeforeAttempt)
+    ? previous.correctDayKeysBeforeAttempt : Array.isArray(previous.correctDayKeys) ? previous.correctDayKeys : [];
+  const correctDayKeys = isCorrect
     ? [...new Set([...previousCorrectDays, dayKey])].slice(-30)
     : previousCorrectDays;
 
@@ -219,6 +224,8 @@ export function mergeLearningProgress(records = [], payload = {}) {
     correctCount,
     wrongCount,
     wrongStreak,
+    wrongStreakBeforeAttempt,
+    correctDayKeysBeforeAttempt: previousCorrectDays,
     correctDayKeys,
     distinctCorrectDays: correctDayKeys.length,
     lastReviewSuccess: isCorrect && ["srsReview", "repeatedWrong"].includes(learningType),
@@ -236,6 +243,7 @@ export function mergeLearningProgress(records = [], payload = {}) {
     lastSolvedAt: now,
     updatedAt: now,
     lastAttemptId: attemptId,
+    processedAttemptIds: [...new Set([...processedAttemptIds, attemptId])].slice(-100),
     question: question.question || previous.question || "",
     choices: question.choices || previous.choices || [],
     explanation: question.explanation || previous.explanation || "",
